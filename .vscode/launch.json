@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Débogage C++ avec CMake",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/jro/DEV/CV2C/build/cv2c",  // Remplacez par le chemin correct de votre exécutable
+            "args": ["~/DEV/CV2C/1et10_153.png"],  // Ajoutez vos paramètres ici
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",  // Chemin vers gdb
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake Build"  // Nom de la tâche de construction que nous avons définie
+        }
+    ]
+}

@@ -1,0 +1,3310 @@
+// Copyright Jacques ROSSILLOL 2024
+//
+// TODO:
+// redresser chaque image extraite, selon le type de coin
+// identifier les coins des R D V: présence des lignes // du cadre
+// pour chaque coin sélectionné, extraire le voisinage du coin (contien la valeur de la carte et le symbole de couleur)
+// dans l'image originale, dans la zone ou devrait se trouver le symbole de couleur de ce coin
+//      obtenir la couleur des pixels --> rouge ou noir
+// dans l'image extraite, analyser la zone du chiffre ou caractère R D V
+//      rechercher les petites lignes 
+//    
+// 
+#define _USE_MATH_DEFINES
+//#include <tesseract/baseapi.h>
+//#include <leptonica/allheaders.h>
+
+#ifdef _WIN32
+#include <Windows.h>
+#include <tchar.h>
+#else
+#include <algorithm>
+#endif
+
+#include <iostream>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <array>
+#include <cmath>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/ximgproc.hpp> // Inclure le module ximgproc pour LSD
+#include "config.h"
+
+
+#ifndef _WIN32
+#include <thread>  // pour std::thread
+#include <atomic>  // pour std::atomic
+std::atomic<bool> is_window_open(true);
+#endif
+using std::max;
+using std::min;
+
+
+int waitoption = 1;   // 0 : pas d'attente après affichages
+                      // 1 : attendre après le traitement d'une frame
+                      // 2 : attendre après le traitement de chaque coin
+                      // 3 :attendre après affichage du symbole et du chiffre
+int printoption = 2;  // 0 : ne pas imprimer
+                      // 1 : imprimer les lignes, coins détectés, OCR
+                      // 2 : imprimer les calculs d'intensités et écarts types
+
+cv::Point2f computeIntersection(cv::Point2f p1, cv::Point2f p2, cv::Point2f p3, cv::Point2f p4) {
+    // Calculer les vecteurs directionnels
+    cv::Point2f d1 = p2 - p1;
+    cv::Point2f d2 = p4 - p3;
+
+    // Résoudre les équations paramétriques
+    float denom = d1.x * d2.y - d1.y * d2.x;
+    if (denom == 0) {
+        throw std::runtime_error("Les lignes sont parallèles et ne se croisent pas.");
+    }
+
+    float t = ((p3.x - p1.x) * d2.y - (p3.y - p1.y) * d2.x) / denom;
+    cv::Point2f intersection = p1 + t * d1;
+
+    return intersection;
+}
+cv::Point2i calculerInter(cv::Vec4i l1, cv::Vec4i l2) {
+    cv::Point2f pt = computeIntersection(cv::Point2f(l1[0], l1[1]), cv::Point2f(l1[2], l1[3]), cv::Point2f(l2[0], l2[1]), cv::Point2f(l2[2], l2[3]));
+
+    cv::Point2i pti =  cv::Point2i(pt.x + 0.5, pt.y + 0.5);
+    return pti;
+}
+
+bool PointEntreDeux(cv::Point2i M, cv::Point2i P, cv::Point2i Q) {
+    // déterminer si la projection de M sur PQ est entre P et Q
+    // calculer PM.PQ et comparer à PQ.PQ
+    // PM.PQ < 0 : M hors du segment PQ , du coté P
+    long pmpq = (M.x - P.x) * (Q.x - P.x) + (M.y - P.y) * (Q.y - P.y);
+    if (pmpq < 0) return false;
+    long pqpq = (Q.x - P.x) * (Q.x - P.x) + (Q.y - P.y) * (Q.y - P.y);
+    if (abs(pmpq) > abs(pqpq)) return false;
+    return true;
+}
+
+// tracer le rectangle r sur une copie de l'image et afficher la fenêtre dont le nom est s 
+void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur) {
+    cv::line(copie, cv::Point2i(r.x, r.y), cv::Point2i(r.x, r.y + r.height), couleur);
+    cv::line(copie, cv::Point2i(r.x, r.y), cv::Point2i(r.x + r.width, r.y), couleur);
+    cv::line(copie, cv::Point2i(r.x + r.width, r.y + r.height), cv::Point2i(r.x, r.y + r.height), couleur);
+    cv::line(copie, cv::Point2i(r.x + r.width, r.y + r.height), cv::Point2i(r.x + r.width, r.y), couleur);
+    afficherImage(s, copie); cv::waitKey(1);
+}
+
+void afficherImage(std::string nom, cv::Mat image) {
+#ifndef _WIN32
+    cv::namedWindow(nom, cv::WINDOW_NORMAL);
+    cv::imshow(nom, image);
+
+    cv::resizeWindow(nom, image.cols, image.rows);
+    /*************
+    // Lancer un thread pour gérer la fenêtre sans bloquer le programme principal
+    std::thread window_thread([nom]() {
+        while (cv::getWindowProperty(nom, cv::WND_PROP_VISIBLE) >= 1) {
+            //cv::waitKey(1);
+        }
+        cv::destroyWindow(nom);
+        });
+    // Détacher le thread pour permettre l'exécution continue du programme principal
+    window_thread.detach();
+    ************************/
+#else
+    cv::imshow(nom, image);
+#endif
+}
+
+
+///////////////////// principe de détermination de la dernière carte posée ///////////////////
+// 1- extraire une image monochromatique. soit grise,
+//      soit une couleur qui n'est pas dans le tapis de jeu : bleu si le tapis est vert 
+//      le fond devient alors noir
+// 2- déterminer les limites (edges)
+// 3- déterminer les droites correspondant aux limites d'une carte
+//    lignes formées de beaucoup de pixels
+//    on trouve les limites des cartes et les cadres des Rois Dame Valet
+//    et des lignes diverses à l'inérieur des cartes Roi Dame Valet
+// 
+// 4- déterminer les coins des cartes 
+//    un coin est l'intersection de deux droites perpendicullaires proche d'une extrémité de chaque droite
+//    (en réalité le coin est arrondi, les deux droites ne sont pas concourrantes)
+// 4-- rectifier l'extrémité de ligne des lignes formant le coin
+// 4-- éliminer les coins proches d'un autre et dans l'angle de cet autre 
+// 
+//     on peut trouver plusieurs coins pour chaque carte
+//     on peut trouver des coins parasites (deux lignes de deux cartes différentes)
+// 
+// 5- pour chaque coin retenu
+// 5a- extraire la partie de l'image qui est dans ce coin
+//     déterminer si c'est une carte rouge ou noire à partir de l'extrait de l'image originale
+//     rechercher les lignes (petites) et/ou contours autour de la position du symbole de couleur (Pique coeur ..)
+//     on en déduit une des 4 couleurs de carte
+// 5b- rechercher les contours
+//     on doit trouver le contour du dessin pique coeur carreau ou trefle. et les contours du chiffre ou du 10 ou de la lettre V D R
+// 5c- utiliser un outil OCR  pour déterminer le chiffre ou la lettre
+// 5d- si on a reconnu un chiffre ou 10, la carte comporte des gros dessins Pique Coeur Carreau ou Trefle
+//      ce qui permettra de distinguer plus facilement entre Pique et Trefle
+// 5e- la couleur des pixels dans la zone du symbole de couleur permet de distinguer les rouges (C K) des noirs (P T)
+// 5f- déterminer les petites lignes dans la zone du symbole de couleur
+//     ceci devrait permettre de distinger entre coeur et carreau (4 lignes perpendicullaires)
+//     et distinguer entre trefle et pique (deux lignes en coin)  
+// 5g- déterminer l'intensité de noir dans la zone du symbole
+//     ceci devrait permettre de distinguer entre Pique (plus noir) et Trefle 
+
+int processFrame(config& maconf, cv::Mat frame);
+int processVideo(config& maconf, cv::String nomfichier) {
+            cv::Mat img = cv::imread(nomfichier);
+            if (!img.empty()) {
+                processFrame(maconf, img);
+                return 0;
+            }
+
+        // Ouvrir le fichier vidéo
+        cv::VideoCapture cap(nomfichier);
+        if (!cap.isOpened()) {
+                std::cerr << "Erreur : Impossible d'ouvrir le fichier vidéo " << nomfichier << std::endl;
+                return -1;
+        }
+
+        // Lire et afficher les frames 1 sur 25
+        int nbf = 25;
+        cv::Mat frame;
+        while (true) {
+            cap >> frame; // Capture une frame
+            if (frame.empty()) {
+                break; // Arrêter si aucune frame n'est capturée
+            }
+            if (nbf == 0) {
+                nbf = 25;
+                afficherImage("Frame", frame); // Afficher la frame
+                processFrame(maconf, frame);
+
+                // Attendre 30 ms et quitter si 'q' est pressé
+                if (cv::waitKey(30) == 'q') {
+                    break;
+                }
+            }
+            nbf--;
+        }
+
+        cap.release(); // Libérer la capture vidéo
+        //cv::destroyAllWindows(); // Fermer toutes les fenêtres ouvertes
+        return 0;
+    }
+
+int main(int argc, char** argv) {
+    config maconf;
+    std::cout << " arguments optionels :" 
+        <<" nom du fichier image ou video" 
+        <<" et nom du fichier de configuration "
+        << " taille de carte (en pixels) " << std::endl<< std::endl;
+
+    std::string nomfichier;
+    nomfichier = setconfig(maconf); // initialisation par défaut
+
+    if (argc > 1) nomfichier = argv[1];
+    std::string nomconf; // nom du fichier de configuration
+    if (argc > 3) maconf.hauteurcarte = std::stoi(argv[3]);
+    if (argc > 2) {
+        nomconf = argv[2];
+        lireConfig(nomconf, maconf);
+    }
+    else  if (maconf.hauteurcarte != 0) resetconfig(maconf.hauteurcarte, maconf);
+    waitoption = maconf.waitoption;
+    printoption = maconf.printoption;
+    return processVideo(maconf, nomfichier);
+}
+
+int processFrame(config& maconf, cv::Mat image) {
+#define NBCOULEURS 7
+    cv::Scalar couleurs[7];
+    couleurs[0] = cv::Scalar(255, 128, 128); // bleu
+    couleurs[1] = cv::Scalar(128, 255, 128); // vert 
+    couleurs[2] = cv::Scalar(128, 128, 255); // rouge
+    couleurs[3] = cv::Scalar(255, 255, 128); // turquoise
+    couleurs[4] = cv::Scalar(255, 128, 255); // violet
+    couleurs[5] = cv::Scalar(128, 255, 255); // jaune
+    couleurs[6] = cv::Scalar(255, 255, 255); // blanc
+    int c = 0;
+
+    if (image.empty()) {
+        std::cerr << "Erreur de chargement de l'image" << std::endl;
+        return -1;
+    }
+    cv::Mat result = image.clone();
+
+    // afficher l'image en couleurs
+    afficherImage("couleur", image);
+
+    // Séparer les canaux Bleu, Vert, Rouge 
+    std::vector<cv::Mat> bgrChannels(3);
+    cv::split(image, bgrChannels);
+    // Utiliser seulement le canal Vert (par exemple) 
+    cv::Mat greenChannel = bgrChannels[1];
+    //afficherImage("vert", greenChannel);
+    cv::Mat blueChannel = bgrChannels[0];
+    //afficherImage("bleu", blueChannel);
+    cv::Mat redChannel = bgrChannels[2];
+    //afficherImage("rouge", redChannel);
+
+    // Convertir en niveaux de gris
+    cv::Mat gray;
+    cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+
+
+    // Appliquer le flou gaussien pour réduire le bruit
+    cv::Mat blurred;
+    cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 0);
+    //afficherImage("blur", blurred);
+
+
+    ////////////////// utiliser une des images monochromatiques /////////////////
+    cv::Mat grise;
+    cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR);
+    afficherImage("grise", grise);
+    std::vector<cv::Vec4i> lines;
+        int gmin = maconf.gradmin;
+        int gmax = maconf.gradmax;
+
+    int methode = 2; // 1 : canny et HoughLines,   2: ximgproc
+    if (methode == 2) {
+        // Appliquer le détecteur de segments de ligne LSD
+        std::vector<cv::Vec4f> lines_f;
+
+        // Paramètres du FastLineDetector : longueur minimale, écart entre lignes, etc.
+        int length_threshold = maconf.nbpoints;     // Longueur minimale d'une ligne
+        //float distance_threshold = 1.41421356f; // Distance maximale entre deux points formant une ligne
+        float distance_threshold = 1.5f; // Distance maximale entre deux points formant une ligne
+        double canny_th1 = gmin;       // Seuil bas pour Canny
+        double canny_th2 = gmax;       // Seuil haut pour Canny
+        int canny_aperture_size = 3;   // Taille de l'ouverture pour Canny
+        bool do_merge = true;         // Fusionner les lignes adjacentes
+
+        cv::Ptr<cv::ximgproc::FastLineDetector> lsd = cv::ximgproc::createFastLineDetector(
+            length_threshold, distance_threshold, canny_th1, canny_th2, canny_aperture_size, do_merge);
+
+        lsd->detect(gray, lines_f);
+
+        // Dessiner les segments de ligne détectés
+        cv::Mat result;
+        cv::cvtColor(gray, result, cv::COLOR_GRAY2BGR);
+        lsd->drawSegments(result, lines_f);
+        // Convertir les coordonnées des lignes en entiers
+        for (size_t i = 0; i < lines_f.size(); i++) {
+            cv::Vec4i line_i(cvRound(lines_f[i][0]), cvRound(lines_f[i][1]), cvRound(lines_f[i][2]), cvRound(lines_f[i][3]));
+            lines.push_back(line_i);
+        }
+        // Afficher l'image avec les lignes détectées
+        afficherImage("Detected Lines", result);
+        cv::waitKey(0);
+    }
+        cv::Mat edges;
+        cv::Mat ima2;
+        ima2 = grise.clone();
+        cv::Canny(ima2, edges, gmin, gmax, 3, false);
+
+    if (methode == 1){
+        // Utiliser la détection de contours de Canny
+        // grossir l'image
+        // canny (image, gradiant mini, gradiant maxi, ouverture)
+        // gradient : variation d'intensité entre 2 pixels voisins
+        // gradient mini : si le gradient calculé est inférieur, ce n'est pas un bord
+        // gradiant maxi : si le gradient calculé est supérieur, c'est un bord
+        int iwait = 1;
+
+        // agrandir l'image, pour le calcul des lignes
+        double mult = 4.0;
+        cv::resize(grise, grise, cv::Size(), mult, mult);
+        cv::Canny(grise, edges, gmin, gmax, 3, false);
+        afficherImage("bords", edges); cv::waitKey(iwait);
+
+
+        ///////////////// identifier les lignes de bord des cartes (grandes) /////////////////
+
+        // Utiliser la transformation de Hough pour détecter les segments de droite
+        // https://docs.opencv.org/3.4/d9/db0/tutorial_hough_lines.html
+
+        // 
+        // résolution de la distance de la droite à l'origine. 1 pxel
+        // résolution angulaire de la normale à la droite
+        // nombre minimal de courbes qui déterminent la droite
+        // nombre minimal de points sur la droite
+        // écart maximal entre deux pixels sur la droite
+        double theta = CV_PI / 360;
+        int threshold = maconf.nbpoints;
+        double gap = maconf.ecartmax;
+        double minlg = maconf.nbpoints;
+        cv::HoughLinesP(edges, lines, 1, theta, threshold, minlg, gap);
+        // cv::HoughLinesP(gray, lines, 1, CV_PI / 360, maconf.nbvote, maconf.nbpoints, maconf.ecartmax); // ne fonctionne pas
+        // on refait le calcul des bords pour la suite
+        cv::Canny(ima2, edges, gmin, gmax, 3, false);
+        afficherImage("bords", edges); cv::waitKey(iwait);
+
+        // les lignes sont agrandies 4 fois
+        //
+        for (int i = 0; i < lines.size(); i++) {
+            cv::Vec4i l = lines[i];
+            lines[i][0] /= mult;
+            lines[i][1] /= mult;
+            lines[i][2] /= mult;
+            lines[i][3] /= mult;
+        }
+    }
+
+    // Dessiner les segments de droite et afficher leurs longueurs et extrémités
+        //********************** fond noir pour ne voir que les lignes des coins
+    for (int y = 0; y < ima2.rows; y++) {
+        for (int x = 0; x < ima2.cols; x++) {
+            ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
+        }
+    }
+    /***************/
+
+    c = 0;
+    double maxlg = 0;
+    int il1 = 0;
+    for (int i = 0; i < lines.size(); i++) {
+        cv::Vec4i l = lines[i];
+        cv::Point A(l[0], l[1]);
+        cv::Point B(l[2], l[3]);
+        cv::line(ima2, A,B, couleurs[c], 1);
+        cv::circle(ima2, A, 2, couleurs[c], -1);
+        cv::circle(ima2, B, 2, couleurs[c], -1);
+        c++; if (c >= NBCOULEURS) c = 0;
+        double length = std::sqrt(std::pow(l[2] - l[0], 2) + std::pow(l[3] - l[1], 2));
+        if(printoption) std::cout << "Ligne " << i << ": (" << l[0] << ", " << l[1] << ") -> (" << l[2] << ", " << l[3] << "), Longueur: " << length << std::endl;
+        if (length > maxlg) { maxlg = length; il1 = i; }
+    }
+
+    // Afficher l'image avec les segments de droite
+    afficherImage("Lignes détectées", ima2);
+    cv::waitKey(1);
+
+    int lgmax = maconf.taillechiffre; lgmax *= lgmax;
+    if (false) {
+        // fusionner les lignes AB (la plus grande)  et CD si // si C et D sont proches de la ligne AB
+        //   et si C ou D est proche de A ou B : AB --> AC ou AD ou BC ou BD
+        double epsilon = max(1, maconf.deltacadre / 2);
+        epsilon = min(1.5, epsilon);
+        int deltamax = maconf.deltacoin;
+        for (int k = 0; k < 5; k++) { // fusionner des lignes fusionnées, de plus en plus distantes
+
+            for (int i = 0; i < lines.size(); i++) {
+                cv::Vec4i l = lines[i];
+                if (l[0] < 0) continue; // ligne invalidée
+                cv::Point2i A(l[0], l[1]);
+                cv::Point2i B(l[2], l[3]);
+                double lg1 = ((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y)); // longueur**2
+                for (int j = i + 1; j < lines.size(); j++) {
+                    cv::Vec4i ll = lines[j];
+                    if (ll[0] < 0) continue; // ligne invalidée
+                    cv::Point2i C(ll[0], ll[1]);
+                    cv::Point2i D(ll[2], ll[3]);
+                    double lg2 = ((D.x - C.x) * (D.x - C.x) + (D.y - C.y) * (D.y - C.y));
+                    if (lg1 > lg2) {
+                        // distances de C ou D à AB > epsilon à préciser --> ignorer la ligne j
+                        double dC = calculerDistance(C, A, B);
+                        if (abs(dC) > epsilon) continue;
+                        double dD = calculerDistance(D, A, B);
+                        if (abs(dD) > epsilon) continue;
+                    }
+                    else {
+                        double dA = calculerDistance(A, C, D);
+                        if (abs(dA) > epsilon) continue;
+                        double dB = calculerDistance(B, C, D);
+                        if (abs(dB) > epsilon) continue;
+                    }
+                    // 4 points A B C D alignés. ignorer si l'écart entr AB et CD est important
+                    // 
+                    int xmin, xmax, ymin, ymax;
+                    if (abs(A.x - B.x) > abs(A.y - B.y)) {
+                        xmin = min(A.x, B.x);
+                        if (xmin > C.x && xmin > D.x) { // AB à droite de CD
+                            if ((xmin - C.x) > deltamax && (xmin - D.x) > deltamax) continue; // segments loins
+                        }
+                        else {
+                            xmax = max(A.x, B.x);
+                            if (C.x - xmax > deltamax && D.x - xmax > deltamax) continue;
+                        }
+                    }
+                    else {
+                        ymin = min(A.y, B.y);
+                        if (ymin > C.y && ymin > D.y) { // AB à droite de CD
+                            if ((ymin - C.y) > deltamax && (ymin - D.y) > deltamax) continue; // segments loins
+                        }
+                        else {
+                            ymax = max(A.y, B.y);
+                            if (C.y - ymax > deltamax && D.y - ymax > deltamax) continue;
+                        }
+                    }
+                    // déterminer les extrémités après fusion : abs mini - abs maxi  // ord mini - maxi
+                // utiliser x ou y 
+                    cv::Point2i U(A), V(A); // futures extrémités
+                    if (abs(A.x - B.x) > abs(A.y - B.y)) {
+                        if (U.x > B.x) U = B;
+                        if (U.x > C.x) U = C;
+                        if (U.x > D.x) U = D;
+                        if (V.x < B.x) V = B;
+                        if (V.x < C.x) V = C;
+                        if (V.x < D.x) V = D;
+                    }
+                    else {
+                        if (U.y > B.y) U = B;
+                        if (U.y > C.y) U = C;
+                        if (U.y > D.y) U = D;
+                        if (V.y < B.y) V = B;
+                        if (V.y < C.y) V = C;
+                        if (V.y < D.y) V = D;
+                    }
+                    // remplacer AB par UV
+                    // ne rien faire si la nouvelle ligne serait plus grande que la hauteur de carte
+                    int lg2uv = (V.x - U.x) * (V.x - U.x) + (V.y - U.y) * (V.y - U.y);
+                    if (lg2uv < maconf.hauteurcarte * maconf.hauteurcarte) {
+                        // et invalider la ligne CD
+                        lines[i][0] = U.x;
+                        lines[i][1] = U.y;
+                        lines[i][2] = V.x;
+                        lines[i][3] = V.y;
+                        A = U; B = V;
+                        //invalider la ligne j
+                        lines[j][0] = -1;
+                        ll[0] = -1;
+                    }
+                } // next j
+            }
+            deltamax = 5 * deltamax / 4;
+        }
+
+        // invalider les lignes dont la longueur est inférieure à la taille du chiffre
+        for (int i = 0; i < lines.size(); i++) {
+            cv::Vec4i l = lines[i];
+            if (l[0] < 0) continue; // ligne invalidée
+            cv::Point2i A(l[0], l[1]);
+            cv::Point2i B(l[2], l[3]);
+            double lg1 = ((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y)); // longueur**2
+            if (lg1 < lgmax) lines[i][0] = -1; // invalider la ligne
+        }
+    }
+    
+    if (methode == 1) {
+        // prolonger les lignes assez longues (au moins le quart de la hauteur de carte)
+        // essayer de prolonger chaque ligne : regarder le pixel dans le prolongement de la ligne
+        // ligne AB (B à droite de A) choisir une direction x ou y selon le maximum de |dx| et |dy|
+        // AB selon X , prolongement en B : regarder le pixel blanc (dans edges) à droite (B.x +1, B.y)
+        //   et le pixel blanc  à droite plus haut ou plus bas (B.x +1, B.y +- 1) (le plus proche de AB)
+        //   à condition que les autres pixels proche de B soient noirs (dans edge) 
+        // choisir le plus proche de AB, à distance de moins de 2 pixels de AB,  qui remplace B
+        // même principe du coté A
+        // itérer tant qu'on trouve des pixels blancs dans l'image des bords et noirs dans l'affichage des lignes
+        double tolerance = 0.9;  // Ajustez la tolérance selon vos besoins. 0.4 entre 45 et 60 degrés
+        cv::Mat contourImage = cv::Mat::zeros(edges.size(), CV_8U);
+        for (int i = 0; i < lines.size(); i++) {
+            cv::Vec4i l = lines[i];
+            if (l[0] < 0) continue; // ligne invalidée
+            cv::Point2i A(l[0], l[1]);
+            cv::Point2i B(l[2], l[3]);
+            // prolonger la ligne en A
+
+            std::vector<cv::Point2i> contour;
+            // on commence par prolonger en A
+            // puis en B
+            followContour(edges, A, B, contour, tolerance);
+            // Obtenir l'extrémité du contour
+            if (!contour.empty()) {
+                cv::Point2i Z = contour.back();
+                //std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
+                // remplacer A par Z si A est entre B et Z
+                // sinon, si B est entre Z et A, remplacer B par Z
+                cv::Point2i  ab = B - A;
+                cv::Point2i az = Z - A;
+                int ps = ab.x * az.x + ab.y * az.y;
+                if (ps <= 0) { // A entre B et Z : remplacer A par Z
+                    std::cout << i << " on remplace A " << A << " par " << Z << std::endl;
+                    A = Z;
+                }
+            }
+            else {
+                std::cout << i << " Aucun contour trouve en A." << A << std::endl;
+            }
+            // prolonger en B
+            int sz1 = contour.size();
+            followContour(edges, B, A, contour, tolerance);
+            // Obtenir l'extrémité du contour
+            int sz2 = contour.size();
+            if (sz2 > sz1) { // on a ajouté au moins un point
+                cv::Point2i Z = contour.back();
+                //std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
+                // remplacer B par Z si A est entre B et Z
+                std::cout << i << " on remplace B " << B << " par " << Z << std::endl;
+                B = Z;
+            }
+            else {
+                std::cout << i << "Aucun contour trouve en B." << B << std::endl;
+            }
+            afficherImage("Contour", contourImage);
+            cv::waitKey(1);
+            lines[i][0] = A.x;
+            lines[i][1] = A.y;
+            lines[i][2] = B.x;
+            lines[i][3] = B.y;
+            for (const auto& P : contour) {
+                contourImage.at<uchar>(P) = 255;
+            }
+        }
+        cv::waitKey(0);
+    }
+
+
+    // invalider les lignes dont la longueur est inférieure à la taille du chiffre + symbole
+    lgmax = maconf.taillechiffre + maconf.taillesymbole;
+    lgmax *= lgmax;
+    for (int i = 0; i < lines.size(); i++) {
+        cv::Vec4i l = lines[i];
+        if (l[0] < 0) continue; // ligne invalidée
+        cv::Point2i A(l[0], l[1]);
+        cv::Point2i B(l[2], l[3]);
+        double lg1 = ((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y)); // longueur**2
+        if (lg1 < lgmax) {
+            lines[i][0] = -1; // invalider la ligne
+            std::cout << "supprime la ligne " << i << " " << A << "-" << B <<" longueur "<<std::sqrt(lg1)<< std::endl;
+        }
+    }
+
+
+
+    // 
+    // afficher les lignes qui restent
+    for (int y = 0; y < ima2.rows; y++) {
+        for (int x = 0; x < ima2.cols; x++) {
+            ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
+        }
+    }
+    /***************/
+
+    c = 0;
+    maxlg = 0;
+    il1 = 0;
+    for (int i = 0; i < lines.size(); i++) {
+        cv::Vec4i l = lines[i];
+        if (l[0] < 0) continue; // ligne fusionnée ou ignorée car trop courte
+        cv::Point A(l[0], l[1]);
+        cv::Point B(l[2], l[3]);
+        cv::line(ima2, A, B, couleurs[c], 1);
+        cv::circle(ima2, A, 2, couleurs[c], -1);
+        cv::circle(ima2, B, 2, couleurs[c], -1);
+        c++; if (c >= NBCOULEURS) c = 0;
+        double length = std::sqrt((B.x - A.x)*(B.x - A.x) + (B.y - A.y)*(B.y - A.y));
+        if (printoption) std::cout << "Ligne " << i << A<< " -> " << B<< ", Longueur: " << length << std::endl;
+        if (length > maxlg) { maxlg = length; il1 = i; }
+    }
+    std::cout << "longueur maximale " << maxlg << std::endl;
+    // Afficher l'image avec les segments de droite
+    afficherImage("Lignes", ima2);
+    cv::waitKey(1);
+
+
+
+    //////////////////////////////// rechercher les coins des cartes ///////////////////
+    //
+    // 500 coins au maximum
+    // indice de ligne 1, ligne2, indicateur d'extrémité de la ligne 1 (0 ou 2), ligne 2, x et y du point d'intersection 
+    int coins[500][10]; // mémoriser tous les coins trouvés
+    // O : indice de la première ligne
+    // 1  : indice de la deuxième ligne
+    // 2  : indicateur de sommet commun de la ligne 1  = 0 ou 2  (indice dans la ligne pour x
+    // 3  : indicateur ligne 2 
+    // 4  : x du point d'intersection
+    // 5  : y
+    // 6  : indicateur de coin d' un Roi Dame ou Valet  ( = 0 sinon)
+    // 7  : non utilisé
+    // 8  : x du cadre si R D V
+    // 9  : y
+    int nbcoins = 0;
+    // pour chaque ligne AB
+    for (int i = 0; i < lines.size(); i++) {
+        cv::Vec4i l1 = lines[i];
+        if (l1[0] < 0) continue; // ligne fusionnée ou effacée
+        cv::Point2i A(l1[0], l1[1]);
+        cv::Point2i B(l1[2], l1[3]);
+        double lg1 = std::sqrt( (B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y));
+        if(printoption) std::cout <<i << " Ligne AB " << A << B<< " Longueur: " << lg1 << std::endl;
+        il1 = i;
+
+        // 
+        // chercher, parmi les autres lignes la ligne orthogonale CD dont une extremité (C ou D)  est proche de A ou B
+        // TODO: ou proche de la ligne AB entre A et B. ou dont A ou B est proche de la ligne CD entre C et D
+        for (int j = i+1; j < lines.size(); j++) {
+            double psX;
+            // ligne CD ortogonale à AB ?
+            // calculer le produit scalaire des vecteurs normés AB x CD / (maxlg * length)
+            cv::Vec4i l2 = lines[j];
+            if (l2[0] < 0) continue; // ligne fusionnée à une autre
+            cv::Point2i C(l2[0], l2[1]);
+            cv::Point2i D(l2[2], l2[3]);
+            double lg2 = sqrt((D.x - C.x) * (D.x - C.x) + (D.y - C.y) * (D.y - C.y));
+            psX = (B.x - A.x) * (D.x - C.x) + (B.y - A.y) * (D.y - C.y);   // AB.CD
+            psX = psX / (lg1 * lg2);   // cosinus AB CD
+            if (abs(psX) > maconf.cosOrtho) continue; // lignes non approximativement orthogonales
+            coins[nbcoins][0] = 0;  // indice de ligne AB
+            coins[nbcoins][1] = 0;  // indice de ligne CD
+            coins[nbcoins][2] = 0;  // 0 si A proche du coin P = ABxCD     2 si proche de D
+            coins[nbcoins][3] = 0;  // 0 si C proche de P    2 si D proche de P 
+            coins[nbcoins][4] = 0;  // P.x
+            coins[nbcoins][5] = 0;  // P.y
+            coins[nbcoins][6] = 0;  //  1 c'est un Roi Dame ou Valet, sinon indéterminé
+            coins[nbcoins][7] = 0;  // Q.x   coin du cadre de R D ou V
+            coins[nbcoins][8] = 0;  // Q.y
+            coins[nbcoins][9] = 0;  // inutilisé
+
+
+            bool bCoin = false;
+            // A proche de C ?
+            if (abs(C.x - A.x) < maconf.deltacoin && abs(C.y - A.y) <  maconf.deltacoin) { // A proche de C
+                if (printoption) std::cout << "  coin AC (" << A.x - C.x << "," << A.y - C.y << ") " << A<< "," << C  << std::endl;
+                bCoin = true;
+            }
+            // A proche de D ?
+            else if (abs(A.x - D.x) < maconf.deltacoin && abs(A.y - D.y) < maconf.deltacoin) { // A proche de D
+                if (printoption) std::cout << "  coin AD (" << A.x - D.x << "," << A.y - D.y << ") " << A << "," << D << std::endl;
+                coins[nbcoins][3] = 2;
+                bCoin = true;
+            }
+            // B proche de C ?
+            else if (abs(B.x - C.x) < maconf.deltacoin && abs(B.y - C.y) < maconf.deltacoin) { // B proche de C
+                if (printoption) std::cout << "  coin BC (" << B.x - C.x << "," << B.y - C.y << ") " << B << "," << C << std::endl;
+                bCoin = true;
+                coins[nbcoins][2] = 2;
+            }
+            // B proche de D ?
+            else if (abs(B.x - D.x) < maconf.deltacoin && abs(B.y - D.y) < maconf.deltacoin) { // B proche de D
+                if (printoption) std::cout << "  coin BD (" << B.x - D.x << "," << B.y - D.y << ") " << B << "," << D << std::endl;
+                bCoin = true;
+                coins[nbcoins][2] = 2;
+                coins[nbcoins][3] = 2;
+            }
+            if (bCoin) {
+
+                if (printoption) std::cout << "  cosinus angle " << abs(psX) << std::endl;
+                //        mémoriser le coin : indices des deux droites et numéros des extrémités de chaque droite (0 ou 2)
+                coins[nbcoins][0] = i; // indice première ligne
+                coins[nbcoins][1] = j;   // indice deuxième ligne
+                cv::Point2i P = calculerInter(l1, l2);
+                coins[nbcoins][4] = P.x;
+                coins[nbcoins][5] = P.y;
+                double length = std::sqrt((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y));
+                if (printoption) std::cout <<" "<< j << "  Ligne CD " << j << ": (" << C << ") -> (" << D << "), Longueur: " << length << std::endl;
+                if (printoption) std::cout << " ==> coin "<<nbcoins<< " en " << P << " " << i << " " << j << " k " << coins[nbcoins][2] << " kk " << coins[nbcoins][3] << std::endl;
+                nbcoins++;
+
+            }
+        } // deuxième droite
+    } // première droite
+
+    ////////////// on a déterminé les coins //////////////////////
+
+
+
+    // déterminer la taille des cartes
+    // déterminer les probables bords de carte 
+    // deux coins sur une même ligne (ou deux ligne // proches), à distance vraissemblable (paramètre général de configuration)
+    // la plus grande distance serait la hauteur de carte, sauf si plusieurs cartes sont alignées
+    // une des autres devrait être dans le rapport des cotés de carte ( 3 / 2 )
+    // 
+
+
+    int htmax = 0;
+    cv::Point2i P1, P2;
+    for (int n = 0; n < nbcoins; n++) {
+        int i = coins[n][0];
+        int j = coins[n][1];
+
+        if (i < 0 || j < 0) continue; // coin éliminé
+
+        cv::Vec4i l1 = lines[i];
+        cv::Vec4i l2 = lines[j];
+        cv::Point2i A(coins[n][4], coins[n][5]);
+        cv::Point2i H, K;  // extremités non communes sur les deux lignes : coin AH,AK
+        int k = coins[n][2];
+        H.x = l1[2 - k]; H.y = l1[3 - k];
+        int kk = coins[n][3];
+        K.x = l2[2 - kk]; K.y = l2[3 - kk];
+
+        for (int m = n + 1; m < nbcoins; m++) {
+            int ii = coins[m][0];
+            int jj = coins[m][1];
+            if (ii < 0 || jj < 0) continue;
+
+            cv::Vec4i l11 = lines[ii];
+            cv::Vec4i l22 = lines[jj];
+            cv::Point2i HH, KK;     // coin A HH KK
+            int k = coins[m][2];
+            HH.x = l11[2 - k]; HH.y = l11[3 - k];
+            int kk = coins[m][3];
+            KK.x = l22[2 - kk]; KK.y = l22[3 - kk];
+
+            cv::Point2i B(coins[m][4], coins[m][5]);
+            // une des lignes commune avec une de l'autre coin?
+            if ((ii == i) || (ii == j) || (jj == i) || (jj == j)) {
+                cv::Point2i U, V;
+                if (ii == i) { U = K; V = KK; }
+                else if (ii == j) { U = H; V = KK; }
+                else if (jj == i) { U = K; V = HH; }
+                else if (jj == j) { U = H; V = HH; }
+                else continue; // pas de ligne commune
+
+
+                // lesdeux coins doivent être opposés : les deux autres lignes sont //  mais doivent être  de même sens
+                // ligne commune A? = B?   
+                // autres cotés AU et BV
+                // calculer le produit vectoriel des segments des lignes AU et BV : doit être petit(en valeur absolue)
+                // calculer le produit scalaire : doit être positif (origine = point d'intersection)
+                int lg = (U.x - A.x) * (U.x - A.x) + (U.y - A.y) * (U.y - A.y);
+                int lk = (V.x - B.x) * (V.x - B.x) + (V.y - B.y) * (V.y - B.y);
+
+                int pv = (U.x - A.x) * (V.y - B.y) - (U.y - A.y) * (V.x - B.x);
+                double sinalfa = (double)pv / sqrt((double)lg * (double)lk);
+                // if (abs(sinalfa) > 0.02) continue; // autres cotés non parallèles (au moins 2 degrés) // test inutile
+                int ps = (U.x - A.x) * (V.x - B.x) + (U.y - A.y) * (V.y - B.y);
+                if (ps < 0) continue; // pas dans le même sens
+
+                lg = (B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y);
+                lg = std::sqrt(lg);
+                if (lg > htmax && lg < maconf.hauteurcarte + maconf.deltacoin) {
+                    P1 = A;
+                    P2 = B;
+                    htmax = lg;
+                }
+            }
+            // sinon, il faut vérifier si la ligne qui joint les coins est // une ligne de chacun des coins
+        }
+        //if (htmax < 8 * maconf.hauteurcarte / 10) htmax = maconf.hauteurcarte;
+    }
+    // recalculer les paramètres de position sur la carte
+    double htcard;
+    if (maconf.hauteurcarte == 0) htcard = htmax;
+    else htcard = maconf.hauteurcarte;
+    if (abs(htmax - htcard) < maconf.deltacoin) htcard = htmax;
+    if (htcard)
+        resetconfig(htcard, maconf);
+    else {
+        std::cout << " !!!!! impossible d'estimer la taille des cartes" << std::endl;
+        std::cout << " !!!!! poursuite avec les caractéristiques standard " << std::endl;
+    }
+    // 
+    std::cout << "hauteur carte : " << htcard << std::endl;
+
+
+    ////////////////////////// éliminer les artefacts /////////////////////////////
+
+    // 
+
+    // faire le tri parmi les coins détectés
+    //    pour chaque coin et pour chaque droite
+    //       rechercher parmi les autres coins une droite // proche
+    //       si on trouve éliminer le coin (le point) situé dans l'autre 
+    // pour chaque coin AB x CD
+    // éliminer les coins A'B' x C'D' qui vérifient
+    //     la droite A'B' est // AB ou // CD  et à faible distance
+    //         et le milieu de A'B' est dans l'angle AB x CD
+    //  ou la droite C'D' est // AB ou // CD et proche
+    //         et le milieu de C'D' est dans l'angle AB x CD
+    c = 0;
+    for (int n = 0; n < nbcoins; n++) {
+        int i = coins[n][0]; // indice de la première ligne
+        int j = coins[n][1]; // indice de la deuxième ligne
+        // if (i < 0 || j < 0) continue; // coin déjà éliminé // !!! poursuivre pour éliminer ce que P contient
+
+        cv::Vec4i l1 = lines[abs(i)];
+        cv::Vec4i l2 = lines[abs(j)];
+        // point d'intersection des droites l1 et l2
+        cv::Point2i P(coins[n][4], coins[n][5]);
+        // déterminer le triangle RPS du coin
+        int k = coins[n][2];  // 0 pour origine A, 2 pour extrémité B de la première ligne
+        int kk = coins[n][3];  // 0 pour origine C, 2 pour extrémité D de la deuxième ligne
+        k = 2 - k;  // pour indexer l'extrémité loin de P
+        kk = 2 - kk;
+
+        cv::Point2i R(l1[k], l1[k + 1]);
+        cv::Point2i S(l2[kk], l2[kk + 1]);
+
+        std::cout << "Coin " << n << " " << P << " , " << R << " , " << S << std::endl;
+
+        cv::Point2i A(l1[0], l1[1]);
+        cv::Point2i B(l1[2], l1[3]);
+        cv::Point2i C(l2[0], l2[1]);
+        cv::Point2i D(l2[2], l2[3]);
+        double pvPRS = (R.x - P.x) * (S.y - P.y) - (R.y - P.y) * (S.x - P.x); // produit vectoriel PR ^ PS inversé car repère inversé. négatif sens trigo
+
+
+        bool trouveQ = false;
+        bool QdansP = false;
+        bool eliminerP = false; // éliminer P après recherche de tous les coins contenus dans P
+        eliminerP = false;
+        for (int m = n + 1; m < nbcoins; m++) {
+            int ii = coins[m][0];
+            int jj = coins[m][1];
+            if (ii < 0 || jj < 0) { // déjà éliminé
+                std::cout << "  coin " << m << " deja elimine " << std::endl;
+                ii = abs(ii); jj = abs(jj);
+                //continue;
+            }
+            cv::Vec4i l11 = lines[ii];
+            cv::Vec4i l22 = lines[jj];
+
+            cv::Point2i Q(coins[m][4], coins[m][5]);
+            // ne pas éliminer le coin n ou m s'ils ne sont pas proches
+            // tenir compte de l'imprécision de position des bords de carte (*2)
+            // il peut y avoir trois droites // : le cadre d'un RDV et deux droites proches du bord de carte
+            if (abs(Q.x - P.x) > maconf.taillechiffre) continue;
+            if (abs(Q.y - P.y) > maconf.taillechiffre) continue;
+
+            int k = coins[m][2];  // 0 pour origine, 2 pour extrémité de la première ligne
+            int kk = coins[m][3];  // 0 pour origine, 2 pour extrémité de la deuxième ligne
+            k = 2 - k;
+            kk = 2 - kk;
+
+            cv::Point2i U(l11[k], l11[k + 1]);
+            cv::Point2i V(l22[kk], l22[kk + 1]);
+
+            // coin  UQV
+
+            cv::Point2i AA(l11[0], l11[1]);
+            cv::Point2i BB(l11[2], l11[3]);
+            cv::Point2i CC(l22[0], l22[1]);
+            cv::Point2i DD(l22[2], l22[3]);
+
+            // éliminer ce coin Q s'il est dans le coin P
+            // 
+            int dc = maconf.deltacadre;
+            double d, dd; // distances algébriques de Q à PR et PS
+            int epsilon = max(1, dc / 4);
+            // tenir compte de l'orthogonalité PR xPS
+            // projections de Q : H sur PR   K sur PS
+            // PH = PQ.PR / ||PR||
+            double lgpr = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
+            lgpr = sqrt(lgpr); // longueur de PR
+            double lgps = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
+            lgps = sqrt(lgps); // longueur de PS
+            d = ((Q.x - P.x) * (R.x - P.x) + (Q.y - P.y) * (R.y - P.y)) / lgpr;
+            dd = ((Q.x - P.x) * (S.x - P.x) + (Q.y - P.y) * (S.y - P.y)) / lgps;
+
+            if ((d > -1 && dd > 2) || (dd > -1 && d > 2) ){
+                // Q à l'intérieur du coin P
+                // marquer le coin Q "éliminé"
+                coins[m][0] = -ii;
+                coins[m][1] = -jj;
+            }
+            // ignorer ce coin Q s'il n'est pas // coin P
+            // 
+            double pv;
+            bool estl22 = false;
+            if ( (i == ii) || (i == jj) || (j == ii) || (j == jj) ) pv = 0;   // AB = A'B' ou AB = C'D' ou CD = A'B' ou CD = C'D' donc sinus nul
+            else   pv = calculerSinus(l1, l11);
+            if (abs(pv) > maconf.deltaradian) { // AB  non // A'B'
+                pv = calculerSinus(l1, l22);
+                if (abs(pv) > maconf.deltaradian)   continue;  //  AB  non // C'D'
+                estl22 = true;
+            }
+
+            // ignorer le coin Q  (QU QV) s'il n'est pas orienté come le coin P (PR PS)
+            if (estl22) {    //  PR // QV
+                // calcule le produit scalaire PR.QV    négatif si orientés en sens inverse
+                int ps = (R.x - P.x) * (V.x - Q.x) + (R.y - P.y) * (V.y - Q.y);
+                if (ps < 0) continue;   // aucun ne peut être cadre de l'autre
+                // calcule le produit scalaire PS.QU    négatif si orientés en sens inverse
+                ps = (S.x - P.x) * (U.x - Q.x) + (S.y - P.y) * (U.y - Q.y);
+                if (ps < 0) continue;   // aucun ne peut être cadre de l'autre
+            }
+            else {
+                // calcule le produit scalaire PR.QU   négatif si orientés en sens inverse
+                int ps = (R.x - P.x) * (U.x - Q.x) + (R.y - P.y) * (U.y - Q.y);
+                if (ps < 0) continue;   // aucun ne peut être cadre de l'autre
+                // calcule le produit scalaire PS.QV    négatif si orientés en sens inverse
+                ps = (S.x - P.x) * (V.x - Q.x) + (S.y - P.y) * (V.y - Q.y);
+                if (ps < 0) continue;   // aucun ne peut être cadre de l'autre
+            }
+
+            //  P est-il dans le coin Q
+            // dans ce cas, d et dd sont négatifs, de valeur absolue deltacadre
+            if ((d < -4 * maconf.deltacadre / 3 || dd < -4 * maconf.deltacadre / 3)
+                && d > -2 * maconf.deltacadre / 3 || dd > -2 * maconf.deltacadre / 3) {
+                // P est dans le coin Q
+                eliminerP = true; // noter d'éliminer P
+                coins[m][6] = 1; //  Q estunRDV
+                coins[m][7] = P.x;
+                coins[m][8] = P.y;
+                continue;
+            }
+
+            // Q est-il le cadre de la carte du coin P
+            // comme les coins on des angles droits, on sait que CD est  // l'autre droite A'B' ou C'D' 
+            // 
+            // si Q est à l'intérieur du coin P (éventuellement sur un des cotés PR ou PS)
+            //    éliminer le coin Q
+            //    si Q est proche du cadre si P est un R D ou V : noter que P est un Roi Dame ou Valet
+            // 
+            // sinon, P est à l'intérieur de Q
+            //    différer l'élimination de P après la poursuite de la recherche des autres coins Q dans P
+            //    si P est proche du cadre possible de Q : noter Q est un Roi Dame ou Valet
+
+            // calculer la distance entre ces deux (presque) //
+            // en fait, c'est la distance du point Q à chacune des droites PR et PS
+
+            if (max(abs(d), abs(dd)) > dc + 1) continue; // Q loin de PR ou de PS donc n'est pas le cadre
+
+            // il faut qu'au moins une des distances soit proche de deltacadre pour que le coin P soit un Roi Dame ou valet
+            // fausses détections ==> deux cas acceptables:
+            //   Q est à l'intérieur et à distance deltacadre des deux cotés du coin P
+            //   Q et à distance deltacadre d'un coté du coin P, à l'intérieur et à distance très faible de l'autre coté
+
+            if ((abs(abs(d) - dc) < epsilon && d > 0) && ((abs(dd) < 1)
+                || (abs(abs(dd) - dc) < epsilon && (dd > 0)))
+                ) {
+                // Q est cadre à l'intérieur de PR et (cadre à l'intérieur de PS ou sur PS)
+                coins[n][6] = 1; // estunRDV
+                coins[n][7] = Q.x;
+                coins[n][8] = Q.y;
+                continue;
+            }
+
+            if ((abs(abs(dd) - dc) < epsilon && dd > 0)
+                && ((abs(d) < 1) || (abs(abs(d) - dc) < epsilon && (d > 0)))
+                ) {
+                // Q est cadre à l'intérieur de PS et (cadre à l'intérieur de PR ou sur PR)
+                coins[n][6] = 1; // estunRDV
+                coins[n][7] = Q.x;
+                coins[n][8] = Q.y;
+                continue;
+            }
+
+            if (coins[m][0] < 0) continue;   // Q éliminé 
+
+            // Q n'est pas le sommet du cadre de P
+            // P est-il le sommet du cadre de Q ?
+
+            if ( (dd < 1 - dc) && (d < 1 - dc)) { // Q est hors du coin P
+                // Q à distance deltacadre de PR ou PS et deltacade ou epsilon de l'autre ?
+                if ((abs(abs(d) - dc) < epsilon && (abs(abs(dd) - dc)) < epsilon || abs(dd) < epsilon)
+                    || ((abs(abs(dd) - dc) < epsilon && (abs(abs(d) - dc)) < epsilon || abs(d) < epsilon)) ) {
+                    // différer l'élimination de P : poursuivre la recherche et l'élimination des coins situés dans P
+                    eliminerP = true;
+                    coins[m][6] = 1; // estunRDV
+                    coins[m][7] = P.x;
+                    coins[m][8] = P.y;
+                    continue;
+                }
+            }
+            
+            // on est donc dans une situation intermédiaire
+            // choisir l'un des deux, au hasard
+            // le plus simple est de garder P, sauf si Q est au moins partiellement à l'extérieur
+            if (dd < 2 && (d < 1.0 - dc/2.0) || (d < 1 && (dd < 1 - dc/2) ) ) {
+                coins[m][6] = 1; // estunRDV
+                eliminerP = true;
+                continue;
+            }
+            else {
+                coins[n][6] = 1; // estunRDV
+                coins[m][0] = -ii;
+                coins[m][1] = -jj;
+                continue;
+            }
+            if (coins[m][0] < 0) std::cout << "  elimination coin " << m << std::endl;
+        } // for m
+        // éliminatio différée de P ?
+        if (eliminerP) {  // c'est peut-être déjà fait
+            std::cout << "elimination coin " << n << std::endl;
+            coins[n][0] = -i;
+            coins[n][1] = -j;
+        }
+        // on n'a pas trouvé de coin Q proche de P et //
+        // passer simplement au coin n (P) suivant
+        c++; c--; // pour pouvoir mettre un point d'arrêt
+    } // for n
+
+        // afficher ce qui reste selectionné
+    cv::Mat imaC = ima2.clone();
+    //********************** fond noir pour ne voir que les lignes des coins
+    for (int y = 0; y < imaC.rows; y++) {
+        for (int x = 0; x < imaC.cols; x++) {
+            imaC.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
+        }
+    }
+    /***************/
+
+    // afficher les coins  
+    c = 0;
+    for (int n = 0; n < nbcoins; n++) {
+        int i = coins[n][0];
+        int j = coins[n][1];
+        cv::Point P(coins[n][4], coins[n][5]);
+
+        cv::Vec4i l1 = lines[abs(i)];
+        cv::Vec4i l2 = lines[abs(j)];
+
+        cv::Point2i A(l1[0], l1[1]);
+        cv::Point2i B(l1[2], l1[3]);
+        cv::Point2i C(l2[0], l2[1]);
+        cv::Point2i D(l2[2], l2[3]);
+        cv::Vec4i nl1(A.x, A.y, B.x, B.y);
+        cv::Vec4i nl2(C.x, C.y, D.x, D.y);
+
+        // !!!! uniquement sur les copies
+
+        // remplacer l'extremité qui convient par l'intersection
+        int k = coins[n][2]; // quelle extrémité de la ligne 1?
+        if (k != 0 && k != 2) {
+            k = 0; // protection 
+        }
+        nl1[k] = coins[n][4];
+        nl1[k + 1] = coins[n][5];
+        k = coins[n][3];
+        nl2[k] = coins[n][4];
+        nl2[k + 1] = coins[n][5];
+
+        // pour chacune des lignes l1 et l2, remplacer l'extrémité loin du coin par le milieu de la ligne
+        // uniquement si la ligne est plus logue que la demi-largeur de carte et pour l'affichage : faire une copie
+
+        k = coins[n][2]; // vaut 0 ou 2
+        if (max(abs(B.x - A.x), abs(B.y - A.y)) > maconf.hauteurcarte / 3) {
+            nl1[2 - k] = (A.x + B.x) / 2;
+            nl1[3 - k] = (A.y + B.y) / 2;
+        }
+        k = coins[n][3];
+        if (max(abs(D.x - C.x), abs(D.y - C.y)) > maconf.hauteurcarte / 3) {
+            nl2[2 - k] = (C.x + D.x) / 2;
+            nl2[3 - k] = (C.y + D.y) / 2;
+        }
+
+        if (i < 0 || j < 0) { // coin éliminé précédemment
+            cv::circle(imaC, P, 2, cv::Scalar(255,255,255), -2); //  cercle blanc au sommet du coin
+            // si ce coin ressemble à un cadre, afficher les lignes en trait fin gris
+            cv::line(imaC, cv::Point(nl1[0], nl1[1]), cv::Point(nl1[2], nl1[3]), cv::Scalar(128, 128, 128), 1); // petit trait
+            cv::line(imaC, cv::Point(nl2[0], nl2[1]), cv::Point(nl2[2], nl2[3]), cv::Scalar(128, 128, 128), 1); // petit trait
+            continue; // coin éliminé
+        }
+
+        cv::line(imaC, cv::Point(nl1[0], nl1[1]), cv::Point(nl1[2], nl1[3]), couleurs[c], 1); // petit trait
+        cv::line(imaC, cv::Point(nl2[0], nl2[1]), cv::Point(nl2[2], nl2[3]), couleurs[c], 1); // petit trait
+        if (coins[n][6] > 0) cv::circle(imaC, P, 5, couleurs[c], 3); //  cercle au sommet du coin
+        else  cv::circle(imaC, P, 5, couleurs[c], 1); //  cercle épais (RDV) au sommet du coin
+        c++; if (c >= NBCOULEURS) c = 0;
+
+    }
+    std::cout << "probable hauteur de carte : " << htmax << std::endl;
+    if (htmax) {
+        cv::circle(imaC, P1, 6, cv::Scalar(0, 128, 128), 4);
+        cv::circle(imaC, P2, 6, cv::Scalar(0, 128, 128), 4);
+    }
+    afficherImage("coins détectés", imaC);
+    cv::waitKey(1);
+
+
+
+    //cv::waitKey(0);
+    // extraire les coins
+    // 
+    bool estunRDV;
+    estunRDV = false; // le coin contient-il un cadre ?
+    cv::Point2i Q; // point du cadre
+
+    for (int n = 0; n < nbcoins; n++) {
+        int i = coins[n][0];  // indice de ligne
+        int j = coins[n][1];
+        if (i < 0 || j < 0) continue; // coin éliminé
+        estunRDV = coins[n][6];
+        cv::Vec4i l1 = lines[i];  // ligne AB
+        cv::Vec4i l2 = lines[j];  // ligne CD
+        cv::Point2i P = cv::Point2i(coins[n][4], coins[n][5]);   // intersection des deux lignes
+        Q = P; // initialiser un point valide
+        int k = coins[n][2]; // coin= A si 0  ou B (=2)
+        int kk = coins[n][3]; // coin = C ou D
+        // déterminer le rectangle correspondant au coin selon les directions AB et CD, point diagonal Q 
+        //
+        cv::Point2i R; // AB --> PR  R = A ou B
+        cv::Point2i S; // CD --> PS  S = C ou D
+        R.x = l1[2 - k];
+        R.y = l1[3 - k];
+        S.x = l2[2 - kk];
+        S.y = l2[3 - kk];
+
+        //  déterminer si le coin correspond à un Roi Dame ou Valet
+        //     on cherche un coin (éventuellement éliminé) dont le sommet Q est proche de P
+        //         dans le coin
+        //     dont les lignes sont parallèles aux lignes PR et PS du coin
+        //     et à distance de l'écart entre bord de carte et cadre plus incertitude sur la position de P
+        //       (lorsqu'il y a TROIS coins imbriqués)
+        //  le point P peut se trouver en trois positions, dans chacun des deux bords de carte:
+        //       sur une ligne artefact
+        //       sur le bord de la carte
+        //       sur le cadre
+        //
+        //  rechercher le cadre : à l'intérieur du coin
+        //                        le plus loin à au plus deux écarts bord-cadre
+        // TODO:
+        //  si on ne trouve pas dans une des directions, il se peut que P soit sur une ligne du cadre
+        //            dans ce cas, rechercher une ligne // à l'extérieur du cadre, proche
+        //
+        float lgPR = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
+        float lgPS = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
+        lgPR = sqrt(lgPR);
+        lgPS = sqrt(lgPS);
+        //////////////////// désactivé, calcul déjà fait
+        if (false) {       //  désactivé, le calcul est déjà fait      
+            int dpq2 = 0; // carré de la distance maximale entre P et Q proches et //
+            cv::Point2i Qopt;
+            for (int m = 0; m < nbcoins; m++) {
+                if (m == n) continue;
+                int ii = coins[m][0];  // indice de ligne (négatif si coin éliminé)
+                int jj = coins[m][1];
+                cv::Vec4i l11 = lines[abs(ii)];  // ligne AB
+                cv::Vec4i l22 = lines[abs(jj)];  // ligne CD
+                Q = cv::Point2i(coins[m][4], coins[m][5]);   // intersection des deux lignes
+                if (abs(P.x - Q.x) > 3 * maconf.deltacadre / 2 || abs(P.y - Q.y) > 3 * maconf.deltacadre / 2) continue; // pas proches
+                // distance de Q à PR  : PQ.PS / ||PS||          (PS orthogonal à PR)
+                float distpr = (Q.x - P.x) * (S.x - P.x) + (Q.y - P.y) * (S.y - P.y);
+                distpr /= lgPS;
+                if (abs(distpr) > maconf.deltacadre + 2) continue;  // trop loin de PR
+
+                // distance de Q à PS  :PQ.PR / ||PR||           (PS orthogonal à PR)
+                float distps = (Q.x - P.x) * (R.x - P.x) + (Q.y - P.y) * (R.y - P.y);
+                distps /= lgPR;
+                if (abs(distps) > maconf.deltacadre + 2) continue;  // trop loin de PS
+
+
+                // il faut qu'au moins une des distances soit proche de deltacadre
+                if (abs(abs(distpr) - maconf.deltacadre) > maconf.deltacadre / 4 && abs(abs(distps) - maconf.deltacadre) > maconf.deltacadre / 4) continue; // trop proche
+
+                // PR // l11  ou PR // l22  ou PS // l11 ou PS // L22 ?
+                // ou équivalent avec orthogonalité car PR et PS sont perpendiculaires
+                //
+                int pv;
+                float lgl11 = (l11[0] - l11[2]) * (l11[0] - l11[2]) + (l11[1] - l11[3]) * (l11[1] - l11[3]);
+                float lgl22 = (l22[0] - l22[2]) * (l22[0] - l22[2]) + (l22[1] - l22[3]) * (l22[1] - l22[3]);
+                lgl11 = sqrt(lgl11);
+                lgl22 = sqrt(lgl22);
+                // l11 // PR ?  
+                pv = (l11[0] - l11[2]) * (R.y - P.y) - (l11[1] - l11[3]) * (R.x - P.x);
+                pv = pv / (lgPR * lgl11);
+                if (abs(pv) > 2 * maconf.deltaradian) {
+                    pv = (l11[0] - l11[2]) * (S.y - P.y) - (l11[1] - l11[3]) * (S.x - P.x);
+                    pv = pv / (lgPS * lgl11);
+                    if (abs(pv) > 2 * maconf.deltaradian) continue; // l11  non // PR ou PS
+                }
+                // l122 // PR ?   // inutile à cause des orthogonalités
+                if (false) {
+                    pv = (l22[0] - l22[2]) * (R.y - P.y) - (l22[1] - l22[3]) * (R.x - P.x);
+                    pv = pv / (lgPR * lgl22);
+                    if (abs(pv) > 2 * maconf.deltaradian) {
+                        pv = (l22[0] - l22[2]) * (S.y - P.y) - (l22[1] - l22[3]) * (S.x - P.x);
+                        pv = pv / (lgPS * lgl22);
+                        if (abs(pv) > 2 * maconf.deltaradian) continue; // l22  non // PR ou PS
+                    }
+                }
+                // coins P et Q paralelles proches
+                // c'est un Roi Dame ou Valet si au moins une des lignes PU ou PV est // PR ou PS
+                //estunRDV = true;
+                //std::cout << "RDV" << std::endl;
+                //coins[n][6] = 1;
+
+                // on recherche un coin Q à l'intérieur de l'angle saillant RPS ou SPR
+                // Q est à l'intérieur si les projections  H et K de Q sur PR et PS sont à l'inérieur des segments
+                // déjà calculés
+
+                if (distps < -1) continue; // hors du segment PR
+                if (distpr < -1) continue; // hors du segment PS
+                if (distps < 1 && distpr < 3 * maconf.deltacadre / 4) continue; // Q trop proche de P 
+                if (distpr < 1 && distps < 3 * maconf.deltacadre / 4) continue; // Q trop proche de P 
+                // candidat possible 
+                // si c'est un cadre, Q est proche des extrémités de lignes
+                /*******************   les droites des coins de cadre sont des lignes mal identifiées
+                int k = coins[m][2];
+                cv::Point2i A(l11[k], l11[k + 1]);
+                if (abs(Q.x - A.x) > maconf.deltacadre  || abs(Q.y - A.y) > maconf.deltacadre) continue;
+                int kk = coins[m][3];
+                cv::Point2i B(l22[kk], l22[kk + 1]);
+                if (abs(Q.x - B.x) > maconf.deltacadre || abs(Q.y - B.y) > maconf.deltacadre) continue;
+                *//////////////////
+                // Q est un cadre
+                //coins[n][8] = Q.x;
+                //coins[n][9] = Q.y;
+                // on a trouvé le cadre de Roi Dame ou Valet ou un artefact si trois coins sont imbriqués
+                int pq2 = ((Q.x - P.x) * (Q.x - P.x) + (Q.y - P.y) * (Q.y - P.y));
+                if (pq2 > dpq2) {
+                    dpq2 = pq2;
+                    Qopt = Q;
+                }
+                // mémoriser le  point sommet du cadre
+            }  // for ( m
+
+            if (dpq2) {
+                Q = Qopt; // c'est la position cadre
+                coins[n][8] = Q.x;
+                coins[n][9] = Q.y;
+                estunRDV = true;
+                coins[n][6] = 1;
+                std::cout << "coin " << n << " RDV P=" << P << ",Q=" << Q << std::endl;
+            }
+            else if (estunRDV) { // le coin P est le cadre de R D ou V
+                coins[n][8] = P.x;
+                coins[n][9] = P.y;
+                Q = P;
+                std::cout << "coin " << n << " RDV P=" << P << ",Q=" << Q << std::endl;
+            }
+        }
+
+
+
+
+        /////////////////////////////////// déterminer le carré de la zone d'intérêt dans le coin (là où il y a le chiffre et le symbole) /////
+        // H sur PR     PH = taillechiffre + deltahaut
+        // K sur PS     PK = taillechiffre + deltahaut
+        // L autre sommet du carré PHLK
+        // I centre du carré, milieu de HK
+        // Q : cadre si on a identifié un cadre
+        // calcul des coordonnées 
+        cv::Point2i H;
+        cv::Point2i K;
+        cv::Point2i L;
+        cv::Point2i I;
+        int taille = maconf.taillechiffre + maconf.deltahaut;   // pour visualiser juste le numéro ou  R D V
+        if (estunRDV) taille = maconf.tailleVDR + maconf.deltahautVDR;
+
+        double pr = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
+        double ps = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
+        pr = sqrt(pr);
+        ps = sqrt(ps);
+        H.x = P.x + ((double)taille / pr) * (R.x - P.x);
+        H.y = P.y + ((double)taille / pr) * (R.y - P.y);
+
+        K.x = P.x + ((double)taille / ps) * (S.x - P.x);
+        K.y = P.y + ((double)taille / ps) * (S.y - P.y);
+
+        I.x = (H.x + K.x) / 2;
+        I.y = (H.y + K.y) / 2;
+
+        // PL = 2*PI   L.x - P.x = 2(I.x - P.x)    L.x = 2I.x - P.x
+        L.x = 2 * I.x - P.x;
+        L.y = 2 * I.y - P.y;
+
+        // encombrement du carré PHLK
+        int xg, xd, yh, yb;
+        xg = min(P.x, H.x);
+        xg = min(xg, L.x);
+        xg = min(xg, K.x);
+
+        yh = min(P.y, H.y);
+        yh = min(yh, L.y);
+        yh = min(yh, K.y);
+
+        xd = max(P.x, H.x);
+        xd = max(xd, L.x);
+        xd = max(xd, K.x);
+
+        yb = max(P.x, H.y);
+        yb = max(yb, L.y);
+        yb = max(yb, K.y);
+
+        //extraire un rectangle d'image plus grand pour conserver la zone d'intérêt après rotation
+        xg = xg - 3 * taille;
+        xd = xd + 3 * taille;
+        if (xg < 0) xg = 0;
+        if (xd >= image.cols) xd = image.cols - 1;
+        yh = yh - 3 * taille;
+        yb = yb + 3 * taille;
+        if (yh < 0) yh = 0;
+        if (yb >= image.rows) yb = image.rows - 1;
+
+
+        // on suppose les lignes AB et CD approximativenent horizontales et verticales
+        // en déduire l'encombrement de la diagonale PQ
+        // éliminer le bord du coin (2 pixels )
+        // PR horizontal ? (|dx| > |dy|)
+        int dx = R.x - P.x;
+        int dy = R.y - P.y;
+        int dxx = S.x - P.x;
+        int dyy = S.y - P.y;
+
+        // déterminer l'angle de rotation
+        // choisir le coté le plus grand pour calculer l'angle
+        // déterminer le coté PS ou PR le plus horizontal
+        // calculer l'angle de rotation, pour redresser le coin
+        // le plus horizontal? PS ou PR
+        // 
+        double angrad;
+        if ((dx * dx + dy * dy) > (dxx * dxx + dyy * dyy)) { // choisir PR
+            // déterminer l'angle d'inclinaison
+            angrad = std::atan2(dy, dx);
+        }
+        else {
+            angrad = std::atan2(dyy, dxx);
+        }
+        double angdeg = angrad * 180.0 / M_PI;
+        // effectuer une rotation inférieure à pi, meme à PI/2
+        if (angdeg <= -45) angdeg += 180; // entre -45 et + ???
+        if (angdeg > 180) angdeg -= 180;
+        if (angdeg > 90) angdeg -= 90;
+        if (angdeg > 45) angdeg -= 90;  // rotation limitée à 45° dans un sens ou dans l'autre
+
+        // type de coin :
+        //   haut gauche : 
+        //      cas 1 : S.x > P.x  et S.y < R.y et P.y < R.y
+        //      cas 2 : R.x > P.x  et R.y < S.y et P.y < S.y
+        //
+        //   haut droit
+        //      cas 1 : S.x < P.x et S.y < R.y et P.y > R.y
+        //      cas 2 : R.x < P.x et S.y > R.y et S.y > P.y
+        // 
+        //   coin bas gauche
+        //      cas 1 : S.x > P.x et S.y > R.y et P.y < R.y
+        //      cas 2 : R.x > P.x et R.y < S.y et P.y < S.y
+        //
+        //   coin bas droit
+        //      cas 1 : Q.x < P.x et S.y > R.y et P.y < R.y
+        //      cas 2 : R.x < P.x et R.y < S.y et P.y < S.y
+        //
+        //  coins bas : il faudra tourner de 180 degrés
+        //      min(S.y, R.y) < P.y
+
+        // extraire le rectangle
+        // trouver le point haut (x minimum, y minimum)
+        dx = xd - xg;
+        dy = yb - yh;
+        // choisir des cotés impairs inférieurs
+        //if (dx & 1 == 0) dx--;
+        //if (dy & 1 == 0) dy--;
+        cv::Rect regionw(xg, yh, dx, dy);
+        cv::Mat coinPetit = image(regionw).clone();
+
+        // actualiser les coordonnées des points P H K I dans l'image extraite (translation)
+        // translation (xg,yh) ---> 0,0)   translation (-xg, -yh)
+        cv::Point2i PP(P.x - xg, P.y - yh);
+        cv::Point2i HH(H.x - xg, H.y - yh);
+        cv::Point2i KK(K.x - xg, K.y - yh);
+        cv::Point2i II(I.x - xg, I.y - yh);
+        cv::Point2i QQ(Q.x - xg, Q.y - yh);
+
+
+
+
+        //////////////////////////////// redresser l'image //////////////////////////
+        // il est préférable d'avoir un nombre impair de lignes et de colonnes
+        if (abs(angdeg) > 0.1) {
+            std::cout << " rotation " << angdeg << " degres" << std::endl;
+            //afficherImage("avant rot", coinPetit);
+            cv::Point2f  ctr(coinPetit.cols / 2, coinPetit.rows / 2);
+            //cv::Point2f  ctr(0, 0);
+            cv::Mat imarot;
+
+            cv::Mat rotation_matrix = cv::getRotationMatrix2D(ctr, angdeg, 1.0);
+            // Déterminer la taille de l'image de sortie après rotation
+            cv::Rect2f bbox = cv::RotatedRect(cv::Point2f(), coinPetit.size(), angdeg).boundingRect2f();
+            // Ajuster la matrice de rotation pour tenir compte du changement de taille de l'image
+            rotation_matrix.at<double>(0, 2) += bbox.width / 2.0 - coinPetit.cols / 2.0;
+            rotation_matrix.at<double>(1, 2) += bbox.height / 2.0 - coinPetit.rows / 2.0;
+
+            // Appliquer la transformation pour obtenir l'image tournée
+            cv::warpAffine(coinPetit, imarot, rotation_matrix, bbox.size());
+            coinPetit = imarot;
+            // actualiser les coordonnées des points PP HH KK II QQ
+            cv::Mat W = (cv::Mat_<double>(3, 1) << PP.x, PP.y, 1);
+            cv::Mat WW = rotation_matrix * W;
+            cv::Point2f PPP(WW.at<double>(0, 0), WW.at<double>(1, 0));
+            PP = PPP;
+
+            W = (cv::Mat_<double>(3, 1) << HH.x, HH.y, 1);
+            WW = rotation_matrix * W;
+            cv::Point2f HHH(WW.at<double>(0, 0), WW.at<double>(1, 0));
+            HH = HHH;
+
+            W = (cv::Mat_<double>(3, 1) << KK.x, KK.y, 1);
+            WW = rotation_matrix * W;
+            cv::Point2f KKK(WW.at<double>(0, 0), WW.at<double>(1, 0));
+            KK = KKK;
+
+            W = (cv::Mat_<double>(3, 1) << II.x, II.y, 1);
+            WW = rotation_matrix * W;
+            cv::Point2f III(WW.at<double>(0, 0), WW.at<double>(1, 0));
+            II = III;
+            if (estunRDV) {
+                cv::Mat W = (cv::Mat_<double>(3, 1) << QQ.x, QQ.y, 1);
+                cv::Mat WW = rotation_matrix * W;
+                cv::Point2f QQQ(WW.at<double>(0, 0), WW.at<double>(1, 0));
+                QQ = QQQ;
+            }
+
+
+        }
+        cv::Mat extrait = coinPetit.clone();
+        afficherImage("Extrait", extrait);
+        if (waitoption > 1) cv::waitKey(0); else cv::waitKey(1);
+
+        // si on a déterminé que c'est un RDV
+        // préciser la position du point QQ coin du cadre à partir de PP
+        // deltacadre dans les deux directions
+        cv::Point2i ZZ;  // sommet du cadre si le coin PP est un coin de carte
+        if (II.x > PP.x) ZZ.x = PP.x + maconf.deltacadre;
+        else ZZ.x = PP.x - maconf.deltacadre;
+        if (II.y > PP.y) ZZ.y = PP.y + maconf.deltacadrehaut;
+        else ZZ.y = PP.y - maconf.deltacadrehaut;
+        if (estunRDV) {
+            if (abs(ZZ.x - QQ.x) > 1) {
+                if (II.x > PP.x) QQ.x = PP.x + maconf.deltacadre;
+                else QQ.x = PP.x - maconf.deltacadre;
+            }
+            if (abs(ZZ.y - QQ.y) > 1) {
+                if (II.y > PP.y) QQ.y = PP.y + maconf.deltacadrehaut;
+                else QQ.y = PP.y - maconf.deltacadrehaut;
+            }
+        }
+        else QQ = ZZ;
+
+        // afficher le coin redressé 
+        cv::circle(extrait, PP, 4, cv::Scalar(0, 255, 255), -1);   // cercle jaune
+        cv::circle(extrait, HH, 1, cv::Scalar(0, 255, 128), -1);   // cercle vert
+        cv::circle(extrait, KK, 1, cv::Scalar(0, 255, 255), -1);   // cercle jaune
+        //cv::circle(extrait, II, 4, cv::Scalar(0, 255, 255), -1);   // cercle jaune
+        if (estunRDV)
+            cv::circle(extrait, QQ, 1, cv::Scalar(0, 0, 255), -1);   // cercle rouge au coin du cadre
+
+        //afficherImage("droit", extrait);
+
+        cv::Scalar moy, ect;
+        bool nonvu = true;  // indique que l'on n'a pas identifié le caractère (chiffre, V D R ou 10)
+        bool vuprec = false; // indique que le caractère à été identifié en analysant la zone verticale (il peut être horizontal)
+        cv::String output; // résultat de l' OCR
+        cv::String outprec; // résultat de l'OCR vertical, puis après les deux OCR
+        cv::Mat ima_car;    // image du caractère
+        cv::String nomcoin; // nom du fichier d'enregistrement de l'image du caractère identifié
+        cv::Rect r; // rectangle d'extraction d'une image de l'image extraite coinPetit
+        bool estVert = false; // indique que le caractère est vertical
+        bool estHoriz = false; // indique que le caractère est horizontal
+        bool estDroit = false; // indique que le caractère est vertical
+        bool inverse = false;
+        bool estRouge = false;
+        bool estNoir = false;
+        bool etaitRDV = estunRDV;  // mémoriser si le cadre a été trouvé lors de la création des coins
+        double confiance = 0;  // indice de confiance OCR
+        double angle = 0;
+
+        std::string Vcar(""), Hcar(""); // caractère détecté par OCR 
+
+
+        //
+        //  coinPetit : redressé si incliné
+        // 
+        // commencer par rechercher le symbole pique coeur ... dans ce coin
+        // deux zones possibles. l'une contient le symbole, l'autre est de couleur uniforme si c'est un chiffre
+        //             si c'est un R D V : trouver un autre moyen d'identification
+        //             carte verticale : un gros symbole est à droite ou à gauche
+        //             carte horizontale : pas de symbole sous (ou sur) la lettre VDR et le symbole
+        // 
+        // pivoter de 90 degrés si nécessaire
+        // analyser coinPetit, qui contient le chiffre et le symbole
+        // triangle PP HH KK
+        // calculer la couleur moyenne des pixels dans la zone prévisible du symbole et dans la zone symétrique. comparer
+        // rectangle de la zone 1 : U coin envisagé du symbole
+        //                          V coin diagonal
+        //                          A coin haut gauche du chiffre ou VDR
+        //                          B coin diagonal
+        // rectangle de la zone 2 : UU coin envisagé du symbole
+        //                          VV coin diagonal
+        //                          AA coin haut gauche du chiffre si inversé
+        //                          BB coin diagonal
+
+        // si PP-HH est horizontal U est à distance horizontale de P de taille (deltachiffre + taillechiffre déjà calculé)
+        //                         U est à distance verticale de P de deltachiffre  du même coté que KK
+        cv::Point2i U;
+        cv::Point2i V;
+        cv::Point2i A;
+        cv::Point2i B;
+
+        cv::Point2i UU;
+        cv::Point2i VV;
+        cv::Point2i AA;
+        cv::Point2i BB;
+
+        // agrandir la zone d'extraction. on incorpore le bas du chiffre
+        // il faudra rechercher la ligne blanche dans le symbole extrait (en remontant à partir de la ligne médiane
+        // à faire aussi sur la largeur du symbole
+
+        int largeursymbole;
+        if (estunRDV) {
+            if (printoption > 1) std::cout << "RDV  P =" << PP << " Q=" << QQ << std::endl;
+            largeursymbole = maconf.largeursymbole;
+        }
+        else {
+            largeursymbole = maconf.largeursymbole; // largeur identique pour honneurs et petites cartes
+        }
+
+        cv::Point2i HO; // point Horizontal HH ou KK
+        cv::Point2i VE; // point vertical KK ou HH
+        if (abs(PP.y - HH.y) < abs(PP.x - HH.x)) {
+            HO = HH;
+            VE = KK;
+        }
+        else {
+            HO = KK;
+            VE = HH;
+        }
+
+        int taillecar = maconf.taillechiffre;
+        int largeurcar = maconf.largeurchiffre;
+        int deltahaut = maconf.deltahaut;
+        if (estunRDV) {
+            taillecar = maconf.tailleVDR;
+            largeurcar = maconf.largeurVDR;
+            deltahaut = maconf.deltahautVDR;
+        }
+        // ajuster la position du cadre, selon la position des bords
+        // uniquement si la position de QQ est proche du cadre théorique
+        if (estunRDV) {
+            cv::Point2i ZZ = QQ;
+            if (HO.x > PP.x) ZZ.x = PP.x + maconf.deltacadre;
+            else ZZ.x = PP.x - maconf.deltacadre;
+            if (VE.y > PP.y) ZZ.y = PP.y + maconf.deltacadre;
+            else ZZ.y = PP.y - maconf.deltacadre;
+            if (abs(ZZ.x - QQ.x) < maconf.deltacadre / 2) QQ.x = ZZ.x;
+            if (abs(ZZ.y - QQ.y) < maconf.deltacadre / 2) QQ.y = ZZ.y;
+        }
+        int deltaVDR = deltahaut - maconf.deltacadrehaut; // écart entre le cadre et le haut de la lettre VDR
+        bool cadreY = estunRDV && abs(abs(QQ.y - PP.y) - maconf.deltacadre) < (maconf.deltacadre + 1) / 2;
+        bool cadreX = estunRDV && abs(abs(QQ.x - PP.x) - maconf.deltacadre) < (maconf.deltacadre + 1) / 2;
+        if (printoption > 1) std::cout << "cadreY? " << cadreY << " cadreX? " << cadreX << std::endl;
+
+        // déterminer les points A et B du chiffre (ou de VDR) et les points U et V du symbole et AA BB UU VV 
+
+        if (VE.y < PP.y) { // dessus  __|  ou |__
+            if (printoption > 1) std::cout << "Dessus" << std::endl;
+            if (cadreY) {
+                B.y = QQ.y - maconf.deltaVDR; // ignorer le trait du cadre
+                BB.y = B.y;
+                VV.y = QQ.y - maconf.deltasymbcadre;
+                A.y = B.y - maconf.tailleVDR; 
+            }
+            else {
+                B.y = PP.y - deltahaut;
+                BB.y = PP.y - maconf.deltachiffre;
+                A.y = B.y - taillecar + 1;
+                VV.y = PP.y - maconf.deltasymbole;
+            }
+
+            V.y = PP.y - maconf.deltahautsymbole;
+            U.y = V.y - maconf.taillesymbole + 1;
+            UU.y = VV.y - maconf.largeursymbole + 1;
+            AA.y = BB.y - largeurcar + 1;
+        }
+        else { //  dessous   T
+            if (printoption > 1) std::cout << "dessous" << std::endl;
+            if (cadreY) {
+                A.y = QQ.y + maconf.deltaVDR;
+                AA.y = A.y;
+                UU.y = QQ.y + maconf.deltasymbcadre;
+                B.y = A.y + maconf.tailleVDR; 
+            }
+            else {
+                A.y = PP.y + deltahaut;
+                AA.y = PP.y + maconf.deltachiffre;
+                UU.y = PP.y + maconf.deltasymbole;
+                B.y = A.y + taillecar;
+            }
+            U.y = PP.y + maconf.deltahautsymbole;
+            V.y = U.y + maconf.taillesymbole;
+            VV.y = UU.y + maconf.largeursymbole;
+            BB.y = AA.y + largeurcar;
+        }
+        if (HO.x > PP.x) { // à droite  |__ ou |--
+            if (printoption > 1) std::cout << "a droite" << std::endl;
+            if (cadreX) {
+                U.x = QQ.x + maconf.deltasymbcadre;
+                A.x = QQ.x + maconf.deltaVDR;
+                AA.x = QQ.x + deltaVDR;
+                BB.x = AA.x + maconf.tailleVDR;
+            }
+            else {
+                U.x = PP.x + maconf.deltasymbole;
+                A.x = PP.x + maconf.deltachiffre;
+                AA.x = PP.x + deltahaut;
+                BB.x = AA.x + taillecar;
+            }
+
+            UU.x = PP.x + maconf.deltahautsymbole;
+            V.x = U.x + maconf.largeursymbole;
+            VV.x = UU.x + maconf.taillesymbole;
+            B.x = A.x + largeurcar - 1;
+        }
+        else { // à gauche __| ou --|
+            if (printoption > 1) std::cout << "a gauche" << std::endl;
+            if (cadreX) {
+                V.x = QQ.x - maconf.deltasymbcadre;
+                B.x = QQ.x - maconf.deltaVDR;
+                BB.x = B.x;
+                AA.x = BB.x - maconf.tailleVDR;
+            }
+            else {
+                V.x = PP.x - maconf.deltasymbole;
+                B.x = PP.x - maconf.deltachiffre;
+                BB.x = PP.x - deltahaut;
+                AA.x = BB.x - taillecar;
+            }
+            U.x = V.x - maconf.largeursymbole;
+            VV.x = AA.x - maconf.deltachsymb;
+            UU.x = VV.x - maconf.taillesymbole;
+            A.x = B.x - largeurcar;
+        }
+        U.x = max(0, U.x);
+        V.x = max(0, V.x);
+        UU.x = max(0, UU.x);
+        VV.x = max(0, VV.x);
+        U.y = max(0, U.y);
+        V.y = max(0, V.y);
+        UU.y = max(0, UU.y);
+        VV.y = max(0, VV.y);
+        A.x = max(0, A.x);
+        A.y = max(0, A.y);
+        B.x = max(0, B.x);
+        B.y = max(0, B.y);
+        AA.x = max(0, AA.x);
+        AA.y = max(0, AA.y);
+        BB.x = max(0, BB.x);
+        BB.y = max(0, BB.y);
+
+        cv::circle(extrait, U, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(extrait, V, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(extrait, UU, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(extrait, VV, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(extrait, A, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(extrait, B, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(extrait, AA, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(extrait, BB, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(extrait, PP, 2, cv::Scalar(255, 255, 0), -1);   // cercle jaune
+
+        if (estunRDV) cv::circle(extrait, QQ, 2, cv::Scalar(0, 0, 128), -1);   // cercle rouge foncé
+        afficherImage("coin", extrait);
+        cv::waitKey(1);
+
+        int deltaect = 20;  // 20 : valeur expérimentale
+        int dc = maconf.deltacadre;
+
+
+        cv::Mat zone;
+        cv::Mat coin = coinPetit.clone();
+        std::cout << std::endl;
+        cv::circle(coin, U, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(coin, V, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(coin, UU, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(coin, VV, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(coin, A, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(coin, B, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+        cv::circle(coin, AA, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(coin, BB, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+        cv::circle(coin, PP, 2, cv::Scalar(255, 255, 0), -1);   // cercle jaune
+        afficherImage("coin", coin); cv::waitKey(1);
+
+        dc = maconf.deltacadre; // faciliter l'écriture
+
+        if (printoption > 1)if (inverse) std::cout << "inverse" << std::endl;
+        if (printoption > 1) if (estDroit) std::cout << "vertical" << std::endl;
+        bool recalcul = false;
+        bool reafficher = false;
+
+        if (printoption > 1) if (estunRDV) std::cout << "Q=" << QQ;
+        if (printoption > 1) std::cout << "P=" << PP<< std::endl;
+
+//////////////////////////////// identification du caractère par appel à l' OCR /////////////////////////////
+        cv::Mat ima_carW;  // pour affichage éventuellement grossi
+        double confs[8]; // indices de confiance des résultats des 8 cas (4 verticaux et 4 horizontaux)
+        std::string out[8];  // 8 caractères lus
+        for (int i = 0; i < 8; i++) { confs[i] = 0; out[i] = ""; }
+        if (!inverse) {   // caractère vertical ou pas encore déterminé
+            if (printoption > 1) std::cout << "V?" << std::endl;
+            dx = B.x - A.x + 1;
+            dy = B.y - A.y + 1;
+            xg = A.x;
+            yh = A.y;
+            r = cv::Rect(xg, yh, dx, dy);
+            // extraire le caractère
+            ima_car = coinPetit(r).clone();
+            // si on sait que le caractère est vertical et si il est au dessus du coin, tourner de 180 degrés
+            // de toutes façons, si le caractère est au dessus, s'il est vertical, il est à l'envers
+#ifdef _WIN32
+            nomcoin = "D:\\coins\\coin" + std::to_string(n) + ".png";
+#else
+            nomcoin = "coin" + std::to_string(n) + ".png";
+#endif
+            //cv::imwrite(nomcoin, ima_car);
+            // si le caractère est dessus, le retourner de 180 degrés
+            if (U.y < PP.y) cv::rotate(ima_car, ima_car, cv::ROTATE_180);
+            ima_carW = ima_car.clone();
+            if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+            afficherImage("ima_car", ima_carW);
+            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+            nonvu = true;
+            std::string outRDV;
+
+            output = execOCR(nomcoin, ima_car, &confiance, &angle);
+            if (printoption > 1 && output.size() > 0) 
+                std::cout<< "V1 " << output << " confiance " << confiance << " angle "<< angle<< std::endl;
+            if ((int)angle == 360 && confiance > 0.5) { estDroit = true; }
+            else if ((int)angle == 90 && confiance > 0.5) { inverse = true; }
+            else if (!estunRDV && confiance < 0.98 && output != "R") {
+                double confRDV;
+                if (UU.x > PP.x) r.x = PP.x + maconf.deltacadre + 1;
+                else r.x = PP.x - maconf.deltacadre - maconf.largeurVDR;
+                if (U.y > PP.y) r.y = PP.y + maconf.deltacadrehaut;
+                else r.y = PP.y - maconf.deltacadrehaut - maconf.tailleVDR;
+                r.width = maconf.largeurVDR; r.height = maconf.tailleVDR;
+                cv::Mat ima_RDV = coinPetit(r).clone();
+                if (U.y < PP.y) cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_180);
+                if (dx < 20) cv::resize(ima_RDV, ima_RDV, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_RDV);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                outRDV = execOCR(nomcoin, ima_RDV, &confRDV);
+                // ignorer si ce n'est pas un R D V
+                if (outRDV.size() > 0)
+                {
+                    if (outRDV[0] == 'V' || outRDV[0] == 'D' || outRDV[0] == 'R') {
+                        if (printoption > 1) 
+                            std::cout << "   OCR V1 pour RDV " << output << " confiance " << confRDV << " angle " << angle << std::endl;
+                        if (outRDV == "R" || confRDV > confiance) { output = outRDV; confiance = confRDV; }
+                    }
+                }
+            }
+            if (output.size() > 0) confs[0] = confiance;
+            if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) output = output[1];
+            if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) output = output[0];
+            if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+            if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+            if (output == "M") output = "V";   // bord du cadre V et un morceau de gros symbole
+            if ((output == "<" || output == ">") && ((int)angle == 360)) {
+                output = "V";
+                out[4] = "V";
+                confs[4] = confiance;
+                inverse = true;
+            }
+            if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                if (!inverse) out[0] = output[0];
+                recalcul = true;
+                if (confiance > 0.9) {
+                    nonvu = false;  // inutile de rechercher une autre position du cadre
+                    if (printoption > 1) std::cout << "V1 " << output << " confiance " << confiance << std::endl;
+                }
+            }
+            else if (!estunRDV && output.size() > 0) {
+                if ((output.size() == 1 && (output[0] > '0' && output[0] <= '9'))
+                    || (output.size() == 2 && ((output[0] == '1' || output[0] == 'I')
+                        && (output[1] == '0' || output[1] == 'O' || output[1] == 'C' || output[1] == 'U')))
+                    ) {
+                    if (printoption > 1) std::cout << "V1===>" << output << " confiance " << confiance << " angle " << angle << std::endl;
+                    if (output.size() == 2) { output = "10"; if (confiance > 0.99) nonvu = false; } // détermination fiable
+                    Vcar = output;
+                    outprec = output;
+                    vuprec = true;
+                    out[0] = output; // à recalculer
+                    //if(estDroit) nonvu = false; // on sait que le caractère est vertical, inutile de tester si on reconnait un caractère horizontal
+                }
+            }
+            if ((int)angle == 360 && confiance > 0.5 && !inverse) estDroit = true;
+            if ((int)angle == 90 && confiance > 0.5) inverse = true;
+        }
+            // si l'orientation n'est pas déterminée, verticale, tester le caractère horizontal
+            if (!estDroit && !inverse) { // on ne sait pas si le caractère est vertical ou horizontal
+                if (printoption > 1) std::cout << "H?" << std::endl;
+                // tester si le caractère est horizontal
+                dx = abs(BB.x - AA.x);
+                dy = abs(BB.y - AA.y);
+                xg = min(AA.x, BB.x);
+                yh = min(AA.y, BB.y);
+                if (estunRDV) dy++;
+                if (estunRDV && UU.y < PP.y) yh--;
+                // extraire le caractère
+                r = cv::Rect(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                if (B.x > PP.x) cv::rotate(ima_car, ima_car, cv::ROTATE_90_CLOCKWISE);
+                else cv::rotate(ima_car, ima_car, cv::ROTATE_90_COUNTERCLOCKWISE);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                std::string outRDV;
+
+                output = execOCR(nomcoin, ima_car, &confiance, &angle);
+                if (output == "M") output = "V";   // bord du cadre V et un morceau de gros symbole
+                if (printoption > 1 && output.size() > 0 ) std::cout << "H1 " << output << " confiance " << confiance << " angle " << angle << std::endl;
+                if ((int)angle == 360 && confiance > 0.5) { inverse = true; }
+                else if (!estunRDV && confiance < 0.98 && output != "R" && out[0] != "R") 
+                {
+                    double confRDV;
+                    if (UU.x > PP.x) r.x = PP.x + maconf.deltacadre + 1;
+                    else r.x = PP.x - maconf.deltacadre - maconf.largeurVDR;
+                    if (U.y > PP.y) r.y = PP.y + maconf.deltacadrehaut;
+                    else r.y = PP.y - maconf.deltacadrehaut - maconf.tailleVDR;
+                    r.width = maconf.tailleVDR; r.height = maconf.largeurVDR;
+                    cv::Mat ima_RDV = coinPetit(r).clone();
+                    if (UU.x > PP.x) cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_CLOCKWISE);
+                    else cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_COUNTERCLOCKWISE);
+                    if (dx < 20) cv::resize(ima_RDV, ima_RDV, cv::Size(), 4.0, 4.0);
+                    afficherImage("ima_car", ima_RDV);
+                    if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+
+                    outRDV = execOCR(nomcoin, ima_RDV, &confRDV);
+                    // ignorer si ce n'est pas un R D V
+                    if (outRDV.size() > 0) {
+                        if (outRDV == "M") outRDV = "V";
+                        if (outRDV[0] == 'V' || outRDV[0] == 'D' || outRDV[0] == 'R') {
+                            if (printoption > 1)
+                                std::cout << "   OCR H1 pour RDV " << output << " confiance " << confRDV << " angle " << angle << std::endl;
+                            if (outRDV == "R" || confRDV > confiance) { output = outRDV; confiance = confRDV; }
+                        }
+                    }
+                }
+                if (output.size() == 0 && out[0] != "" && confs[0] > 0.9) nonvu = false; // inutile de tester les décalages
+                if (output.size() > 0) confs[4] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) output = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) output = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+                if (output == "M") output = "V";   // bord du cadre V et un morceau de gros symbole
+                if ((output == "<" || output == ">") && ((int)angle == 360)) {
+                    output = "V";
+                    out[0] = "V";
+                    out[4] = "";
+                    confs[0] = confiance;
+                    estDroit = true;
+                    inverse = false;
+                    confs[4] = 0;
+                }
+
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    if (!estDroit) {
+                        out[4] = output[0]; Hcar = out[4];
+                        if ((Hcar == out[0])) nonvu = false; // conforme à la détection verticale
+
+                        //recalcul = true; // inutile, rien ne changerait 
+                        if (confiance > 0.99 || (out[4] == out[0] && confs[4] > confs[0] && confs[0] > 0.8)) {
+                            if (printoption > 1) std::cout << "horiz 1 " << output << " confiance " << confiance << std::endl;
+                            output = output[0];
+                            if ((Vcar == "") || (Vcar == Hcar)) nonvu = false; // on vient de trouver ou conforme à la détection verticale
+                        }
+                    }
+                }
+                else if (!estunRDV) {
+                    if ((output.size() == 1 && (output[0] > '0' && output[0] <= '9'))
+                        || (output.size() == 2 && (output[0] == '1' || output[0] == 'I')
+                            && (output[1] == '0' || output[1] == 'O' || output[1] == 'C' || output[1] == 'U'))
+                        ) {
+                        if (output.size() == 2) output = "10";
+                        if (printoption > 1) std::cout << "H1===>" << output << std::endl;
+                        Hcar = output;
+                        out[4] = output;
+                        if ((out[0] == "V" || out[0] == "D" || out[0] == "R") && confs[0] > 0.9) nonvu = false;
+                        if (!vuprec || Hcar == Vcar) if (confiance > 0.99) nonvu = false;  // chiffre fiable confirmé horizontal ou vertical ?
+                        if (out[0] == "10" && confs[0] > 0.8 && confs[4] < 0.5) nonvu = false; // inutile de chercher un décalage 
+                        if (out[0] == "10" && confs[0] > 0.99) nonvu = false; // inutile de chercher un décalage 
+                    }
+                    else { // ni un chiffre ni un VDR
+                        if (out[0] != "" && confs[0] > 0.9) nonvu = false;
+                    }
+                }
+            }
+
+            if (confs[4] > confs[0]) output = out[4];
+            else output = out[0];
+
+            // tester les autres possibilités verticales décalées
+        if (!inverse && !estDroit ) {   // caractère vertical ou pas encore déterminé
+
+            if (nonvu && !cadreX) {  // essayer le cas où le coin gauche ou droit est le cadre
+                dx = B.x - A.x + 1;
+                dy = B.y - A.y + 1;
+                xg = A.x;
+                yh = A.y;
+                if (UU.x > PP.x) // à droite, décaler de deltacadre à gauche
+                    xg -= dc;
+                else xg += dc;
+                cv::Rect r(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                if (U.y < PP.y) cv::rotate(ima_car, ima_car, cv::ROTATE_180);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                output = execOCR(nomcoin, ima_car, &confiance, &angle);
+                if (output.size() > 0) confs[1] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) out[1] = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) out[1] = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    out[1] = output[0];
+                    recalcul = true;
+                    if (printoption > 1) std::cout << "V2 " << output << " confiance "<< confiance<< std::endl;
+                    if (confiance > 0.99) {
+                        nonvu = false; // détection jugée fiable selon la confiance
+                        // on a trouvé en décalant . donc décaler aussi U V A B et calculer QQ
+                        Vcar = output;
+                    }
+                }
+            }
+            if (nonvu && !cadreX) {
+                // cas où les deux bords du coin sont le cadre
+                if (U.y < PP.y) // au dessus, décaler de deltacadre vers le bas
+                    yh += dc;
+                else yh -= dc;
+                cv::Rect r(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                if (U.y < PP.y) cv::rotate(ima_car, ima_car, cv::ROTATE_180);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                output = execOCRVDR(nomcoin, ima_car, &confiance, &angle);
+                if (output.size() > 0) confs[2] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) out[2] = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) out[2] = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    out[2] = output[0];
+                    if (printoption > 1) std::cout << "V3 " << output << " confiance " << confiance << std::endl;
+                    if (confiance > 0.99) {
+                        nonvu = false; // on estime avoir trouvé avec ce niveau de confiance
+                        recalcul = true;
+                        Vcar = output;
+                    }
+                }
+            }
+            if (nonvu && !cadreX) {
+                // dernier cas le bord horizontal du coin est le cadre
+                if (UU.x > PP.x) // à droite, décaler de deltacadre à gauche
+                    xg += dc; // on revient à l'état initial
+                else xg -= dc;
+                cv::Rect r(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                if (U.y < PP.y) cv::rotate(ima_car, ima_car, cv::ROTATE_180);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                output = execOCRVDR(nomcoin, ima_car, &confiance, &angle);
+                if (output.size() > 0) confs[3] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) out[3] = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) out[3] = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    out[3] = output[0];
+                    if (printoption > 1) std::cout << "V4 " << output << " confiance " << confiance << std::endl;
+                    if (confiance > 0.99) {
+                        nonvu = false;
+                        recalcul = true;
+                        Vcar = output;
+                    }
+                }
+            }
+            if (!nonvu) {
+                if (printoption > 0) std::cout << output << " confiance " << max(confs[0], confs[4]) << std::endl;
+                vuprec = true;
+                outprec = output;
+            }
+
+        }
+        //////////////////////////// tester les autres positions horizontales par appel de l' OCR /////////////////
+        if (nonvu && !estDroit && !inverse) {
+            dx = abs(BB.x - AA.x);
+            dy = abs(BB.y - AA.y);
+            xg = min(AA.x, BB.x);
+            yh = min(AA.y, BB.y);
+            if (estunRDV) dy++;
+            if (estunRDV && UU.y < PP.y) yh--;
+
+            if (nonvu && !cadreX) {
+                // essayer le cas où le coin gauche ou droit est le cadre
+                if (UU.x > PP.x) // à droite, décaler de deltacadre à gauche
+                    xg -= dc;
+                else xg += dc;
+                cv::Rect r(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                //cv::imwrite(nomcoin, ima_car);
+                if (B.x > PP.x) cv::rotate(ima_car, ima_car, cv::ROTATE_90_CLOCKWISE);
+                else cv::rotate(ima_car, ima_car, cv::ROTATE_90_COUNTERCLOCKWISE);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                output = execOCRVDR(nomcoin, ima_car, &confiance, &angle);
+                if (output.size() > 0) confs[5] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) out[5] = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) out[5] = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    if (printoption > 1) std::cout << "H2 " << output << " confiance "<<confiance<< std::endl;
+                    out[5] = output[0];
+                    recalcul = true;
+                    if (confiance > 0.99) {
+                        nonvu = false; // détection jugée fiable
+                        Hcar = output;
+                    }
+                }
+            }
+            if (nonvu && ! cadreX && !cadreY) {
+                // cas où les deux bords du coin sont le cadre
+                if (U.y < PP.y) // au dessus, décaler de deltacadre vers le bas
+                    yh += dc;
+                else yh -= dc;
+                cv::Rect r(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                //cv::imwrite(nomcoin, ima_car);
+                if (B.x > PP.x) cv::rotate(ima_car, ima_car, cv::ROTATE_90_CLOCKWISE);
+                else cv::rotate(ima_car, ima_car, cv::ROTATE_90_COUNTERCLOCKWISE);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                output = execOCRVDR(nomcoin, ima_car, &confiance, &angle);
+                if (output.size() > 0) confs[6] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) out[6] = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) out[6] = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    if (printoption > 1) std::cout << "H3 " << output <<" confiance "<<confiance<< std::endl;
+                    out[6] = output[0];
+                    if (confiance > 0.99) {
+                        nonvu = false;
+                        recalcul = true;
+                        Hcar = output;
+                    }
+                }
+            }
+            if (nonvu && !cadreY) {
+                // dernier cas le bord horizontal du coin est le cadre
+                if (UU.x > PP.x) // à droite, décaler de deltacadre à gauche
+                    xg += dc; // on revient à l'état initial
+                else xg -= dc;
+                cv::Rect r(xg, yh, dx, dy);
+                ima_car = coinPetit(r).clone();
+                //cv::imwrite(nomcoin, ima_car);
+                if (B.x > PP.x) cv::rotate(ima_car, ima_car, cv::ROTATE_90_CLOCKWISE);
+                else cv::rotate(ima_car, ima_car, cv::ROTATE_90_COUNTERCLOCKWISE);
+                ima_carW = ima_car.clone();
+                if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
+                afficherImage("ima_car", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                output = execOCRVDR(nomcoin, ima_car, &confiance, &angle);
+                if (output.size() > 0) confs[7] = confiance;
+                if (output.size() == 2 && (output == "IV" || output == "ID" || output == "IR")) out[7] = output[1];
+                if (output.size() == 2 && (output == "VI" || output == "DI" || output == "RI")) out[7] = output[0];
+                if (output.size() == 2 && (output == "VC" || output == "DC" || output == "RC")) output = output[0];
+                if (output.size() == 2 && (output == "VA" || output == "DA" || output == "RA")) output = output[0];
+
+                if (output.size() == 1 && (output[0] == 'V' || output[0] == 'D' || output[0] == 'R')) {
+                    if (printoption > 1) std::cout << "H4 " << output <<" confiance "<<confiance<< std::endl;
+                    out[7] = output[0];
+                    if (confiance > 0.99) {
+                        Hcar = output;
+                        recalcul = true;
+                        nonvu = false;
+                    }
+                }
+            }
+        }
+        // si on a trouvé IR IV ID ou RI DI ou VI OU ...
+        //   sélectionner le meilleur candidat ( meilleur indice de confiance )
+        //if (nonvu)
+        
+        k = -1; // rechercher la meilleure détection 
+        // 1er OCR vertical ou horizontal
+        if (!inverse)   if ((out[0] == "V" || out[0] == "D" || out[0] == "R") && confs[0] > 0.4) k = 0;
+        if (!estDroit)  if ((out[4] == "V" || out[4] == "D" || out[4] == "R") && confs[4] > max( 0.4, confs[0]) ) k = 4;
+        if (!inverse) {
+            if (out[0] != "" && confs[0] > 0.8) k = 0;
+            if (out[0] != "") Vcar = out[0];
+        }
+        if (!estDroit) {
+            if (out[4] != "" && confs[4] > max(0.8, confs[0])) k = 4;
+            if (out[4] != "") Hcar = out[4];
+        }
+            // parfois, on détecte un caractère D alors que c'est un R qui a été détecté avec une moins bonne confiance
+        if (out[0] == "R" && confs[0] > 0.4 && out[4] != "R") k = 0;
+        if (out[4] == "R" && confs[4] > 0.4 && out[0] != "R") k = 4;
+        kk = k;
+        // les 6 autres OCR:
+        for (int i=1; i< 8; i++){ 
+            if (i == 4) continue;
+            if (out[i] == "") continue;
+            if (i < 4 && Vcar == "" && out[i] != "") Vcar = out[i];
+            else if (Hcar == "" && out[i] != "") Hcar = out[i];
+            if (confs[i] > confs[k]) {
+                // privilégier le premier OCR Vertical ou Horizontal
+                //    le coin est généralement formé par les bords de carte
+                // si c'est un chiffre et i différent de 0 et 4
+                // si out[0] = V D ou R et confs[0] > 0.5, ne pas modifier
+                k = i;
+                if (out[i] == "10" || (out[i] > "0" && out[i] <= "9")) {
+                    if (kk >= 0) {
+                        if (out[kk] == "R" && confs[kk] > 0.4) k = kk;
+                        else if (out[i] == out[kk] && confs[kk] > 0.5) k = kk;
+                    }
+                }
+                else if ((out[i] == "V" || out[i] == "D" || out[i] == "R")) {
+                    if (kk >= 0) {
+                        if ((out[kk] == "V" || out[kk] == "D" || out[kk] == "R") && confs[kk] > 0.5) k = kk;
+                        if (out[kk] == out[i] && confs[kk] > 0.5) k = kk;
+                    }
+                }
+            }
+            else if (k < 0 && confs[i] > 0.4) { k = i; } // il faut une confiance minimale
+        }
+        if (k >= 0) { // on a trouvé un chiffre ou caractère V D R
+            confiance = confs[k];
+            output = out[k];
+            outprec = output;
+            nonvu = false;
+            if (printoption > 0)std::cout << "=======>" << output << " confiance "<< confiance << std::endl;
+            if (k < 4) { estDroit = true; inverse = false; Vcar = output; Hcar = ""; }
+            else { estDroit = false; inverse = true; Vcar = ""; Hcar = output; }
+            if (output == "V" || output == "D" || output == "R") {
+                estunRDV = true;
+                etaitRDV = true; // ne pas faire deux fois le recalcul de position de P et Q
+                recalcul = true; // recalculer les positions de A B U V AA ...
+                cadreX = true;
+                cadreY = true;
+                // recalculer les positions du coin (PP) et du cadre (QQ) selon la position détectée
+                if (k == 1 || k == 5) { QQ.x = PP.x; if (UU.x > PP.x) PP.x -= dc; else PP.x += dc; }
+                else if (k == 2 || k == 6) {
+                    QQ = PP;
+                    if (UU.x > PP.x) PP.x -= dc; else PP.x += dc;
+                    if (U.y > PP.y) PP.y -= dc; else PP.y += dc;
+                }
+                else if (k == 3 || k == 7) {
+                    QQ.y = PP.y;
+                    if (U.y > PP.y) PP.y -= dc; else PP.y += dc;
+                }
+            }
+            else { // c'est un chiffre
+                // recalculer seulement la position de PP
+                if (k == 1 || k == 5) { if (UU.x > PP.x) PP.x -= dc; else PP.x += dc; }
+                else if (k == 2 || k == 6) {
+                    if (UU.x > PP.x) PP.x -= dc; else PP.x += dc;
+                    if (U.y > PP.y) PP.y -= dc; else PP.y += dc;
+                }
+                else if (k == 3 || k == 7) {
+                    if (U.y > PP.y) PP.y -= dc; else PP.y += dc;
+                }
+                if (k != 0 && k != 4) recalcul = true;
+            }
+            if (k != 0 && k != 4) { // la position du coin change
+                // invalider l'orientation et la couleur 
+                if (printoption > 0) std::cout << " !! invalide  orientation et couleur" << std::endl;
+                inverse = false; estDroit = false; estRouge = false; estNoir = false;
+                recalcul = true;
+            }
+        }
+        
+        if (recalcul && estunRDV) { // recalculer UU VV AA BB  U V A B 
+            if (printoption > 0) std::cout << "RDV P=" << PP << ", Q=" << QQ << std::endl;
+            if (U.y < PP.y) {
+                VV.y = QQ.y; UU.y = VV.y - maconf.largeursymbole;
+                BB.y = QQ.y; AA.y = BB.y - maconf.largeurVDR;
+                B.y = QQ.y; A.y = B.y - maconf.tailleVDR;
+                V.y = A.y - maconf.deltachsymb;
+                U.y = V.y - maconf.taillesymbole;
+            }
+            else {
+                UU.y = QQ.y; VV.y = UU.y + maconf.largeursymbole;
+                AA.y = QQ.y; BB.y = AA.y + maconf.largeurVDR;
+                A.y = QQ.y; B.y = A.y + maconf.tailleVDR;
+                U.y = B.y + maconf.deltachsymb;
+                V.y = U.y + maconf.taillesymbole;
+            }
+            if (UU.x < PP.x) {
+                BB.x = QQ.x; AA.x = BB.x - maconf.tailleVDR;
+                VV.x = AA.x - maconf.deltachsymb; UU.x = VV.x - maconf.taillesymbole;
+                B.x = QQ.x; A.x = B.x - maconf.largeurVDR;
+                V.x = QQ.x; U.x = V.x - maconf.largeursymbole;
+            }
+            else {
+                AA.x = QQ.x; BB.x = AA.x + maconf.tailleVDR;
+                UU.x = BB.x + maconf.deltachsymb; VV.x = UU.x + maconf.taillesymbole;
+                A.x = QQ.x; B.x = A.x + maconf.largeurVDR;
+                U.x = QQ.x; V.x = U.x + maconf.largeursymbole;
+            }
+            reafficher = true;
+        }
+        if (recalcul && !estunRDV) { // pour ce chiffre, recalculer UU VV AA BB  U V A B 
+            if (U.y < PP.y) { // dessus
+                VV.y = PP.y - maconf.deltachiffre; UU.y = VV.y - maconf.largeursymbole;
+                BB.y = PP.y - maconf.deltachiffre; AA.y = BB.y - maconf.largeurchiffre;
+                B.y = PP.y - maconf.deltahaut; A.y = B.y - maconf.taillechiffre;
+                V.y = A.y - maconf.deltachsymb;
+                U.y = V.y - maconf.taillesymbole;
+            }
+            else { // dessous
+                UU.y = PP.y + maconf.deltachiffre; VV.y = UU.y + maconf.largeursymbole;
+                AA.y = PP.y + maconf.deltachiffre; BB.y = AA.y + maconf.largeurchiffre;
+                A.y = PP.y + maconf.deltahaut; B.y = A.y + maconf.taillechiffre;
+                U.y = B.y + maconf.deltachsymb;
+                V.y = U.y + maconf.taillesymbole;
+            }
+            if (UU.x < PP.x) { // à gauche
+                BB.x = PP.x - maconf.deltahaut; AA.x = BB.x - maconf.taillechiffre;
+                VV.x = PP.x - maconf.deltahautsymbole; UU.x = VV.x - maconf.taillesymbole;
+                B.x = PP.x - maconf.deltachiffre; A.x = B.x - maconf.largeurchiffre;
+                V.x = PP.x - maconf.deltasymbole; U.x = V.x - maconf.largeursymbole;
+            }
+            else { // à droite
+                AA.x = PP.x + maconf.deltahaut; BB.x = AA.x + maconf.taillechiffre;
+                UU.x = BB.x + maconf.deltachsymb; VV.x = UU.x + maconf.taillesymbole;
+                A.x = PP.x + maconf.deltachiffre; B.x = A.x + maconf.largeurchiffre;
+                U.x = PP.x + maconf.deltasymbole; V.x = U.x + maconf.largeursymbole;
+            }
+            reafficher = true;
+        }
+
+        // mémoriser les caractéristiques du coin qu'on vient de calculer
+        coin = coinPetit.clone();
+        uncoin  moncoin;
+        moncoin.A = A;
+        moncoin.B = B;
+        moncoin.AA = AA;
+        moncoin.BB = BB;
+        moncoin.U = U;
+        moncoin.V = V;
+        moncoin.UU = UU;
+        moncoin.VV = VV;
+        moncoin.PP = PP;
+        moncoin.QQ = QQ;
+        moncoin.inverse = inverse;
+        moncoin.numcoin = n;
+        moncoin.estunRDV = estunRDV;
+        moncoin.ima_coin = coinPetit;
+        moncoin.moyblanc = cv::Scalar(255, 255, 255);
+
+        calculerBlanc(moncoin, maconf);
+
+        // déterminer l'orientation et la couleur
+        calculerOrientation(moncoin, maconf);
+        // prorité à la détermination par OCR sinon  à cette détection
+        if (moncoin.inverse != inverse && angle != 360 && angle != 90) {
+            if (moncoin.inverse) {
+                if (out[0] == "" || out[4] != "") {
+                    inverse = true;
+                    Hcar  = out[4];
+                    if (Hcar != "") nonvu = false;
+                }
+            }
+            else {
+                if (out[4] == "" || out[0] != "") { 
+                    inverse = false;
+                    Vcar = out[0];
+                    if (Vcar != "") nonvu = false;
+                }
+
+            }
+
+        }
+        moncoin.inverse = inverse;
+        estDroit = !inverse;
+        estRouge = moncoin.estRouge;
+        estNoir = !estRouge;
+        std::cout << "==>";
+        if (inverse)  std::cout << "inverse";
+        else std::cout << "est Droit";
+        if (estRouge) std::cout << " Rouge";
+        else std::cout << " Noir";
+        std::cout << std::endl;
+
+        if (inverse) { output = outprec = Hcar; estDroit = false; if (Hcar != "") nonvu = false; }
+        else { output = outprec = Vcar;  estDroit = true; if (Vcar != "") nonvu = false; }
+        if (printoption > 0) if (inverse) std::cout << "inverse" << std::endl;
+        if (printoption > 0) if (!nonvu) std::cout << "==> " << outprec << std::endl;
+
+        // si c'est un Roi Dame ou Valet, on a trouvé sa valeur et son orientation
+        // et on a déterminé que c'est un R D ou V
+        // et on a recalculé les coordonnées des points U et V (ou UU et VV si inverse)
+        // on a les deux points diagonaux de la zone 1 et de la zone 2
+
+        // extraire la zone 1
+        // calculer la couleur moyenne et l'écart type de ce rectangle
+        cv::Scalar mean_color1, stddev_color1;
+        cv::Scalar mean_color2, stddev_color2;
+        dc = maconf.deltacadre;
+        // décalage lié à la position du cadre ?
+        if (reafficher) {
+            std::cout << "P=" << PP << "Q=" << QQ << std::endl;
+            extrait = coinPetit.clone();
+            cv::circle(extrait, U, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+            cv::circle(extrait, V, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+            cv::circle(extrait, UU, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+            cv::circle(extrait, VV, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+            cv::circle(extrait, A, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+            cv::circle(extrait, B, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
+            cv::circle(extrait, AA, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+            cv::circle(extrait, BB, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
+            cv::circle(extrait, PP, 2, cv::Scalar(0, 255, 255), -1);   // cercle jaune
+
+            cv::line(extrait, cv::Point2i(U.x, U.y), cv::Point2i(U.x, V.y), cv::Scalar(0, 0, 0), 1);
+            cv::line(extrait, cv::Point2i(U.x, U.y), cv::Point2i(V.x, U.y), cv::Scalar(0, 0, 0), 1);
+            cv::line(extrait, cv::Point2i(V.x, U.y), cv::Point2i(V.x, V.y), cv::Scalar(0, 0, 0), 1);
+            cv::line(extrait, cv::Point2i(V.x, V.y), cv::Point2i(U.x, V.y), cv::Scalar(0, 0, 0), 1);
+
+            cv::line(extrait, cv::Point2i(UU.x, UU.y), cv::Point2i(UU.x, VV.y), cv::Scalar(0, 255, 0), 1);
+            cv::line(extrait, cv::Point2i(UU.x, UU.y), cv::Point2i(VV.x, UU.y), cv::Scalar(0, 255, 0), 1);
+            cv::line(extrait, cv::Point2i(VV.x, UU.y), cv::Point2i(VV.x, VV.y), cv::Scalar(0, 255, 0), 1);
+            cv::line(extrait, cv::Point2i(VV.x, VV.y), cv::Point2i(UU.x, VV.y), cv::Scalar(0, 255, 0), 1);
+
+
+            if (estunRDV) cv::circle(extrait, QQ, 2, cv::Scalar(0, 0, 128), -1);   // cercle rouge foncé
+            afficherImage("Extrait", extrait);
+            cv::waitKey(1);
+        }
+
+
+        cv::Mat roi2_image;
+        cv::Mat roi_image;
+        // on a déterminé la zone d'intérêt
+        // extraire maintenant une zone élargie de quelques pixels dans chaque sens
+        // analyser la zone proche du haut du symbole, pour préciser la position du symbole
+
+        if (inverse) // considérer la zone 2 
+        {
+            if (printoption > 1) std::cout << "inverse (rappel)" << std::endl;
+            if (maconf.deltachsymb > 1) { // etre sur d'avoir le haut du symbole
+                if (UU.x > PP.x) UU.x--; else VV.x++;
+            }  
+            xg = UU.x;
+            yh = UU.y;
+            dx = 1 + VV.x - UU.x; // inclure le haut et le bas du symbole
+            dy = 1 + VV.y - UU.y;
+        }
+        else { // extraire la zone 1
+            if (maconf.deltachsymb > 1) { // etre sur d'avoir le haut du symbole
+                if (U.y > PP.y) U.y--; else V.y++;
+            }
+            xg = U.x;
+            dx = 1 + V.x - U.x;
+            yh = U.y;
+            dy = 1 + V.y - U.y;
+        }
+        // ajouter quelques pixels là ou on peut, pour tenir compte des variations de géométrie des cartes 
+        int ajout;
+
+        if (estunRDV) {
+            int dh = maconf.deltacadre;  // il y a beaucoup de blanc sous le symbole
+            if (inverse) {
+                // ajouter quelques  pixels sous le symbole, à droite ou à gauche, de l'autre coté du bord de carte
+                if (UU.x < PP.x) { xg -= dh; }
+                dx += dh; // conserver la droite du symbole (qui est à gauche) ou agrandir à droite
+            } else { 
+                // ajouter quelques pixels sous le symbole (c'est blanc sous le symbole, sauf pour le valet de trefle, une fois sur deux)
+                if (UU.y < PP.y) yh -= dh; // au dessus, donc lettre à l'envers
+                dy += dh;                  // dans tous les cas pour ajouter dh pixels dessous ou conserver le haut du symbole
+                // ce qui suit semble inutile
+                /********************************  désactivé
+                if (!cadreY) { // position y imprécise le chiffre et le symboles peuvent être plus haut ou plus bas
+                    if (U.y < PP.y) { yh -= maconf.deltahaut;  }
+                    dy += maconf.deltahaut; // conserver la taille ou ajouter dessous
+                }
+                if (!cadreX) {
+                    if (UU.x < PP.x) xg -= maconf.deltachiffre;
+                    dx += maconf.deltachiffre;
+                } 
+                ********************************/
+            }
+        }
+        else { // le symbole est sous un chiffre
+            ajout = max(1,  taillecar / 8); // élargir  la zone du symbole sauf vers le chiffre:
+            //ajout = 0; // on a déjà agrandi de 1 pixel sous le symbole mais c'est insuffisant
+            // si le chiffre est 10, on aura peut-être décalé PP vers l'extérieur du coin, de deltacadre
+            // car un des deux petits rectangles de test dans le coin rencontre le caractère 1 ou le caractère 0
+            // dans ce cas, élargir la zone du coin de deltacadre vers l'intérieur du coin
+            if (inverse) {
+                if (U.y > PP.y) { // dessous, agrandir vers le bord supérieur de la carte
+                    yh -= ajout;
+                    dy += ajout + ajout;
+                }
+                else {
+                    dy += ajout; // agrandir vers le bord inférieur
+                }
+                if (UU.x > PP.x) dx += 3*ajout; // il y a beaucoup de blanc sous le symbole sous un chiffre
+                else { xg -= 3*ajout; dx += 3*ajout; }
+            }
+            else { // vertical
+                if (UU.x < PP.x) {
+                    dx += ajout; // agrandir vers le bord de carte à droite
+                }
+                else {
+                    xg -= ajout; // agrandir vers le bord de carte à gauche
+                    dx += ajout;
+                }
+                if (UU.y > PP.y) dy += 3*ajout;  // beaucoup de blanc sous le symbole sous le chiffre
+                else { yh -= 3*ajout; dy += 3*ajout; }
+            }
+        }
+        if (xg < 0) xg = 0;
+        if (yh < 0) yh = 0;
+        if (dy > coinPetit.rows - yh) dy = coinPetit.rows - yh;
+        if (dx > coinPetit.cols - xg) dx = coinPetit.cols - xg;
+        if (dx <= 0 || dy <= 0) {
+            std::cout << "!!!!! erreur extraction du symbole " << std::endl;
+            // on conserve l'évaluation précédente, sans agrandissement
+        }
+        else {
+            // extraire
+            cv::Rect roi3(xg, yh, dx, dy);
+            tracerRectangle(roi3, extrait, "Extrait", cv::Scalar(0, 255, 255));
+            roi_image = coinPetit(roi3).clone();
+        }
+
+        // redresser le symbole extrait
+
+        // selon l'orientation du coin 
+            // il faudra pivoter  de + ou - 90 degrés ou 180
+        // coin haut gauche : si inversion : pivoter symbole -90
+        // coin haut droit  : si inversion : pivoter +90
+        // coin bas gauche  : si inversion : pivoter tout -90, sonon pivoter tout 180
+        // coin bas droit   : si inversion  : pivoter tout +90 , sinon pivoter tout 180
+        int rotation;
+        rotation = 0;
+        if (U.y < PP.y) { // coin bas gauche ou droite (de la carte)
+            cv::Mat rotated_image;
+            if (!inverse) { // tourner de 180 degrés
+                cv::rotate(roi_image, rotated_image, cv::ROTATE_180);
+                roi_image = rotated_image;
+                rotation = 2;
+            }
+        }
+        if (inverse) { // tourner tout à droite (-90) ou à gauche
+            cv::Mat rotated_image;
+            if (UU.x > PP.x) { // à droite haut ou bas 
+                cv::rotate(roi_image, rotated_image, cv::ROTATE_90_CLOCKWISE);
+                rotation = 1;
+            }
+            else { // à gauche
+                cv::rotate(roi_image, rotated_image, cv::ROTATE_90_COUNTERCLOCKWISE);
+                rotation = 3;
+            }
+            roi_image = rotated_image;
+        }
+
+        // analyser le symbole pour distinguer entre pique et trefle, si c'est une carte noire
+        //   ou entre coeur et carreau, si c'est une carte rouge
+        // symbole noir : écart type des lignes du tiers central : maximal --> Trefle
+        // insuffisant, il peut y avoir une variation d'intensité sur un symbole Pique 
+        //   tenir compte de l'intensité : foncé --> Pique, clair --> trefle
+        //      dépend de l'intensité du blanc
+        // se restreindre aux colonnes non blanches
+
+        // symbole rouge : considérer une ligne du quart haut gauche du symbole : blanc pour carreau, rouge pour coeur
+
+        int numcol = -1; // 0 : Pique, 1: Coeur, 2: carreau, 3: trefle
+
+        cv::Mat symbgros;
+        cv::Mat imaSymb = roi_image.clone();
+
+        cv::Point2i CS((maconf.largeurVDR + 1) / 2, (maconf.taillesymbole + 1) / 2); // centre probable du symbole
+
+        // cany  findcontours et moments : ne fonctionne pas
+        if (false) { // ceci ne fonctionne pas
+            // rechercher le centre du symbole
+            cv::Mat edges;
+            cv::Canny(roi_image, edges, 100, 200);
+
+            std::vector<std::vector<cv::Point>> contours;
+            cv::findContours(edges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+            // Afficher l'image avec les contours
+            cv::Mat imageContours = roi_image.clone();
+            cv::drawContours(imageContours, contours, -1, cv::Scalar(0, 255, 0), 2);
+            if (waitoption > 2) {
+                afficherImage("Contours", imageContours);
+                cv::waitKey(0);
+            }
+            for (size_t i = 0; i < contours.size(); ++i) {
+                cv::Moments m = cv::moments(contours[i], true);
+                if (m.m00 > 0) {
+                    double cx = m.m10 / m.m00;
+                    double cy = m.m01 / m.m00;
+                    std::cout << "Contour " << i << " : m00 = " << m.m00 << ", Centre = (" << cx << ", " << cy << ")" << std::endl;
+                }
+            }
+            if (!contours.empty()) {
+                // Calculer le moment pour le plus grand contour 
+                cv::Moments m = cv::moments(contours[0], true);
+                for (size_t i = 1; i < contours.size(); ++i) {
+                    cv::Moments m2 = cv::moments(contours[i], true);
+                    if (m2.m00 > m.m00) m = m2;
+                }
+                // Calculer le centre 
+                if (m.m00 > 0.001) {
+                    int x = (int)(m.m10 / m.m00 + 0.5);
+                    int y = (int)(m.m01 / m.m00 + 0.5);
+                    cv::Point center(x, y);
+                    CS = center;
+                }
+            }
+        }
+        int deltableu(0); // écart de bleu entre la partie infériere et la partie supérieure
+        int deltableugs(0);  // ... du gros symbole
+        int deltableucent(0);
+        double echelle = 1.0; // agrandissement du symbole, petit ou gros;
+        int ts(0), ls(0); // taille du symbole après agrandissement
+        int diviseur = 5; // partie de la bande horizontale du symbole
+        cv::Mat lig;
+        cv::Mat bande;
+        bool estgrossymb = false;
+        cv::Rect rG;  // rectangle pour extraire l'image du gros symbole
+
+//////////////////////////////// traitement du symbole rouge //////////////////////////
+
+        // Valet ? chapeau rouge--> carreau,  bleu --> coeur
+        if (estRouge) {
+            // si c'est un Valet, tester la couleur du chapeau
+            // le chapeau est au milieu du petit coté de la carte
+            // on teste la couleur d'un petit rectangle
+            // rouge --> carreau, bleu --> coeur
+            numcol = -1; // couleur non déterminée
+            // chapeau bleu ou rouge du valet ?
+            if (output == "V") {
+                int demilargeur = htcard / 3; // approximatif
+                if (inverse) {
+                    r.height = maconf.largeurgrosRDV; r.width = maconf.tailleVDR;
+                    if (UU.x > PP.x) r.x = QQ.x;
+                    else r.x = QQ.x - r.width;
+                    if (U.y < PP.y) r.y = PP.y - demilargeur - r.height / 2;
+                    else r.y = PP.y + demilargeur - r.height / 2;
+
+                }
+                else {
+                    r.width = maconf.largeurgrosRDV; r.height = maconf.tailleVDR;
+                    if (UU.x < PP.x) r.x = PP.x - demilargeur - r.width / 2;
+                    else r.x = PP.x + demilargeur - r.width / 2;
+                    if (UU.y < PP.y) r.y = QQ.y - r.height;
+                    else r.y = QQ.y;
+                }
+                cv::Mat ima_gs = coinPetit(r);
+                cv::line(extrait, cv::Point2i(r.x, r.y), cv::Point2i(r.x, r.y + r.height), cv::Scalar(0, 0, 0));
+                cv::line(extrait, cv::Point2i(r.x, r.y), cv::Point2i(r.x + r.width, r.y), cv::Scalar(0, 0, 0));
+                cv::line(extrait, cv::Point2i(r.x, r.y + r.height), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
+                cv::line(extrait, cv::Point2i(r.x + r.width, r.y), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
+                afficherImage("Extrait", extrait);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+
+                cv::meanStdDev(ima_gs, moy, ect);
+                if (printoption > 1) std::cout << "chapeau moy et ect " << moy << "," << ect << std::endl;
+
+                if (moy[0] < moy[2]) numcol = 2; // carreau
+                else numcol = 1; // coeur
+            }
+        }
+        // gros symbole?
+        if (estRouge && numcol < 0) {
+
+            // un gros symbole est présent à coté du caractère si la valeur de la carte est de 4 à 10
+            //  ou un honneur couché à droite au dessus ou à gauche au dessous
+            //     ou droit à droite au dessous ou à gauche au dessus
+            if (estunRDV) {
+                if (inverse) {
+                    rG.width = maconf.taillegrosRDV; rG.height = maconf.largeurgrosRDV;
+                    if (UU.x > PP.x && U.y < PP.y) { // couché, à droite au dessus
+                        estgrossymb = true;
+                        rG.x = QQ.x + maconf.deltagroshautRDV;
+                        rG.y = QQ.y - maconf.deltagrosRDV - r.height;
+                    }
+                    else if (UU.x < PP.x && U.y > PP.y) { // couché à gauche au dessous
+                        estgrossymb = true;
+                        rG.x = QQ.x - maconf.deltagroshautRDV - maconf.taillegrosRDV;
+                        rG.y = QQ.y + maconf.deltagrosRDV;
+                    }
+                }
+                else { // droit
+                    rG.height = maconf.taillegrosRDV; rG.width = maconf.largeurgrosRDV;
+                    if (UU.x > PP.x && U.y > PP.y) { // à droite dessous
+                        estgrossymb = true;
+                        rG.x = QQ.x + maconf.deltagrosRDV;
+                        rG.y = QQ.y + maconf.deltagroshautRDV;
+                    }
+                    else if (UU.x < PP.x && U.y < PP.y) { // à gauche dessus
+                        estgrossymb = true;
+                        rG.x = QQ.x - maconf.deltagrosRDV - maconf.largeurgrosRDV;
+                        rG.y = QQ.y - maconf.deltagroshautRDV - maconf.taillegrosRDV;
+                    }
+                }
+            }
+            else if (!nonvu && (output == "10" || (output[0] > '3' && output[0] <= '9'))) {
+                estgrossymb = true;
+                if (inverse) {
+                    rG.width = maconf.taillegros; rG.height = maconf.largeurgros;
+                    if (U.y < PP.y) rG.y = PP.y - maconf.deltagros - r.height;       // au dessus
+                    else rG.y = PP.y + maconf.deltagros;
+                    if (UU.x < PP.x) rG.x = PP.x - maconf.deltagroshaut - maconf.taillegros;
+                    else rG.x = PP.x + maconf.deltagroshaut;
+                }
+                else {
+                    rG.width = maconf.largeurgros; rG.height = maconf.taillegros;
+                    if (UU.x > PP.x) rG.x = PP.x + maconf.deltagros;
+                    else rG.x = PP.x - maconf.deltagros - maconf.largeurgros;
+                    if (U.y > PP.y) rG.y = PP.y + maconf.deltagroshaut;
+                    else rG.y = PP.y - maconf.deltagroshaut - maconf.taillegros;
+                }
+            }
+            r = rG;
+        }
+        if (estRouge && numcol < 0) {
+            if (estgrossymb) {
+                echelle = 8;
+                if (estunRDV) {
+                    ts = echelle * maconf.taillegrosRDV;
+                    ls = echelle * maconf.largeurgrosRDV;
+                }
+                else {
+                    ts = echelle * maconf.taillegros;
+                    ls = echelle * maconf.largeurgros;
+                }
+
+                tracerRectangle(r, extrait, "Extrait", cv::Scalar(0, 0, 0));
+                roi_image = coinPetit(r).clone(); // symbole petit ou gros
+                // redresser
+                if (inverse) {
+                    if (UU.x > PP.x) { cv::rotate(roi_image, roi_image, cv::ROTATE_90_CLOCKWISE); }// à droite rotation + 90
+                    else { cv::rotate(roi_image, roi_image, cv::ROTATE_90_COUNTERCLOCKWISE); } // à gauche rotation - 90
+                }
+                else if (U.y < PP.y) { cv::rotate(roi_image, roi_image, cv::ROTATE_180); }   //  droit dessus rotation 180
+                else {} // dessous laisser tel quel
+            }
+            else { // pas de gros symbole : utiliser le petit symbole, déjà extrait et redressé
+                echelle = 16;
+                ts = echelle * maconf.taillesymbole;
+                ls = echelle * maconf.largeursymbole;
+            }
+
+            cv::resize(roi_image, symbgros, cv::Size(), echelle, echelle); // agrandir
+            amplifyContrast(symbgros);
+            roi_image = symbgros.clone();
+
+            CS.x = roi_image.cols / 2;   // c'est inutile, on le calcule ici
+            CS.y = roi_image.rows / 2;
+            // rechercher la bande horizontale dont la hauteur est une partie de la hauteur du symbole
+            // dont l'intensité bleue (ou bleu-vert) est minimale (donc la plus rouge)
+            // on commence en haut de l'image
+            r.x = 0; r.width = roi_image.cols;
+            r.y = 0; r.height = ts / diviseur; // une partie de la hauteur du symbole agrandi
+            int minbleu = 255; // on cherche la moyenne bleu minimale
+            int yopt = 0; // position optimale
+            int yhBH = 0; //position du haut de la bande horizontale la plus rouge
+            int xgBH = 0; // position gauche 
+            while (r.y < roi_image.rows - r.height) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                if (moy[0] < minbleu) {
+                    minbleu = moy[0];
+                    yopt = r.y;
+                }
+                r.y++;
+            }
+            // on a trouvé la bande la plus rouge
+            // rechercher la position horizontale dans cette bande
+            r.y = yopt;
+            yhBH = yopt;
+            r.width = ls; // largeur du symbole
+            int minb2 = 255;
+            int xopt = 0; // position optimale
+            while (r.x < roi_image.cols - r.width) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                if (moy[0] < minb2) {
+                    minb2 = moy[0];
+                    xopt = r.x;
+                }
+                r.x++;
+            }
+            r.x = xopt;
+            // optimiser en éliminant le blanc à gauche:
+            // commencer à 1/3 à gauche dans la partie inférieure de la bande horizontale
+            // chercher une ligne blanche à gauche dans cette bande
+            r.x = xopt + ts / 3;
+            r.y = yopt + ts/10;
+            r.height = ts / diviseur - ts/10;
+            if (r.height > roi_image.rows - r.y) r.height = roi_image.rows - r.y;
+            r.width = 1;
+            // calculer une moyenne de référence dans cette bande 
+            lig = roi_image(r);
+            cv::Scalar moyW = cv::mean(lig);
+            r.x--; // rechercher une ligne plus blanche à gauche (plus bleue)
+            while (r.x >= xopt) {
+                lig = roi_image(r);
+                moy = cv::mean(lig);
+                if (moy[0] > moyW[0] + 10) {
+                    xopt = r.x + 1;
+                    break;
+                }
+                r.x--;
+            }
+            r.x = xopt;
+            xgBH = r.x;
+            int xmin = r.x;
+            int xmax = std::min(roi_image.cols -1, xmin + ls);
+            r.x = xopt; r.width = xmax - xopt;
+            tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 0, 0)); // bande horizontale centrée
+
+            // on a xmin et xmax du symbole
+            // donc le centre horizontal du symbole
+
+            CS.x = xmin + ls / 2;
+            // rechercher la position de la bande verticale optimale (avec le plus de rouge = le moins de bleu)
+            //  uniquement dans le tiers inférieur du symbole (en forme de V pour coeur et carreau)
+            //r.x = CS.x - 1;
+            //r.x = xmin + ls /4; // éviter un éventuel bout de caractère à gauche
+            r.x = xopt; // à gauche de la bande horizontale recentrée et repositionnée à gauche
+            r.width = 3; // colonne large de 3 pixels 
+            //r.y = 2*ts/3; // position en bas du symbole dans la partie en V
+            r.y = yopt + ts / diviseur; // position sous la bande horizontale
+            if (r.y >= roi_image.rows) r.y = roi_image.rows - 1;
+            r.height = min(ts/3, roi_image.rows / 3);
+            r.height = min(r.height, roi_image.rows - r.y);
+            xopt = 0;
+            int minb3 = 255;
+            while (r.x < xmax - r.width) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                if (moy[0] < minb3) {
+                    minb3 = moy[0];
+                    xopt = r.x;
+                }
+                r.x++;
+            }
+            // rechercher le haut du symbole, dans cette bande verticale, minimiser la moyenne  bleue
+            r.x = xopt;
+            //r.y = 0;
+            //r.y = max (0,yopt + ts / diviseur - ts);
+            //r.y = max(0, yhBH - 2 * ts / 5 - 1); // devrait être à la limite supérieur du symbole
+            r.y = max(0, yhBH - ts / 2); // devrait être à la limite supérieur du symbole
+            r.height = 7 * ts / 8; // pour être dans le creux central en haut si le symbole est coeur
+            //r.height = ts / 2; // pour être dans le creux central en haut si le symbole est coeur
+            int minb4 = 255;
+            yopt = r.y;
+            while (r.y < roi_image.rows - r.height) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                if (moy[0] < minb4) {
+                    minb4 = moy[0];
+                    yopt = r.y;
+                }
+                r.y++;
+            }
+            // on a le haut de cette colonne centrale étroite.
+            // peut-être trop haut? descendre jusqu'à trouver un peu de rouge
+            r.y = yopt; r.height = 2;
+            while (r.y < yopt + ts / 2) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                if (moy[2] > moy[0] + 10) break;
+                r.y++;
+            }
+            yopt = r.y;
+            r.height = min(ts / 2, roi_image.rows - yopt);
+            // on a le haut du symbole dans la colonne centrale (yopt) : la pointe du carreau ou le creux du coeur
+            r.x = xopt; // largeur 3
+            r.y = yopt;
+            tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 0, 0)); // bande vericale centrée
+            // on a la position haute du symbole : le haut du carreau, le creux du coeur
+            // analyser un segment à gauche à cette hauteur : très bleu (blanc)  pour carreau, moins pour coeur (un peu rouge)
+            int limblanc = 20;  // valeur expérimentale
+            r.height = 3; // ligne haute de 3 pixels
+            r.width = ls / 3; // uniquement la partie à gauche : blanche pour carreau, rose pour coeur
+            //r.x = max(xmin, xopt - 2*ls / 3);
+            //r.x = max(0, xopt - 5*ls / 12); // ligne un peu à gauche de l'axe vertical du symbole
+            r.x = xgBH; // position gauche du symbole
+            r.width = max (1,min(ls / 3, xopt - xgBH)); // ligne à gauche de l'axe 
+            tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 0, 0)); // petite ligne de test en haut à gauche
+            lig = roi_image(r);
+            moy = cv::mean(lig);
+            int moyb = moy[0]; int moyr = moy[2]; // référence pour blanc des 3 couleurs
+            if (moyr - moyb < limblanc) numcol = 2; //carreau
+            else numcol = 1;
+            // essayer la reconnaissance optique du symbole
+            double conf = 0;
+            std::string result = execOCR("rien", roi_image, &conf);
+            if (printoption > 1) std::cout << "OCR symbole " << result << " confiance " << conf << std::endl;
+
+            if (numcol == 1) std::cout << " coeur  moyennes bleu et rouge  "<<moyb<<","<<moyr << std::endl;
+            else std::cout << " carreau  moyennes bleu et rouge  " << moyb << "," << moyr << std::endl;
+            if (numcol == 1 && (result == "*" || result == "4") && conf > 0.4) {
+                numcol = 2; 
+                std::cout << " rectification : carreau" << std::endl;
+            } else if (numcol == 2 && ((result == "Y" || result == "S" || result == "P") && conf > 0.4)) {
+                    numcol = 1;
+                    std::cout << " rectification : coeur" << std::endl;
+            }
+            // OCR peut trouver d'autres résultats que * 4 Y S P
+            afficherImage("gros", symbgros);
+        }
+        if (estRouge && numcol > 0) {
+            if (numcol == 1) std::cout << " coeur" << std::endl;
+            else std::cout << " carreau " << std::endl;
+
+            if (waitoption > 2)  cv::waitKey(0); else cv::waitKey(1);
+        }
+
+//////////////////////////////// traitement du symbole noir ///////////////////////////
+        if (estNoir) {
+            // commencer par le gros symbole s'il existe
+            bool estgrossymb = false;
+            if (estunRDV) {
+                if (inverse) {
+                    r.width = maconf.taillegrosRDV; r.height = maconf.largeurgrosRDV;
+                    if (UU.x > QQ.x && U.y < QQ.y) { // couché, à droite au dessus
+                        r.x = QQ.x + maconf.deltagroshautRDV;
+                        r.y = QQ.y - maconf.deltagrosRDV - maconf.largeurgrosRDV;
+                        estgrossymb = true;
+                    }
+                    else if (UU.x < QQ.x && U.y > QQ.y) { // couché à gauche au dessous
+                        r.x = QQ.x - maconf.deltagroshautRDV - maconf.taillegrosRDV;
+                        r.y = QQ.y + maconf.deltagrosRDV;
+                        estgrossymb = true;
+                    }
+                }
+                else {
+                    r.width = maconf.largeurgrosRDV; r.height = maconf.taillegrosRDV;
+                    if (UU.x > QQ.x && U.y > QQ.y) { // à droite au dessous
+                        r.x = QQ.x + maconf.deltagrosRDV;
+                        r.y = QQ.y + maconf.deltagroshautRDV;
+                        estgrossymb = true;
+                    }
+                    else if (UU.x < QQ.x && U.y < QQ.y) { // à gauche au dessus
+                        r.x = QQ.x - maconf.deltagrosRDV - maconf.largeurgrosRDV;
+                        r.y = QQ.y - maconf.deltagroshautRDV - maconf.taillegrosRDV;
+                        estgrossymb = true;
+                    }
+                }
+                ts = maconf.taillegrosRDV;
+                ls = maconf.largeurgrosRDV;
+            } //estunRDV
+            else if (!nonvu && (output == "10" || (output[0] > '3' && output[0] <= '9'))) {
+                estgrossymb = true;
+                if (inverse) {
+                    r.width = maconf.taillegros; r.height = maconf.largeurgros;
+                    if (UU.x > PP.x) r.x = PP.x + maconf.deltagroshaut; // à droite
+                    else             r.x = PP.x - maconf.deltagroshaut - maconf.taillegros;
+                    if (U.y < PP.y) r.y = PP.y - maconf.deltagros - maconf.largeurgros; // dessus
+                    else            r.y = PP.y + maconf.deltagros;
+                }
+                else {
+                    r.width = maconf.largeurgros; r.height = maconf.taillegros;
+                    if (UU.x > PP.x) r.x = PP.x + maconf.deltagros; // à droite
+                    else             r.x = PP.x - maconf.deltagros - maconf.largeurgros;
+                    if (U.y > PP.y) r.y = PP.y + maconf.deltagroshaut; // dessous
+                    else            r.y = PP.y - maconf.deltagroshaut - maconf.taillegros;
+                }
+                ts = maconf.taillegros;
+                ls = maconf.largeurgros;
+            }
+            if (estgrossymb) {
+                tracerRectangle(r, extrait, "Extrait", cv::Scalar(0, 0, 255));
+                roi_image = coinPetit(r).clone();
+                // redresser
+                if (U.y < PP.y) { // coin bas gauche ou droite (de la carte)
+                    cv::Mat rotated_image;
+                    if (!inverse) { // tourner de 180 degrés
+                        cv::rotate(roi_image, rotated_image, cv::ROTATE_180);
+                        roi_image = rotated_image;
+                    }
+                }
+                if (inverse) { // tourner tout à droite (-90) ou à gauche
+                    cv::Mat rotated_image;
+                    if (UU.x > PP.x) { // à droite haut ou bas 
+                        cv::rotate(roi_image, rotated_image, cv::ROTATE_90_CLOCKWISE);
+                    }
+                    else { // à gauche
+                        cv::rotate(roi_image, rotated_image, cv::ROTATE_90_COUNTERCLOCKWISE);
+                    }
+                    roi_image = rotated_image;
+                }
+                echelle = 8;
+                if (estunRDV) {
+                    ts = maconf.taillegrosRDV;
+                    ls = maconf.largeurgrosRDV;
+                }
+                else {
+                    ts = maconf.taillegros;
+                    ls = maconf.largeurgros;
+                }
+            }
+            else {
+                // l'image roi_image du petit symbole à déjà été extraite et redressée
+                echelle = 16;
+                ts = maconf.taillesymbole;
+                ls = maconf.largeursymbole;
+            }
+                /*******************************
+            else {
+                // extraire le petit symbole
+                // c'est déjà fait
+                if (inverse) {
+                    r.x = UU.x; r.y = UU.y; r.width = maconf.taillesymbole; r.height = maconf.largeursymbole;
+                }
+                else {
+                    r.x = U.x; r.y = U.y; r.width = maconf.largeursymbole; r.height = maconf.taillesymbole;
+                }
+                echelle = 16;
+                ts = maconf.taillesymbole;
+                ls = maconf.largeursymbole;
+            }
+            tracerRectangle(r, extrait, "Extrait", cv::Scalar(0, 0, 255));
+            //
+            // extraire le symbole
+            cv::Mat roi_image = coinPetit(r).clone();
+            // redresser
+            if (inverse) {
+                if (UU.x > PP.x) { cv::rotate(roi_image, roi_image, cv::ROTATE_90_CLOCKWISE); }// à droite rotation + 90
+                else { cv::rotate(roi_image, roi_image, cv::ROTATE_90_COUNTERCLOCKWISE); } // à gauche rotation - 90
+            }
+            else if (U.y < PP.y) { cv::rotate(roi_image, roi_image, cv::ROTATE_180); }   //  droit dessus rotation 180
+            else {} // dessous laisser tel quel
+
+            ***************************/
+            cv::resize(roi_image, roi_image, cv::Size(), echelle, echelle);
+            amplifyContrast(roi_image);
+            symbgros = roi_image.clone();
+            afficherImage("gros", symbgros); cv::waitKey(1);
+            ts *= echelle;
+            ls *= echelle;
+            // la référence du blanc a déjà été calculée dans moncoin.moyblanc
+
+            int xopt(0), yopt(0);
+            // trouver la bande horizontale la plus noire
+            r.x = 0; r.y = 0; r.width = roi_image.cols; r.height = ts / diviseur;
+            int min1 = 255; // intensité minimale
+            while ( r.y < (roi_image.rows - r.height)) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                int m = (moy[0] + moy[1] + moy[2]) / 3;
+                if (m < min1) {
+                    min1 = m;
+                    yopt = r.y;
+                }
+                r.y++;
+            }
+            r.y = yopt;
+            // centrer en X
+            r.width = min(ls, roi_image.cols);
+            min1 = 255;
+            while (r.x < roi_image.cols - r.width) {
+                bande = roi_image(r);
+                moy = cv::mean(bande);
+                int m = (moy[0] + moy[1] + moy[2]) / 3;
+                if (m < min1) {
+                    min1 = m;
+                    xopt = r.x;
+                }
+                r.x++;
+            }
+            r.x = xopt;
+            tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 0, 255));
+            bande = roi_image(r);
+            cv::Scalar  moyref = cv::mean(bande);
+            // trouver la colonne centrale du symbole (la plus noire sur toute la hauteur du symbole)
+            r.y = 0; r.height = min(roi_image.rows, ts);
+            min1 = 255;
+            r.x = 0; r.width = 3;
+            while (r.x < roi_image.cols - r.width) {
+                bande = roi_image(r);
+                moy = mean(bande);
+                int m = (moy[0] + moy[1] + moy[2]) / 3;
+                if (m < min1) {
+                    min1 = m;
+                    xopt = r.x;
+                }
+                r.x++;
+            }
+            // on a l'axe vertical du symbole
+            // considérer la partie centrale de cette bande : la croix au centre du trefle ou le centre noir du pique
+            r.x = max(0,xopt - ls / 5); r.width = 2 * ls / 5;
+            if (r.width > roi_image.cols - r.x) r.width = roi_image.cols - r.x;
+            r.y = yopt; r.height = ts / diviseur; // partie centrale
+            tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0));
+
+            bande = roi_image(r);
+            cv::meanStdDev(bande, moy, ect);
+            int intens = (moy[0] + moy[1] + moy[2]) / 3;
+            int intref = (moncoin.moyblanc[0] + moncoin.moyblanc[1] + moncoin.moyblanc[2]) / 3;
+            if (ect[0] < 10) {   // plutot du Pique
+                if (ect[0] > 5 && intens > intref / 2) {
+                    numcol = 3; std::cout << "Trefle ect intensite "<< ect<< intens <<", "<< intref;
+                }
+                else {
+                    numcol = 0; std::cout << "Pique ect intensite " << ect << intens << ", " << intref;
+                }
+            }
+            else {
+                // fausse détection Trefle si l'intensité du symbole Pique est variable
+                // dans ce cas, Pique est plus foncé que trefle
+                if (intens < intref / 2) { numcol = 0; std::cout << "Pique ect intensite " << ect << intens << ", " << intref;
+                }
+                else { numcol = 3; std::cout << "Trefle ect intensite " << ect << intens << ", " << intref; }
+            }
+            std::cout << std::endl;
+
+
+
+
+            // si c'est un Valet, tester la couleur du chapeau
+            // le chapeau est au milieu du petit coté de la carte
+            // on teste la couleur d'un petit rectangle
+            // rouge --> pique, bleu --> trefle
+            // désactivé car ce n'est pas vrai pour tous les jeux de cartes
+            // TODO : ajouter un indicateur dans la configuration
+            //
+                if (false && estunRDV && outprec == "V") {
+                    int demilargeur = htcard / 3; // approximatif
+                    if (inverse) {
+                        r.height = maconf.largeurgrosRDV; r.width = maconf.tailleVDR;
+                        if (UU.x > PP.x) r.x = QQ.x;
+                        else r.x = QQ.x - r.width;
+                        if (U.y < PP.y) r.y = PP.y - demilargeur - r.height / 2;
+                        else r.y = PP.y + demilargeur - r.height / 2;
+
+                    }
+                    else {
+                        r.width = maconf.largeurgrosRDV; r.height = maconf.deltacadre;
+                        if (UU.x < PP.x) r.x = PP.x - demilargeur - r.width / 2;
+                        else r.x = PP.x + demilargeur - r.width / 2;
+                        if (U.y < PP.y) r.y = QQ.y - r.height - maconf.deltacadre / 2;
+                        else r.y = QQ.y + maconf.deltacadre / 2;
+                    }
+                    cv::Mat ima_gs = coinPetit(r);
+                    cv::line(extrait, cv::Point2i(r.x, r.y), cv::Point2i(r.x, r.y + r.height), cv::Scalar(0, 0, 0));
+                    cv::line(extrait, cv::Point2i(r.x, r.y), cv::Point2i(r.x + r.width, r.y), cv::Scalar(0, 0, 0));
+                    cv::line(extrait, cv::Point2i(r.x, r.y + r.height), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
+                    cv::line(extrait, cv::Point2i(r.x + r.width, r.y), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
+                    afficherImage("Extrait", extrait);
+                    if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+
+                    cv::meanStdDev(ima_gs, moy, ect);
+                    if (printoption > 1) std::cout << "chapeau moy et ect " << moy << "," << ect << std::endl;
+
+                    if (moy[0] < moy[2]) numcol = 0; // pique
+                    else numcol = 3; // trefle
+                }
+        }
+
+
+        // afficherImage("gros", roi_image);
+        cv::String symb;
+#ifdef _WIN32
+        symb = "D:\\coins\\symb" + std::to_string(n) + ".png";
+#else
+        symb = "symb" + std::to_string(n) + ".png";
+#endif
+        //cv::imwrite(symb, roi_image);
+
+        imaSymb = roi_image.clone();
+
+        // si on déjà reconnu le chiffre ou la lettre V D ou R il est inutile de relancer la recherche
+        bool nonreconnu = false;
+        int x, y;
+
+        if (nonvu ) {  // on n'a pas encore trouvé le caractère
+            if (inverse) {
+                A = AA;
+                B = BB;
+            }
+            // si c'est un Roi une Dame ou un Valet, la position du coin est mal définie
+            // la réalité peut être légèrement à l'extérieur du coin identifié
+            // donc déplacer de "deltacadre" 
+            if (estunRDV) {
+                cv::Point2i M((UU + VV) / 2);
+                if (!cadreY) {
+                    if (M.y > PP.y)  A.y -= maconf.deltacadre;
+                    else B.y += maconf.deltacadre;
+                }
+                /****************** ne pas élargir car il y a un gros symbole juste à coté, génant pour le Valet de Pique */
+                if (inverse)
+                    if (M.y < PP.y) { A.y -= maconf.largeurVDR / 3; B.y += 1; } // on risque d'absorber le trait du cadre
+                    else { B.y += maconf.largeurVDR / 3; A.y -= 1; }
+                else 
+                    if (M.x > PP.x) { B.x += maconf.largeurVDR / 3;  A.x -= 1; }
+                    else { A.x -= maconf.largeurVDR / 3;  B.x += 1; }
+            }
+            else { // probablement un chiffre, bords de carte mal définis, si c'est en réalité un R D V
+                if (A.y < PP.y) B.y += maconf.deltahaut/2;
+                else A.y -= maconf.deltahaut/2;
+                if (!inverse) {
+                    if (A.x > PP.x) { A.x -= maconf.deltacadre/2; B.x += maconf.deltacadre/2; }
+                    else { B.x += maconf.deltacadre/2; A.x -= maconf.deltacadre/2; }
+                }
+            }
+
+            // rester dans les limites de coinPetit
+            A.x = max(0, A.x);
+            A.y = max(0, A.y);
+            B.x = max(0, B.x);
+            B.y = max(0, B.y);
+            if (B.x > coinPetit.cols) B.x = coinPetit.cols;
+            if (B.y > coinPetit.rows) B.y = coinPetit.rows;
+            // on a déterminé la zone du chiffre : rectangle de diagonale AB
+            // 
+            if (inverse) cv::line(extrait, A, B, cv::Scalar(0, 255, 0), 1); // petit trait vert
+            else cv::line(extrait, A, B, cv::Scalar(0, 0, 0), 1); // petit trait noir
+            if (estunRDV) cv::circle(extrait, PP, 4, cv::Scalar(0, 0, 0), 2); // cercle noir
+            afficherImage("Extrait", extrait);
+            x = A.x;
+            y = A.y;
+            dx = max(1,1 + B.x - A.x);
+            dy = max(1,1 + B.y - A.y);
+
+            if (x + dx >= coinPetit.cols) dx = coinPetit.cols - x -1;
+            if (y + dy >= coinPetit.rows) dy = coinPetit.rows - y -1;
+
+            cv::Rect regionC(x, y, dx, dy);
+            ima_car= coinPetit(regionC);
+
+            // éventuelle rotation déjà déterminée lors de l'étude du symbole
+            cv::Mat rotated_image;
+
+            if (rotation == 1) {
+                cv::rotate(ima_car, rotated_image, cv::ROTATE_90_CLOCKWISE);
+                ima_car = rotated_image;
+            } else
+            if (rotation == 2) {
+                cv::rotate(ima_car, rotated_image, cv::ROTATE_180);
+                ima_car = rotated_image;
+            } else
+            if (rotation == 3) {
+                cv::rotate(ima_car, rotated_image, cv::ROTATE_90_COUNTERCLOCKWISE);
+                ima_car = rotated_image;
+            }
+
+            // TODO:
+            // on a extrait largement, il peut y avoir des morceaux du cadre en haut et sur les cotés
+            //    et une partie du symbole
+            // rechercher la présence d'une ligne du cadre à gauche : d'où X Gauche 
+            // rechercher la présence d'une ligne du cadre à droite : d'où X Droit
+            // rechercher la présence d'une ligne du cadre dessus : d'où Y Haut
+            // rechercher la présence du symbole : à partir du milieu estimé du chiffre (ou VDR)
+            //          en déscendant jusqu'à une ligne blache (entre XG et XD). d'où Y Bas
+            // extraire la zone délimitée par XG XH YB YH
+
+
+            // vérifier 
+            cv::Mat imagros;
+            cv::resize(ima_car, imagros, cv::Size(), 4.0, 4.0);
+            afficherImage("chiffre", imagros);
+            if (waitoption > 2)  cv::waitKey(0); else cv::waitKey(1);
+
+
+            ///// filtrer les coins détectés sur le dessin du Roi Dame ou Valet
+            // détecter les bords et les contours, filtrer sur le périmètre ou la surface des contours
+
+            // comparer les couleurs 
+
+            // Enregistrer l'image extraite au format PNG
+            cv::String nomcoin;
+    #ifdef _WIN32
+            nomcoin = "D:\\coins\\coin" + std::to_string(n) + ".png";
+    #else
+            nomcoin = "coin" + std::to_string(n) + ".png";
+    #endif
+            //cv::imwrite(nomcoin, ima_car);
+
+            cv::Mat ima_ch= ima_car;
+            //std::string output;
+            output = execOCR(nomcoin, ima_ch);
+            cv::resize(ima_ch, imagros, cv::Size(), 4.0, 4.0);
+            afficherImage("chiffre", imagros);
+            if (waitoption > 2)  cv::waitKey(0); else cv::waitKey(1);
+
+            nonreconnu = false;
+
+            if (output == "" && outprec != "") output = outprec;
+            int sz = output.size();
+            if (sz < 1 || sz > 2) nonreconnu = true;
+            else{
+                if (estunRDV) {
+                    // accepter IV ID IR 
+                    if (output == "IV" || output == "ID" || output == "IR") output = output[1];
+                    if (output == "VI" || output == "DI" || output == "RI") output = output[0];
+                    if (output[0] != 'V' && output[0] != 'D' && output[0] != 'R') nonreconnu = true;
+                } else{
+                    if (sz != 1 || (output[0] < '1' || output[0] > '9'))nonreconnu = true;
+                    if (output[0] == 'V' || output[0] == 'D' || output[0] == 'R') nonreconnu = false;
+                    if (sz == 2) {
+                        nonreconnu = true;
+                        if ((output[0] == '1' || output[0] == 'I') && (output[1] == '0' || output[1] == 'O' || output[1] == 'C')) { 
+                            nonreconnu = false;
+                            output = "10";
+                        }
+                    }
+                }
+            }
+        }
+
+        if (nonreconnu) { 
+
+            std::cout << "non reconnu " << output << std::endl;
+        }
+        else {
+            std::string texte = "";
+            if (numcol == 0) {
+                texte = "P ";  std::cout << " Pique ";
+            }
+            if (numcol == 1) {
+                texte = "C "; std::cout << " Coeur ";
+            }
+            if (numcol == 2) {
+                texte = "K "; std::cout << " Carreau ";
+            }
+            if (numcol == 3) {
+                texte = "T "; std::cout << " trefle ";
+            }
+
+            if (!nonvu && outprec != "" && outprec != output)
+                std::cout << "detection incoherente "<<output<< " <> " << outprec << std::endl;
+            std::cout << output[0];
+            texte += output[0];
+            int sz = output.size();
+            if (sz > 1) {
+                texte += output[1];  std::cout << output[1];
+            }
+            std::cout << std::endl<<std::endl;
+            // afficher le texte sur l'image originale 
+            cv::Point2i PT(coins[n][4], coins[n][5]);
+            int font = cv::FONT_HERSHEY_SIMPLEX;
+            double scale = 0.4;
+            cv::Scalar colt(128, 255, 0);  //vert foncé
+            int epais = 1;
+            cv::putText(result, texte, PT, font, scale, colt, epais);
+            afficherImage("result",result);
+        }
+        std::cout << std::endl;
+        if (waitoption > 1) cv::waitKey(0);  else cv::waitKey(1);// attendre 
+
+        // fermer les fenêtres
+        double val;
+        val = cv::getWindowProperty("Extrait", cv::WND_PROP_VISIBLE);
+        if(val > 0) cv::destroyWindow("Extrait");
+        val = cv::getWindowProperty("chiffre", cv::WND_PROP_VISIBLE);
+        if(val > 0) cv::destroyWindow("chiffre");
+        val = cv::getWindowProperty("gros", cv::WND_PROP_VISIBLE);
+        if (val > 0) cv::destroyWindow("gros");
+        val = cv::getWindowProperty("droit", cv::WND_PROP_VISIBLE);
+        if(val > 0) cv::destroyWindow("droit");
+        val = cv::getWindowProperty("avant rot", cv::WND_PROP_VISIBLE);
+        if(val > 0) cv::destroyWindow("avant rot");
+
+    }
+    std::cout << "====== fini ======" << std::endl;
+    if (waitoption) cv::waitKey(0);
+    return 0;
+}

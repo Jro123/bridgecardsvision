@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Site BuildName="(empty)"
+	BuildStamp="20250325-0858-Experimental"
+	Name="(empty)"
+	Generator="ctest-3.28.3"
+	CompilerName=""
+	CompilerVersion=""
+	OSName="Linux"
+	Hostname="jro-M51AC"
+	OSRelease="6.11.0-19-generic"
+	OSVersion="#19~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Mon Feb 17 11:51:52 UTC 2"
+	OSPlatform="x86_64"
+	Is64Bits="1"
+	VendorString="GenuineIntel"
+	VendorID="Intel Corporation"
+	FamilyID="6"
+	ModelID="60"
+	ProcessorCacheSize="8192"
+	NumberOfLogicalCPU="8"
+	NumberOfPhysicalCPU="4"
+	TotalVirtualMemory="4095"
+	TotalPhysicalMemory="15834"
+	LogicalProcessorsPerPhysical="2"
+	ProcessorClockFrequency="3341.46"
+	>
+	<Testing>
+		<StartDateTime>Mar 25 09:58 CET</StartDateTime>
+		<StartTestTime>1742893132</StartTestTime>
+		<TestList/>
+		<EndDateTime>Mar 25 09:58 CET</EndDateTime>
+		<EndTestTime>1742893132</EndTestTime>
+		<ElapsedMinutes>0</ElapsedMinutes>
+	</Testing>
+</Site>
