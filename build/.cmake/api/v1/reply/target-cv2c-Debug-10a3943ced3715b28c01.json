@@ -30,13 +30,13 @@
 			{
 				"command" : 0,
 				"file" : 0,
-				"line" : 27,
+				"line" : 29,
 				"parent" : 0
 			},
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 30,
+				"line" : 32,
 				"parent" : 0
 			},
 			{
@@ -147,6 +147,21 @@
 			},
 			{
 				"backtrace" : 2,
+				"fragment" : "-lfreetype",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "-lharfbuzz",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "/usr/lib/x86_64-linux-gnu/libopencv_freetype.so.4.6.0",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
 				"fragment" : "-lleptonica",
 				"role" : "libraries"
 			},
@@ -181,13 +196,13 @@
 				"role" : "libraries"
 			},
 			{
-				"backtrace" : 2,
-				"fragment" : "/usr/lib/x86_64-linux-gnu/libopencv_imgproc.so.4.6.0",
+				"backtrace" : 8,
+				"fragment" : "/usr/lib/x86_64-linux-gnu/libopencv_flann.so.4.6.0",
 				"role" : "libraries"
 			},
 			{
-				"backtrace" : 8,
-				"fragment" : "/usr/lib/x86_64-linux-gnu/libopencv_flann.so.4.6.0",
+				"backtrace" : 2,
+				"fragment" : "/usr/lib/x86_64-linux-gnu/libopencv_imgproc.so.4.6.0",
 				"role" : "libraries"
 			},
 			{

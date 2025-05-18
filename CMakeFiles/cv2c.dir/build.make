@@ -177,13 +177,14 @@ cv2c: /usr/lib/x86_64-linux-gnu/libpython3.12.so
 cv2c: /home/jro/myenv/lib/libopencv_highgui.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_videoio.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_ximgproc.so.4.12.0
+cv2c: /home/jro/myenv/lib/libopencv_freetype.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_imgcodecs.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_video.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_dnn.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_calib3d.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_features2d.so.4.12.0
-cv2c: /home/jro/myenv/lib/libopencv_imgproc.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_flann.so.4.12.0
+cv2c: /home/jro/myenv/lib/libopencv_imgproc.so.4.12.0
 cv2c: /home/jro/myenv/lib/libopencv_core.so.4.12.0
 cv2c: CMakeFiles/cv2c.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/jro/DEV/CV2C/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Linking CXX executable cv2c"

@@ -6,7 +6,8 @@
                 "${workspaceFolder}/**",
                 "~/myenv/include/opencv4",
                 "/usr/include/leptonica",
-                "/usr/include/tesseract"
+                "/usr/include/tesseract",
+                "/usr/include/freetype2"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

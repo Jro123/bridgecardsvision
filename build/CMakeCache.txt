@@ -232,6 +232,21 @@ CV2C_IS_TOP_LEVEL:STATIC=ON
 //Value Computed by CMake
 CV2C_SOURCE_DIR:STATIC=/home/jro/DEV/CV2C
 
+//Path to a file.
+FREETYPE_INCLUDE_DIR_freetype2:PATH=/usr/include/freetype2
+
+//Path to a file.
+FREETYPE_INCLUDE_DIR_ft2build:PATH=/usr/include/freetype2
+
+//Path to a library.
+FREETYPE_LIBRARY_DEBUG:FILEPATH=FREETYPE_LIBRARY_DEBUG-NOTFOUND
+
+//Path to a library.
+FREETYPE_LIBRARY_RELEASE:FILEPATH=/usr/lib/x86_64-linux-gnu/libfreetype.so
+
+//The directory containing a CMake configuration file for HarfBuzz.
+HarfBuzz_DIR:PATH=/usr/lib/x86_64-linux-gnu/cmake/harfbuzz
+
 //The directory containing a CMake configuration file for OpenCV.
 OpenCV_DIR:PATH=/usr/lib/x86_64-linux-gnu/cmake/opencv4
 
@@ -400,12 +415,22 @@ CURL_LIBRARY_DEBUG-ADVANCED:INTERNAL=1
 CURL_LIBRARY_RELEASE-ADVANCED:INTERNAL=1
 //Details about finding CURL
 FIND_PACKAGE_MESSAGE_DETAILS_CURL:INTERNAL=[/usr/lib/x86_64-linux-gnu/libcurl.so][/usr/include/x86_64-linux-gnu][c ][v8.5.0()]
+//Details about finding Freetype
+FIND_PACKAGE_MESSAGE_DETAILS_Freetype:INTERNAL=[/usr/lib/x86_64-linux-gnu/libfreetype.so][/usr/include/freetype2][v2.13.2()]
 //Details about finding OpenCV
 FIND_PACKAGE_MESSAGE_DETAILS_OpenCV:INTERNAL=[/usr][v4.6.0()]
 //Details about finding PkgConfig
 FIND_PACKAGE_MESSAGE_DETAILS_PkgConfig:INTERNAL=[/usr/bin/pkg-config][v1.8.1()]
 //Details about finding Python
 FIND_PACKAGE_MESSAGE_DETAILS_Python:INTERNAL=[/usr/bin/python3][/usr/include/python3.12][/usr/lib/x86_64-linux-gnu/libpython3.12.so][cfound components: Interpreter Development Development.Module Development.Embed ][v3.12.3()]
+//ADVANCED property for variable: FREETYPE_INCLUDE_DIR_freetype2
+FREETYPE_INCLUDE_DIR_freetype2-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: FREETYPE_INCLUDE_DIR_ft2build
+FREETYPE_INCLUDE_DIR_ft2build-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: FREETYPE_LIBRARY_DEBUG
+FREETYPE_LIBRARY_DEBUG-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: FREETYPE_LIBRARY_RELEASE
+FREETYPE_LIBRARY_RELEASE-ADVANCED:INTERNAL=1
 PC_CURL_CFLAGS:INTERNAL=-I/usr/include/x86_64-linux-gnu
 PC_CURL_CFLAGS_I:INTERNAL=
 PC_CURL_CFLAGS_OTHER:INTERNAL=

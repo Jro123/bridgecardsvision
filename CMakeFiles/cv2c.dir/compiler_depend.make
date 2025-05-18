@@ -2476,6 +2476,7 @@ CMakeFiles/cv2c.dir/traiterCoin.cpp.o: traiterCoin.cpp \
   /home/jro/myenv/include/opencv4/opencv2/flann/sampling.h \
   /home/jro/myenv/include/opencv4/opencv2/flann/saving.h \
   /home/jro/myenv/include/opencv4/opencv2/flann/timer.h \
+  /home/jro/myenv/include/opencv4/opencv2/freetype.hpp \
   /home/jro/myenv/include/opencv4/opencv2/highgui.hpp \
   /home/jro/myenv/include/opencv4/opencv2/imgcodecs.hpp \
   /home/jro/myenv/include/opencv4/opencv2/imgproc.hpp \
@@ -2854,6 +2855,8 @@ CMakeFiles/cv2c.dir/traiterCoin.cpp.o: traiterCoin.cpp \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/syslimits.h \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/xmmintrin.h
 
+
+/home/jro/myenv/include/opencv4/opencv2/freetype.hpp:
 
 /usr/include/x86_64-linux-gnu/curl/websockets.h:
 
