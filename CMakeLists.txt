@@ -16,6 +16,8 @@ find_package(Python REQUIRED COMPONENTS Interpreter Development)
 find_package(CURL REQUIRED)
 
 find_package(OpenCV REQUIRED)
+find_package(Freetype REQUIRED)
+find_package(HarfBuzz REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(TESSERACT REQUIRED)
@@ -32,6 +34,7 @@ target_link_libraries(cv2c
 	Python::Python
 	${TESSERACT_LIBRARIES}
 	opencv_core opencv_imgproc opencv_highgui opencv_videoio opencv_ximgproc
+	freetype harfbuzz opencv_freetype
 	-lleptonica -ltesseract
 )
 include_directories(${Tesseract_INCLUDE_DIRS})

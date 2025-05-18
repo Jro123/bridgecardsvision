@@ -23,10 +23,8 @@
 #include <iterator>
 #include "json.hpp"
 
-#ifndef _WIN32
 #include <tesseract/baseapi.h>
 #include <leptonica/allheaders.h>
-#endif
 
 
 // #pragma comment(lib, "python312.lib")
@@ -232,7 +230,6 @@ void resetconfig(double htcard, config& maconf) {
 }
    
 
-#ifndef _WIN32
 std::string  tesOCR(cv::Mat image, bool estunRDV, double *pconfiance, double *pangle) {
     //std::cout << tesseract::TessBaseAPI::Version() << std::endl;
 
@@ -345,17 +342,13 @@ cv::threshold(gray_image, thresh_image, 0, 255, cv::THRESH_BINARY + cv::THRESH_O
 
 #define SERVEUR
 #define TESOCR
-#else
-#undef TESOCR
-#define SERVEUR
-#endif
 //#define PYOCR
 std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance, double *pangle) {
     //
     std::string response = "";
     /**********/
     #ifdef TESOCR
-    if (nom != "SERVEUR" ) response = tesOCR(ima_ch, pconfiance, pangle); 
+    if (nom != "SERVEUR" ) response = tesOCR(ima_ch,false ,pconfiance, pangle); 
     #endif 
     #ifdef PYOCR
     if (response == "")
@@ -378,15 +371,6 @@ if (response.size() == 0) {
 
 std::string execOCRVDR(cv::String nom, cv::Mat ima_ch, double *pconfiance, double *pangle) {
     return execOCR(nom, ima_ch, pconfiance, pangle);
-    /************
-    std::string response;
-    response = pyOCR(ima_ch);   // ne fonctionne pas en mode debug
-    if (response.size() == 0) {
-        response = sendImageToServer(ima_ch);
-
-    }
-    return response;
-    */
 }
 
 std::string decodejson(std::string jsonString, double* pconfidence, double* pangle) {
@@ -437,24 +421,26 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
+static CURL* curl = nullptr;
 
 std::string sendImageToServer(cv::Mat image, double *pconfiance, double *pangle, std::string port) {
     std::string serv_url = "http://127.0.0.1:" + port + "/predict";
     std::vector<uchar> buf;
     cv::imencode(".bmp", image, buf);
-    CURL* curl;
+    //CURL* curl;
     CURLcode res;
-    std::string readBuffer;
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
+    std::string readBuffer = "";
+    if (!curl) {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        curl = curl_easy_init();
+    }
+    struct curl_slist* headers = NULL;
     if (curl) {
         //curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/predict");
         curl_easy_setopt(curl, CURLOPT_URL, serv_url.c_str()) ;
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, buf.data());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, buf.size());
-
-        struct curl_slist* headers = NULL;
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(buf.size()));
         headers = curl_slist_append(headers, "Content-Type: application/octet-stream");
         headers = curl_slist_append(headers, "Expect:");
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -467,20 +453,23 @@ std::string sendImageToServer(cv::Mat image, double *pconfiance, double *pangle,
             //std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
         }
 
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+        //curl_slist_free_all(headers);
     }
-    curl_global_cleanup();
     int sz = readBuffer.size();
-    std::string texte;
+    std::string texte = "?";
     double confiance= 0;
     double angle = 0;
-    if (readBuffer.size() > 0){
+    if (sz > 0 && sz < 200){
         texte = decodejson(readBuffer, &confiance, &angle);
         if(pconfiance) *pconfiance = confiance;
         if (pangle) *pangle = angle;
-        return texte;
-    } else return "?";
+    }
+    if (curl) {
+        //curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+        //curl_global_cleanup();
+    }
+    return texte;
 }
 
 

@@ -13,6 +13,7 @@
 #endif
 
 #include <iostream>
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
@@ -136,7 +137,7 @@ int processVideo(config& maconf, cv::String nomfichier) {
             }
             if (nbf == 0) {
                 nbf = 25;
-                afficherImage("Frame", frame); // Afficher la frame
+                if (printoption) afficherImage("Frame", frame); // Afficher la frame
                 processFrame(maconf, frame);
 
                 // Attendre 30 ms et quitter si 'q' est pressé
@@ -191,6 +192,8 @@ int main(int argc, char** argv) {
 }
 
 int processFrame(config& maconf, cv::Mat image) {
+    auto t0 = std::chrono::high_resolution_clock::now();
+
 #define NBCOULEURS 7
     cv::Scalar couleurs[7];
     couleurs[0] = cv::Scalar(255, 128, 128); // bleu
@@ -207,9 +210,10 @@ int processFrame(config& maconf, cv::Mat image) {
         return -1;
     }
     cv::Mat result = image.clone();
+    auto start = std::chrono::high_resolution_clock::now();
 
     // afficher l'image en couleurs
-    afficherImage("couleur", image);
+    if (printoption) afficherImage("couleur", image);
 
     // Séparer les canaux Bleu, Vert, Rouge 
     std::vector<cv::Mat> bgrChannels(3);
@@ -236,7 +240,7 @@ int processFrame(config& maconf, cv::Mat image) {
     ////////////////// utiliser une des images monochromatiques /////////////////
     cv::Mat grise;
     cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR);
-    afficherImage("grise", gray);
+    if (printoption) afficherImage("grise", gray);
     std::vector<cv::Vec4i> lines;
         int gmin = maconf.gradmin;
         int gmax = maconf.gradmax;
@@ -248,12 +252,12 @@ int processFrame(config& maconf, cv::Mat image) {
 
         // Paramètres du FastLineDetector : longueur minimale, écart entre lignes, etc.
         int length_threshold = maconf.nbpoints;     // Longueur minimale d'une ligne
-        //float distance_threshold = 1.41421356f; // Distance maximale entre deux points formant une ligne
-        float distance_threshold = 1.5f; // Distance maximale entre deux points formant une ligne
+        float distance_threshold = 1.41421356f; // Distance maximale entre deux points formant une ligne
+        //float distance_threshold = 1.5f; // Distance maximale entre deux points formant une ligne
         double canny_th1 = gmin;       // Seuil bas pour Canny
         double canny_th2 = gmax;       // Seuil haut pour Canny
         int canny_aperture_size = 3;   // Taille de l'ouverture pour Canny
-        bool do_merge = true;         // Fusionner les lignes adjacentes
+        bool do_merge = false;         // ne pas Fusionner les lignes adjacentes ( // )
 
         cv::Ptr<cv::ximgproc::FastLineDetector> lsd = cv::ximgproc::createFastLineDetector(
             length_threshold, distance_threshold, canny_th1, canny_th2, canny_aperture_size, do_merge);
@@ -271,15 +275,19 @@ int processFrame(config& maconf, cv::Mat image) {
         }
         // Afficher l'image avec les lignes détectées
         afficherImage("Detected Lines", result);
+        auto t11 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duree = t11 - t0;
+    std::cout << "Temps initial : " << duree.count() << " secondes" << std::endl;
         cv::waitKey(0);
     }
+        auto t22 = std::chrono::high_resolution_clock::now();
         cv::Mat edges;
         int iwait = 1;
         cv::Mat ima2;
         ima2 = grise.clone();
         cv::Canny(ima2, edges, gmin, gmax, 3, false);
         //cv::Canny(gray, edges, gmin, gmax, 3, false);
-        afficherImage("bords", edges); cv::waitKey(iwait);
+        if (printoption) afficherImage("bords", edges); cv::waitKey(iwait);
 
     if (methode == 1){
         // Utiliser la détection de contours de Canny
@@ -313,7 +321,7 @@ int processFrame(config& maconf, cv::Mat image) {
         // cv::HoughLinesP(gray, lines, 1, CV_PI / 360, maconf.nbvote, maconf.nbpoints, maconf.ecartmax); // ne fonctionne pas
         // on refait le calcul des bords pour la suite
         cv::Canny(ima2, edges, gmin, gmax, 3, false);
-        afficherImage("bords", edges); cv::waitKey(iwait);
+        if (printoption) afficherImage("bords", edges); cv::waitKey(iwait);
 
         // les lignes sont agrandies
         //
@@ -352,7 +360,7 @@ int processFrame(config& maconf, cv::Mat image) {
     }
 
     // Afficher l'image avec les segments de droite
-    afficherImage("Lignes détectées", ima2);
+    if (printoption) afficherImage("Lignes détectées", ima2);
     cv::waitKey(1);
 
     int lgmax = maconf.taillechiffre; lgmax *= lgmax;
@@ -498,12 +506,12 @@ int processFrame(config& maconf, cv::Mat image) {
                 cv::Point2i az = Z - A;
                 int ps = ab.x * az.x + ab.y * az.y;
                 if (ps <= 0) { // A entre B et Z : remplacer A par Z
-                    std::cout << i << " on remplace A " << A << " par " << Z << std::endl;
+                    if (printoption)  std::cout << i << " on remplace A " << A << " par " << Z << std::endl;
                     A = Z;
                 }
             }
             else {
-                std::cout << i << " Aucun contour trouve en A." << A << std::endl;
+                if (printoption) std::cout << i << " Aucun contour trouve en A." << A << std::endl;
             }
             // prolonger en B
             int sz1 = contour.size();
@@ -514,13 +522,13 @@ int processFrame(config& maconf, cv::Mat image) {
                 cv::Point2i Z = contour.back();
                 //std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
                 // remplacer B par Z si A est entre B et Z
-                std::cout << i << " on remplace B " << B << " par " << Z << std::endl;
+                if (printoption) std::cout << i << " on remplace B " << B << " par " << Z << std::endl;
                 B = Z;
             }
             else {
-                std::cout << i << "Aucun contour trouve en B." << B << std::endl;
+                if (printoption) std::cout << i << "Aucun contour trouve en B." << B << std::endl;
             }
-            afficherImage("Contour", contourImage);
+            if (printoption > 1) afficherImage("Contour", contourImage);
             cv::waitKey(1);
             lines[i][0] = A.x;
             lines[i][1] = A.y;
@@ -530,7 +538,8 @@ int processFrame(config& maconf, cv::Mat image) {
                 contourImage.at<uchar>(P) = 255;
             }
         }
-        cv::waitKey(0);
+        
+        // cv::waitKey(0);
     }
 
 
@@ -547,7 +556,7 @@ int processFrame(config& maconf, cv::Mat image) {
         double lg1 = ((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y)); // longueur**2
         if (lg1 < lgmax) {
             lines[i][0] = -1; // invalider la ligne
-            std::cout << "supprime la ligne " << i << " " << A << "-" << B <<" longueur "<<std::sqrt(lg1)<< std::endl;
+            if (printoption) std::cout << "supprime la ligne " << i << " " << A << "-" << B <<" longueur "<<std::sqrt(lg1)<< std::endl;
         }
     }
 
@@ -578,9 +587,9 @@ int processFrame(config& maconf, cv::Mat image) {
         if (printoption) std::cout << "Ligne " << i << A<< " -> " << B<< ", Longueur: " << length << std::endl;
         if (length > maxlg) { maxlg = length; il1 = i; }
     }
-    std::cout << "longueur maximale " << maxlg << std::endl;
+    if (printoption) std::cout << "longueur maximale " << maxlg << std::endl;
     // Afficher l'image avec les segments de droite
-    afficherImage("Lignes", ima2);
+    if (printoption) afficherImage("Lignes", ima2);
     cv::waitKey(1);
 
 
@@ -685,7 +694,7 @@ int processFrame(config& maconf, cv::Mat image) {
 
     ////////////// on a déterminé les coins //////////////////////
     for (int i=0; i< nbcoins; i++){
-        std::cout<<"coin "<< i<< " : "<<coins[i][4] << ", "<<coins[i][5]<<std::endl;
+        if (printoption) std::cout<<"coin "<< i<< " : "<<coins[i][4] << ", "<<coins[i][5]<<std::endl;
     }
 
 
@@ -772,11 +781,11 @@ int processFrame(config& maconf, cv::Mat image) {
     if (htcard)
         {} //resetconfig(htcard, maconf);
     else {
-        std::cout << " !!!!! impossible d'estimer la taille des cartes" << std::endl;
-        std::cout << " !!!!! poursuite avec les caractéristiques standard " << std::endl;
+        if (printoption) std::cout << " !!!!! impossible d'estimer la taille des cartes" << std::endl;
+        if (printoption) std::cout << " !!!!! poursuite avec les caractéristiques standard " << std::endl;
     }
     // 
-    std::cout << "hauteur carte : " << htcard << std::endl;
+    if (printoption) std::cout << "hauteur carte : " << htcard << std::endl;
 
 
     ////////////////////////// éliminer les artefacts /////////////////////////////
@@ -812,7 +821,7 @@ int processFrame(config& maconf, cv::Mat image) {
         cv::Point2i R(l1[k], l1[k + 1]);
         cv::Point2i S(l2[kk], l2[kk + 1]);
 
-        std::cout << "Coin " << n << " " << P << " , " << R << " , " << S << std::endl;
+        if (printoption) std::cout << "Coin " << n << " " << P << " , " << R << " , " << S << std::endl;
 
         cv::Point2i A(l1[0], l1[1]);
         cv::Point2i B(l1[2], l1[3]);
@@ -915,7 +924,7 @@ int processFrame(config& maconf, cv::Mat image) {
                     // marquer le coin Q "éliminé"
                     coins[m][0] = -ii;
                     coins[m][1] = -jj;
-                    std::cout<<" --> elimination du coin "<< m <<std::endl;
+                    if (printoption) std::cout<<" --> elimination du coin "<< m <<std::endl;
                 }
             }
 
@@ -976,7 +985,7 @@ int processFrame(config& maconf, cv::Mat image) {
         // éliminatio différée de P ?
         if (eliminerP) {  // c'est peut-être déjà fait
             if(coins[n][0] >= 0) {
-                std::cout << "elimination coin " << n << std::endl;
+                if (printoption) std::cout << "elimination coin " << n << std::endl;
                 coins[n][0] = -i;
                 coins[n][1] = -j;
             }
@@ -1057,12 +1066,12 @@ int processFrame(config& maconf, cv::Mat image) {
         c++; if (c >= NBCOULEURS) c = 0;
 
     }
-    std::cout << "probable hauteur de carte : " << htmax << std::endl;
+    if (printoption) std::cout << "probable hauteur de carte : " << htmax << std::endl;
     if (htmax) {
         cv::circle(imaC, P1, 6, cv::Scalar(0, 128, 128), 4);
         cv::circle(imaC, P2, 6, cv::Scalar(0, 128, 128), 4);
     }
-    afficherImage("coins détectés", imaC);
+    if (printoption) afficherImage("coins détectés", imaC);
     cv::waitKey(1);
 
 
@@ -1073,7 +1082,14 @@ int processFrame(config& maconf, cv::Mat image) {
     bool estunRDV;
     estunRDV = false; // le coin contient-il un cadre ?
     cv::Point2i Q; // point du cadre
+    std::string cartes[50];  // cartes trouvées
+    int nbcartes = 0;
 
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duree = t1 - t22;
+    std::cout << "Temps préparatoire : " << duree.count() << " secondes" << std::endl;
+    
     for (int n = 0; n < nbcoins; n++) {
 
         int cecoin[10];
@@ -1089,9 +1105,36 @@ int processFrame(config& maconf, cv::Mat image) {
             l1W[i] = l1[i];
             l2W[i] = l2[i];
         }
-        std::cout<<std::endl<<"coin "<<n<<"   ";
-        traiterCoin(cecoin, image,
+        if (printoption) std::cout<<std::endl<<"coin "<<n<<"   ";
+        std::string cartelue;
+        cartelue = traiterCoin(cecoin, image,
             result, &l1W[0], &l2W[0], maconf); 
+        if (waitoption > 1) cv::waitKey(0);  else cv::waitKey(1);// attendre 
+        bool trouvee = false;
+        if (cartelue != ""){
+            for (int i=0; i < nbcartes; i++) {
+                if (cartelue == cartes[i]) { trouvee = true; break;}
+            }
+            if (!trouvee) {
+                cartes[nbcartes] = cartelue;
+                nbcartes++;
+            }
+        }
+    }
+    auto t2 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = t2 - t1;
+    std::cout << "Temps écoulé : " << elapsed.count() << " secondes" << std::endl;
+
+    afficherImage("result", result);
+    for(int i = 0; i < nbcartes; i++){
+        char nomcol = cartes[i][0];
+        std::string valeur = cartes[i].substr(1);
+        std::string cartecouleur;
+        if(nomcol == 'P') cartecouleur = "Pique ";
+        else if(nomcol == 'C') cartecouleur = "Coeur ";
+        else if(nomcol == 'K') cartecouleur = "Carreau ";
+        else cartecouleur = "Trefle ";
+        std::cout<<cartecouleur<<valeur<<std::endl;
     }
     std::cout << "====== fini ======" << std::endl;
     if (waitoption) cv::waitKey(0);

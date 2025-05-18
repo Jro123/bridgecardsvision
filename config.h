@@ -79,7 +79,7 @@ void calculerMinimum(const cv::Mat& image, cv::Scalar& minimum);
 
 void calculerMoyenneSymbole(const cv::Mat& image, const cv::Scalar ref, cv::Scalar& moy);
 void calculerBox(const cv::Mat& image, const int ts, const int ls, cv::Scalar& moy,
-    int *pBox, cv::Scalar& moyext);
+    int *pBox, cv::Scalar& moyext, config& maconf);
 
 void calculerEncombrement(const cv::Mat& image, const cv::Scalar ref, cv::Scalar& moy,
      int *pBox, cv::Mat& imaR, cv::Scalar& moyext);
@@ -105,7 +105,7 @@ std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance= 0, doubl
 std::string execOCRVDR(cv::String nom, cv::Mat ima_ch, double *pconfiance = 0, double *pangle=0);
 //tescmd = "tesseract.exe " + nomcoin + "  stdout --psm 10 -l fra ffb ";
 
-void traiterCoin(int *cecoin, cv::Mat image,
+std::string traiterCoin(int *cecoin, cv::Mat image,
     cv::Mat result, int *l1, int *l2, config& maconf);
 
 

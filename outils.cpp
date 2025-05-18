@@ -174,9 +174,11 @@ void calculerMinimum(const cv::Mat& image, cv::Scalar& minimum) {
 // calculerl'encombrement d'un symbole de hauteur ts et de largeur ls 
 // et fournir la moyenne des intensités du symbole et du fonds
 // on ignore le rouge, à cause des symboles rouges
-void calculerBox(const cv::Mat& image, const int ts, const int ls, cv::Scalar& moy,
-    int *pBox, cv::Scalar& moyext){
+void calculerBox(const cv::Mat& imageW, const int ts, const int ls, cv::Scalar& moy,
+    int *pBox, cv::Scalar& moyext, config& maconf){
+    int printoption = maconf.printoption;
     cv::Rect r;
+    cv::Mat image = imageW.clone();
     r.width = std::min(ls, image.cols);
     r.height = std::min(ts, image.rows);
     cv::Scalar m;
@@ -199,7 +201,7 @@ void calculerBox(const cv::Mat& image, const int ts, const int ls, cv::Scalar& m
     moy = mopt;
     cv::Scalar mtot = mean(image);
     cv::Scalar mext = mtot;
-    if (ls*ts < image.cols * image.rows)
+    if(ls < image.cols || ts < image.rows)
         mext = (mtot*image.rows*image.cols - moy*ts*ls) / (image.rows*image.cols - ts*ls);
     else mext = mtot;
     moyext = mext;
@@ -208,7 +210,7 @@ void calculerBox(const cv::Mat& image, const int ts, const int ls, cv::Scalar& m
         pBox[1] = xopt + r.width - 1;
         pBox[2] = yopt;
         pBox[3] = yopt + r.height - 1;
-        std::cout<<"BOX "<<pBox[0]<<","<<pBox[1]<<","<<pBox[2]<<","<<pBox[3]<<
+        if (printoption) std::cout<<"BOX "<<pBox[0]<<","<<pBox[1]<<","<<pBox[2]<<","<<pBox[3]<<
         " / "<< image.cols<<"x"<<image.rows<<" Moyennes " << moy << moyext <<  std::endl;
     }
 }
@@ -363,10 +365,11 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
     // d�terminer la couleur du "blanc"
     // on consid�re une ligne entre le bord horizontal et la position th�orique du cadre
     //   un peu au del� du coin pour �viter le bord arrondi
+    int printoption = maconf.printoption;
     cv::Mat lig;
     cv::Rect r;
     cv::Scalar moyblanc = moncoin.moyblanc;
-    int bleulim = 15; // �cart de bleu entre le blanc et la zone test�e pour le petit symbole (*3 pour GS)
+    int bleulim = 9; // �cart de bleu entre le blanc et la zone test�e pour le petit symbole (*3 pour GS)
     bool estgrossymb = false;
     bool inverse(false);
 
@@ -393,30 +396,38 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         else r.y = moncoin.QQ.y + maconf.deltaVDR + maconf.tailleVDR + maconf.deltachsymb;
 
     } else {
+        if(moncoin.caractere == 'X') r.width -= (maconf.largeursymbole / 3);
         if (moncoin.UU.x < moncoin.PP.x) r.x = moncoin.PP.x - maconf.deltasymbole - r.width;
         else r.x = moncoin.PP.x + maconf.deltasymbole;
         if (moncoin.U.y < moncoin.PP.y) r.y = moncoin.PP.y - maconf.deltahautsymbole - r.height;
         else r.y = moncoin.PP.y + maconf.deltahautsymbole;
 
     }
-    //r.x = moncoin.U.x; r.y = moncoin.U.y;
     cv::Mat imacop = moncoin.ima_coin.clone();
-    tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,255));
+    if (printoption) cv::circle(imacop, moncoin.PP, 1, cv::Scalar(0,255, 0));
+    if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,255)); // petit symbole vertical
+    //TODO : ajouter 1 pixel sur les 4 cotés pour avoir la couleur extérieure
     z1 = moncoin.ima_coin(r).clone();
+    cv:: Rect r1 = r;
     m1 = cv::mean(z1);  // zone du petit symbole vertical
-
-    if (moncoin.U.y > moncoin.PP.y) r.y += r.height;
-    else r.y -= r.height;
-    tracerRectangle(r, imacop, "orient", cv::Scalar(255,0,0));
-    z2 = moncoin.ima_coin(r).clone(); // zone sous le petit symbole vertical
-    m2 = cv::mean(z2);
-    if (moyblanc[0] - m1[0] > bleulim ) // z1 non blanche : petit ou gros symbole
-    {
-        // TODO : erreur : peut être le sceptre d'un Roi
-        //     analyser la zone du symbole horizontal
-
+    // amplifyContrast(z1);  // attention moyblanc pas amplifié
+    if (moyblanc[0] - m1[0] > bleulim || moyblanc[1] - m1[1] > bleulim || moyblanc[2] - m1[2] > bleulim )
+    {   // zone non blanche
+        if (moncoin.estunRDV && moncoin.caractere == 'R') {
+            if (moncoin.U.y > moncoin.PP.y) r.y += r.height;
+            else r.y -= r.height/2;
+            r.height /= 2;  // éviter le sceptre du roi (près du petit symbole)
+        } else {
+            if (moncoin.U.y > moncoin.PP.y) r.y += r.height;
+            else r.y -= r.height;
+        }
+        
+        if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,0,0)); // sous symbole vertical
+        z2 = moncoin.ima_coin(r).clone(); // zone sous le petit symbole vertical
+        m2 = cv::mean(z2);
+        r = r1;
         // gros symbole ?
-        if (moyblanc[0] - m2[0] > bleulim ) // gros symbole présent sur le coté vertical
+        if (moncoin.estunRDV && (moyblanc[0] - m2[0]) > 2*bleulim ) // gros symbole présent sur le coté vertical
         {
             // nécéssairement un honneur (pas de gros symbole si près du bord pour les autres cartes)
             // carte COFALU : de plus, c'est un coeur, et la carte est horizontale
@@ -427,7 +438,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         }
         else{ // petit symbole suivi de blanc ou morceau de GS suivi de blanc
             // analyser la zone du petit symbole horizontal
-            r.width = maconf.largeursymbole; r.height = maconf.taillesymbole;
+            r.width = maconf.taillesymbole; r.height = maconf.largeursymbole;
             if (moncoin.estunRDV) {
                 if (moncoin.UU.x < moncoin.QQ.x) r.x = moncoin.QQ.x - maconf.deltaVDR 
                    - maconf.tailleVDR - maconf.deltachsymb - r.width;
@@ -435,6 +446,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
                 if (moncoin.U.y < moncoin.QQ.y) r.y = moncoin.QQ.y - maconf.deltaVDR - r.height;
                 else r.y = moncoin.QQ.y + maconf.deltaVDR;
             } else {
+                /* if(moncoin.caractere == 'X') */ r.height -= (maconf.largeursymbole / 3);
                 if (moncoin.UU.x < moncoin.PP.x) r.x = moncoin.PP.x - maconf.deltahautsymbole - r.width;
                 else r.x = moncoin.PP.x + maconf.deltahautsymbole;
                 if (moncoin.U.y < moncoin.PP.y) r.y = moncoin.PP.y - maconf.deltasymbole - r.height;
@@ -442,8 +454,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
 
             }
 
-            //r.x = moncoin.UU.x; r.y = moncoin.UU.y;
-            tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0));
+            if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
             z2 = moncoin.ima_coin(r).clone();
             m2 = cv::mean(z2);
             if (moyblanc[0] - m2[0] < bleulim ){ // z2  blanche : z1 = petit symbole vertical
@@ -473,19 +484,22 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
                     }
                     moncoin.inverse = inverse;
                 }
-                if (moncoin.inverse) z1 = z2;
+                if (moncoin.inverse) { z1 = z2; r1 = r;}
             }
         }
     }
     else { // zone z1 blanche, le petit symbole est sur le coté horizontal
         inverse = true;
-        // extraire le petit symbole pour déterminer la couleur
+    }
+    if(inverse) { // extraire le petit symbole pour déterminer la couleur
         r.x = moncoin.UU.x; r.y = moncoin.UU.y;
         r.width = moncoin.VV.x - moncoin.UU.x + 1;
         r.height = moncoin.VV.y -moncoin.UU.y + 1;
-        tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0));
+        if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,0));
         z1 = moncoin.ima_coin(r).clone();
+        r1 = r;
     }
+    moncoin.inverse = inverse;
 //
 // z1 = petit symbole à utiliser pour obtenir la couleur
 //
@@ -501,14 +515,28 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         ts = maconf.taillesymbole;
         ls = maconf.largeursymbole;
     }
+    // pour déterminer la couleur, agrandir z1
+    // TODO : !!!!!!!!!!!!!!!!!!!!!! r n'est plus z1 initial OK !!!!!
+    r = r1;
+    r.x--; r.y--; r.width += 2, r.height += 2;
+    z1 = moncoin.ima_coin(r);
     amplifyContrast(z1);
-    calculerBox(z1, ts, ls, moy, Box, moyext);
-    if(ts*ls == z1.rows*z1.cols) moyext = moncoin.moyblanc;
+    calculerBox(z1, ts, ls, moy, Box, moyext, maconf);
+    if (ts >= z1.rows || ls >= z1.cols)
+     moyext = moncoin.moyblanc;
     int ecartrelatif = 100.0*((double)moyext[2]/moyext[0]) / ((double)moy[2] / moy[0]);
-    if ( ecartrelatif > 90 ){ // expérimental: rouge < 77   noir > 105
-        moncoin.estRouge = false; std::cout << " Noir "<< ecartrelatif;
+    if ( ecartrelatif > 105 ){ // expérimental: rouge < 77   noir > 105
+        moncoin.estRouge = false; if (printoption) std::cout << " Noir "<< ecartrelatif;
+    } else if (ecartrelatif < 77) {
+        moncoin.estRouge = true; if (printoption) std::cout << " Rouge "<<ecartrelatif;
     } else {
-        moncoin.estRouge = true; std::cout << " Rouge "<<ecartrelatif;
+        // c'est rouge si l'écart rouge-bleu est significatif
+        double ecart = (moy[2] - moy[0]) / (256-moy[0]);
+        if (ecart > 0.1){
+            moncoin.estRouge = true; if (printoption) std::cout << " Rouge! "<<ecartrelatif<<", "<<ecart;
+        } else {
+            moncoin.estRouge = false; if (printoption) std::cout << " Noir! "<<ecartrelatif<<", "<< ecart;
+        }
     }
 }
 moncoin.inverse = inverse;
@@ -533,7 +561,7 @@ return;
         else r.y = moncoin.PP.y - maconf.largeurchiffre - 1 - maconf.deltachiffre - r.height;
     }
     cv::Mat copie = moncoin.ima_coin.clone();
-    tracerRectangle(r, copie, "Extrait", cv::Scalar(255, 255, 0));
+    if (printoption) tracerRectangle(r, copie, "Extrait", cv::Scalar(255, 255, 0));
     cv::Mat zone = moncoin.ima_coin(r).clone();
     cv::resize(zone, zone, cv::Size(), 8.0, 8.0);
     // amplifyContrast(zone);   // !!!!! ne surtout pas activer 
@@ -606,14 +634,14 @@ return;
         double ecartrelatif = (double)moy[2]/moy[0] / ((double) moyext[2] / moyext[0] );
         //calculerEncombrement(zone, moncoin.moyblanc, moy, Box, imaR, moyext);
         //if ((double)(moy[2]) / moy[0] > 1.5) {
-        //    moncoin.estRouge = true; std::cout << moy << moyext << " GS Rouge ";
+        //    moncoin.estRouge = true; if (printoption) std::cout << moy << moyext << " GS Rouge ";
         //}
         //else 
         if (ecartrelatif > 1.15){  // valeur 1.15 à valider
-            moncoin.estRouge = true; std::cout << moy << moyext<< " GS Rouge ";
+            moncoin.estRouge = true; if (printoption) std::cout << moy << moyext<< " GS Rouge ";
         }
         else {
-            moncoin.estRouge = false; std::cout << moy << moyext << " GS Noir ";
+            moncoin.estRouge = false; if (printoption) std::cout << moy << moyext << " GS Noir ";
         }
     }
     // d�terminer l'orientation, selon l'orientation du coin et la pr�sence du gros symbole d'un RDV
@@ -702,25 +730,25 @@ return;
             double ecartrelatif = ((double)moyext[2]/moyext[0]) / ((double)moy[2] / moy[0]);
             if ( ecartrelatif > 0.85 ){
             //if (moyext[2] - moy[2] > 20){ // symbole moins rouge que la zone encadrante
-                moncoin.estRouge = false; std::cout << moy << moyext << " Noir ";
+                moncoin.estRouge = false; if (printoption) std::cout << moy << moyext << " Noir ";
             } else {
-                moncoin.estRouge = true; std::cout << moy << moyext<< " Rouge ";
+                moncoin.estRouge = true; if (printoption) std::cout << moy << moyext<< " Rouge ";
             }
             /************** 
             if (moncoin.moyblanc[2] -  moy[2] <  30) {  // 30 expérimental
-                moncoin.estRouge = true; std::cout << moy << "/"<< moncoin.moyblanc<< " Rouge ";
+                moncoin.estRouge = true; if (printoption) std::cout << moy << "/"<< moncoin.moyblanc<< " Rouge ";
             } else {
-                moncoin.estRouge = false; std::cout << moy << "/"<< moncoin.moyblanc << " Noir ";
+                moncoin.estRouge = false; if (printoption) std::cout << moy << "/"<< moncoin.moyblanc << " Noir ";
             }
             */
         }
     }
-    if (inverse) std::cout << " inverse "<<dbleu;
-    else std::cout<<" est Droit "<<dbleu;
+    if (inverse) if (printoption) std::cout << " inverse "<<dbleu;
+    else if (printoption) std::cout<<" est Droit "<<dbleu;
 
-    if (moncoin.inverse == inverse || moncoin.caractere == ' ') std::cout << std::endl;
+    if (moncoin.inverse == inverse || moncoin.caractere == ' ') if (printoption) std::cout << std::endl;
     else {
-        std::cout << "!!! incoherence  calcul orientation"<<std::endl;
+        if (printoption) std::cout << "!!! incoherence  calcul orientation"<<std::endl;
         // la recherche du gros symbole est discriminante, si il n'y est pas
         /****************** report� au retour
         if (moncoin.estunRDV) { 
@@ -732,7 +760,7 @@ return;
     moncoin.inverse = inverse;
     cv::waitKey(1);
 
-    std::cout << std::endl;
+    if (printoption) std::cout << std::endl;
     // on a obtenu l'orientation et la couleur
     // on peut obtenir la couleur de carte (P C K T) en analysant le symbole (gros ou petit)
 #endif    
@@ -744,7 +772,7 @@ void eclaircirfond(cv::Mat& image) {
       for (int x = 0; x < image.cols; x++){
         for (int y=0; y < image.rows; y++){
             cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
-            if (pixel[0] - pixel[2] > -5) 
+            if (pixel[0] - pixel[2] > -10) 
             image.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 230);
         }
     }
