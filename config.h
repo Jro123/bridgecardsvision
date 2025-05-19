@@ -41,7 +41,8 @@ public:
     int ecartmax; // ecart maxi entre deux points d'une droite
     int waitoption;
     int printoption;
-    int tesOCR;
+    int tesOCR;  // 1: utiliser tesseract, 0 : uniquement le serveur
+    int ignorerGS; // utiliser le gros symbole si la taille du petit est plus perite
     config() {}
 };
 

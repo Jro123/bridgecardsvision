@@ -182,7 +182,7 @@ int main(int argc, char** argv) {
         }    
     }
     if (argc > 2) nomconf = argv[2];
-    else nomconf = "/home/jro/COFALU.txt";
+    else nomconf = "COFALU.txt";
     lireConfig(nomconf, maconf);
     // else  if (maconf.hauteurcarte != 0) resetconfig(maconf.hauteurcarte, maconf);
     waitoption = maconf.waitoption;

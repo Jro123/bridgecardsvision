@@ -445,12 +445,14 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         cv::meanStdDev(lig, m1, ect1);
 
         m2 = m1;
+        double mbleuref = m1[0];
         if(II.y > PP.y){
             rr.y ++;
             while (rr.y < PP.y + maconf.deltacadre + 2){
                 lig = coinPetit(rr);
                 cv::meanStdDev(lig, m2, ect2);
-                if (m2[0] < m1[0] - 8) break;
+                if (m2[0] < mbleuref - 8) break;
+                if (m2[0] > mbleuref) mbleuref = m2[0];
                 rr.y++;
             }
         } else {
@@ -458,11 +460,12 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
             while (rr.y > PP.y - maconf.deltacadre - 2){
                 lig = coinPetit(rr);
                 cv::meanStdDev(lig, m2, ect2);
-                if (m2[0] < m1[0] - 8) break;
+                if (m2[0] < mbleuref - 8) break;
+                if (m2[0] > mbleuref) mbleuref = m2[0];
                 rr.y--;
             }
         }
-        if (m2[0] < m1[0] - 8) {
+        if (m2[0] < mbleuref - 8) {
             estunRDV = true;
             QQ.y = rr.y;
         }
@@ -482,12 +485,14 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         lig = coinPetit(rr);
         cv::meanStdDev(lig, m1, ect1);
         m2 = m1;
+        mbleuref = m1[0];
         if(II.x > PP.x){
             rr.x ++;
             while (rr.x < PP.x + maconf.deltacadre + 2){
                 lig = coinPetit(rr);
                 cv::meanStdDev(lig, m2, ect2);
-                if (m2[0] < m1[0] - 8) break;
+                if (m2[0] < mbleuref - 8) break;
+                if (m2[0] > mbleuref) mbleuref = m2[0];
                 rr.x++;
             }
         } else {
@@ -495,12 +500,13 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
             while (rr.x > PP.x - maconf.deltacadre - 2){
                 lig = coinPetit(rr);
                 cv::meanStdDev(lig, m2, ect2);
-                if (m2[0] < m1[0] - 8) break;
+                if (m2[0] < mbleuref - 8) break;
+                if (m2[0] > mbleuref) mbleuref = m2[0];
                 rr.x--;
             }
         }
         if (estunRDV){
-            if (m2[0] < m1[0] - 8) {
+            if (m2[0] < mbleuref - 8) {
                 //estunRDV = true;
                 QQ.x = rr.x;
             }
@@ -769,7 +775,6 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         // return ""; // prochain coin;
     }
 
-
     cv::circle(extrait, U, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
     cv::circle(extrait, V, 1, cv::Scalar(0, 0, 0), -1);   // cercle noir
     cv::circle(extrait, UU, 1, cv::Scalar(0, 128, 0), -1);   // cercle vert foncé
@@ -917,10 +922,13 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
         nonvu = true;
         std::string outRDV;
-        if (maconf.tesOCR == 1) { 
+        if (maconf.tesOCR == 1) {
+            std::string outserv; 
             output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
-            if (output != "" && confiance < 0.30)
-                output = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+            if (output != "" && confiance < 0.30){
+                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+                if (outserv != output) output = ""; // invalider la détection douteuse
+            }
         }
         else output = execOCR(nomOCR, ima_carW, &confiance, &angle);
         if (printoption > 1 && output.size() > 0) 
@@ -1248,8 +1256,11 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         std::string outRDV;
         if (maconf.tesOCR == 1) {
             output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
-            if (output != "" && confiance < 0.30)
-                output = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+            if (output != "" && confiance < 0.30) {
+                std::string outserv;
+                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+                if (outserv != output) output = ""; // invalider
+            }
         }
         else output = execOCR(nomOCR, ima_carW, &confiance, &angle);
         if (output == "?") output = "";
@@ -2217,7 +2228,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
                 r.y = i;
                 lig = roi_image(r); moy = mean(lig);
                 if (moy[0] > 250) {ih = i+1; break;} // sans la ligne blanche
-                if (moy[0] > 230 && moy[0] - mpre > 30) {ih = i+1; break;} // sans la ligne blanche
+                if (moy[0] > 230 && moy[0] - mpre > 10) {ih = i+1; break;} // sans la ligne blanche
                 mpre = moy[0];
             }
             r.y = ih; // haut du symbole
@@ -2240,21 +2251,22 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         while(r.y >= 0){
             lig = roi_image(r).clone();
             moy = cv::mean(lig);
-            if (moy[0] > moyext[0] - 5) break; // on garde la ligne blanche
+            if (moy[0] > moyext[0] - 5) {r.y++; break;} // on élimine la ligne blanche
             r.y--;
         }
         if (r.y < 0) r.y = 0;
         r.height = ts + 1;
-        if(r.y > roi_image.rows - r.height) r.y = roi_image.rows - r.height;
+        //if(r.y > roi_image.rows - r.height) r.y = roi_image.rows - r.height;
+        if (r.height > roi_image.rows - r.y) r.height = roi_image.rows - r.y;
         r.x = xg; r.width = ls;
-        roi_image = roi_image(r).clone();
+        roi_image = roi_image(r).clone(); // en haut : haut du symbole
     }
 
     // ajuster le haut du symbole, pour enlever le bas du chiffre
     // ligne 0 : bas du chiffre   ou  ligne blanche    ou  chiffre
     //       1 : ligne blanche    ou  haut du symbole  ou  bas du chiffre
     //       2 : haut du symbole                       ou  ligne blanche
-    if (false){  // !!!! désactivé
+    if (false)    {   // devenu inutile
         cv::Rect rr;
         cv::Mat lig;
         cv::Scalar m1,m2, m3;
@@ -2316,7 +2328,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
 // ne pas utiliser le gros symbole si le petit symbole est assez grand ////////
 ///////////////////////////////////////////////////////////////////////////
 
-    if (maconf.taillesymbole < 9 ) {
+    if (maconf.taillesymbole < maconf.ignorerGS ) {
 
         cv::Rect rG;  // rectangle pour extraire l'image du gros symbole
 
@@ -2531,7 +2543,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
     }
     // traitement symbole (petit ou gros)
     if (estRouge && numcol < 0) {
-
+        // roi_image : le haut peut être la fin du chiffre
         int xgBH = Box[0];
         int xmin, xmax;
         xmin = Box[0]; xmax = Box[1];
@@ -2554,6 +2566,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
             r.x = Box[0] + ls / 3;
             xmax -= ls/3;
         }
+        int largeurcol = 2;
         r.width = 2;   // calcul avec largeur 2
         xopt = r.x;
         double minb3 = 255*2; double minb4 = minb3;
@@ -2583,6 +2596,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
             if (mbg <= minb4) {
                 minb4 = mbg;
                 xopt = r.x;
+                largeurcol = r.width;
             }
             r.x++;
         }
@@ -2607,97 +2621,137 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         r.y = Box[2];  // haut du symbole
         // on a le haut de cette colonne centrale étroite.
         // peut-être trop haut au milieu du coeur? 
-        // c'est le cas si la ligne en dessous est nettement plus rouge (moins bleue)
-        // creux du coeur si une petite ligne  à droite ou à gauche est plus rouge (= moins bleu)
-        // analyser une petite ligne à gauche et à droite 
-        cv::Rect rr; rr.x = Box[0]; rr.width = Box[1] - Box[0] + 1;
+        // 
+        //
+        //  coeur  carreau  carreau     tester les pixels x : 
+        // RR?RR    ?      R?R             x plus blanc que ? pour carreau sinon coeur
+        // xRRRx  xRRRx   xRRRx
+        // RRRRR  RRRRR
+        //
+        cv::Rect rr; rr.x = xaxe; rr.width = largeurcol;
         rr.y = r.y; rr.height = 1;
-        bande = roi_image(rr); moy = cv::mean(bande);
-        rr.y++; bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
-        if (moy[0] - moy2[0] > 60 ) // deuxième ligne nettement plus rouge : coeur probablement
-            r.y++;
-        else { // analyser la petite ligne à gauche puis à droite du haut de la colonne
-            r.height = 1;
-            bande = roi_image(r);  // haut de la colonne axiale
-            moy = cv::mean(bande);
-            r.x = std::max(Box[0], xaxe - r.width);
-            cv::Scalar moyg, moyd;
-            bande = roi_image(r); // en haut, à gauche de l'axe
-            moyg = cv::mean(bande);
-            r.x = xaxe + r.width;
-            if ( r.x > (Box[1] +1 - r.width)) r.x = Box[1] + 1 - r.width;
-            bande = roi_image(r); // en haut, à droite de la colonne axiale
-            moyd = cv::mean(bande);
+        bande = roi_image(rr); moy = cv::mean(bande); // 1 pou 3 pixels
 
-            if (moyg[0] < moy[0] || moyd[0] < moy[0]) // plus rouge à gauche ou à droite : creux du coeur
-                r.y++;
-        }
+        rr.x = xmin + 1; rr.width = xmax-xmin - 1;
+        rr.y = Box[2]; rr.height = 1;  // inchangé
+        bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
+        double mb = (moy2[0]*rr.width - moy[0]*largeurcol) / (rr.width - largeurcol);
+        //rr.y++; bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
+        if (moy[0] - mb > 30 ) // centre moins rouge que les bords : coeur probablement
+            r.y++;
         // on a le haut du symbole dans la colonne centrale (r.y ) :
         // la pointe du carreau ou le creux du coeur
         r.x = xopt; // largeur  1 2 ou 3
         r.height = Box[3] + 1 - r.y;
         int wv = r.width; // largeur de la bande verticale
         if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
-        // on a la position haute du symbole : le haut du carreau, le creux du coeur
-        // analyser un segment à gauche ou à droite à cette hauteur : très bleu (blanc)  pour carreau, moins pour coeur (un peu rouge)
-        // si c'est un gros symbole, le bas du symbole peut être proche d'un autre gros symbole
-        // il faut donc considérer un petit segment à droite ou à gauche, dirigé vers le bord de carte
-        //   que la carte soit un chiffre ou un RDV (à gauche en cas de RDV)
-        // si c'est un petit symbole, on peut choisir à droite ou à gauche
-                   // comparer à une ligne de même taille en bas du symbole
-        // à droite si c'est un gros symbole 
-        //       droit dessous à gauche ou droit dessus à droite
-        //   ou inverse dessus à gauche ou inverse dessous à droite
-        // sinon : à gauche
-        // bas du symbole : ybas
-        bool adroite = false;
-        if (estgrossymb){
-            if (inverse) {
-                if (U.y < PP.y  && UU.x < PP.x) adroite = true;
-                if (U.y > PP.y  && UU.x > PP.x) adroite = true;
-            } else {
-                if (U.y > PP.y  && UU.x < PP.x) adroite = true;
-                if (U.y < PP.y  && UU.x > PP.x) adroite = true;
+
+        /*if (largeurcol == 1)*/{ //seul cas où il y a un doute TEST TOUJOURS --> OK experimental
+            cv::Scalar m1(0),m2(0);
+            int l1,l2, ytop; ytop = std::max(Box[2], r.y - 1);
+            cv::Rect rr;
+            rr.x = xmin; rr.y = ytop; rr.height = 1;
+            l1 = xaxe-xmin;
+            if (l1 > 0) {
+                rr.x = xmin; rr.width = xaxe-xmin; rr.y = ytop + 1; rr.height = 1;
+                bande = roi_image(rr); m1 = mean(bande);
             }
+            l2 = xmax - xaxe -largeurcol;
+            if (l2 > 0){
+                rr.x = xaxe + largeurcol; rr.width = l2;
+                bande = roi_image(rr); m2 = mean(bande);
+            } else l2 = 0;
+            m1 = (m1*l1 + m2*l2)/(l1+l2);
+            double ecartbleu = m1[0] - moy[0];
+            if (printoption) std::cout<<"Ecart dessous - sommet "<<ecartbleu<<std::endl;
+            if ( ecartbleu > -30 ) { // sommet rouge --> carreau
+                numcol = 2; // carreau
+            } else if (ecartbleu < -100 ) numcol = 1; // coeur
+            // sinon indéterminé
         }
+        if (numcol < 0) {
+            // !!!!!!! ceci ne devrait jamais arriver !!!!!!
+            // peut-être trop haut au milieu du coeur? 
+            // c'est le cas si la ligne en dessous est nettement plus rouge (moins bleue)
+            // creux du coeur si une petite ligne  à droite ou à gauche est plus rouge (= moins bleu)
+            // analyser une petite ligne à gauche et à droite 
+            //cv::Rect rr; rr.x = Box[0]; rr.width = Box[1] - Box[0] + 1;
+            // c'est du coeur si la ligne complète (moins la partie centrale) est plus rouge
+            rr.x = xmin + 1; rr.width = xmax-xmin - 1;
+            // rr.y = Box[2]; rr.height = 1;  // inchangé
+            bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
+            double mb = (moy2[0]*rr.width - moy[0]*largeurcol) / (rr.width - largeurcol);
+            //rr.y++; bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
+            if (moy[0] - mb > 30 ) // centre moins rouge que les bords : coeur probablement
+                r.y++;
+            // on a le haut du symbole dans la colonne centrale (r.y ) :
+            // la pointe du carreau ou le creux du coeur
+            r.x = xopt; // largeur  1 2 ou 3
+            r.height = Box[3] + 1 - r.y;
+            int wv = r.width; // largeur de la bande verticale
+            if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
+            // on a la position haute du symbole : le haut du carreau, le creux du coeur
+            // analyser un segment à gauche ou à droite à cette hauteur : très bleu (blanc)  pour carreau, moins pour coeur (un peu rouge)
+            // si c'est un gros symbole, le bas du symbole peut être proche d'un autre gros symbole
+            // il faut donc considérer un petit segment à droite ou à gauche, dirigé vers le bord de carte
+            //   que la carte soit un chiffre ou un RDV (à gauche en cas de RDV)
+            // si c'est un petit symbole, on peut choisir à droite ou à gauche
+                    // comparer à une ligne de même taille en bas du symbole
+            // à droite si c'est un gros symbole 
+            //       droit dessous à gauche ou droit dessus à droite
+            //   ou inverse dessus à gauche ou inverse dessous à droite
+            // sinon : à gauche
+            // bas du symbole : ybas
+            bool adroite = false;
+            if (estgrossymb){
+                if (inverse) {
+                    if (U.y < PP.y  && UU.x < PP.x) adroite = true;
+                    if (U.y > PP.y  && UU.x > PP.x) adroite = true;
+                } else {
+                    if (U.y > PP.y  && UU.x < PP.x) adroite = true;
+                    if (U.y < PP.y  && UU.x > PP.x) adroite = true;
+                }
+            }
 
-        int limblanc = 20;  // valeur expérimentale
-        r.height = 2; // ligne haute de 2 pixels
-        if(ts < 10) r.height = 1;
-        r.width = ls / 3;
-        if (adroite) {
-            // entre xaxe + largeur axe   et Box[1] inclus
-            r.x = xaxe+wv; r.width = Box[1] + 1 - r.x;
-            if (estgrossymb) r.width = 2 *r.width / 3;
-            if (r.width > roi_image.cols - r.x) r.width = roi_image.cols - r.x;
-        } else {
-            // entre Box[0] et xaxe-1
-            r.width = std::max(1,xaxe - Box[0]);
-            if (estgrossymb) r.width = 2 * r.width / 3;
-            r.x = std::max(0,xaxe - r.width);
-        }
-        if(r.height > Box[3] + 1 - r.y) r.height = Box[3] + 1 - r.y;
-        if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0)); // petite ligne en haut à gauche ou droite
-        lig = roi_image(r);
-        moy = cv::mean(lig);
-        cv::Scalar moyHaut = moy;
+            int limblanc = 20;  // valeur expérimentale
+            r.height = 2; // ligne haute de 2 pixels
+            if(ts < 10) r.height = 1;
+            r.width = ls / 3;
+            if (adroite) {
+                // entre xaxe + largeur axe   et Box[1] inclus
+                r.x = xaxe+wv; r.width = Box[1] + 1 - r.x;
+                if (estgrossymb) r.width = 2 *r.width / 3;
+                if (r.width > roi_image.cols - r.x) r.width = roi_image.cols - r.x;
+            } else {
+                // entre Box[0] et xaxe-1
+                r.width = std::max(1,xaxe - Box[0]);
+                if (estgrossymb) r.width = 2 * r.width / 3;
+                r.x = std::max(0,xaxe - r.width);
+            }
+            if(r.height > Box[3] + 1 - r.y) r.height = Box[3] + 1 - r.y;
+            if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0)); // petite ligne en haut à gauche ou droite
+            lig = roi_image(r);
+            moy = cv::mean(lig);
+            cv::Scalar moyHaut = moy;
 
-         r.y = std::max(0,ybas + 1 -r.height);
-         // r.x et r.width inchangés
-        if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0)); // petite ligne de test en haut à gauche
-        lig = roi_image(r);
-        moy = cv::mean(lig);
-        // comparer l'intensité bleue entre le segment en haut et le segment en bas
-        // coeur s'il y a significativement plus de bleu en bas, sinon carreau
-        int ecartbleu = moy[0] - moyHaut[0];
-        if (ecartbleu > 80) numcol = 1;   // 80 : experimental
-        else numcol = 2;
-        if (printoption) {
-            if (numcol == 1) std::cout << " coeur  ";
-            if (numcol == 2) std::cout << " carreau ";
-            std::cout<<" intensite bleu bas - haut "<< ecartbleu << std::endl;
+            r.y = std::max(0,ybas + 1 -r.height);
+            // r.x et r.width inchangés
+            if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0)); // petite ligne de test en haut à gauche
+            lig = roi_image(r);
+            moy = cv::mean(lig);
+            // comparer l'intensité bleue entre le segment en haut et le segment en bas
+            // coeur s'il y a significativement plus de bleu en bas, sinon carreau
+            int ecartbleu = moy[0] - moyHaut[0];
+            if ((estgrossymb && ecartbleu > 100) || (!estgrossymb && ecartbleu > 22) ) numcol = 1;   // 0 : experimental
+            else if ((estgrossymb && ecartbleu < 50) || (!estgrossymb && ecartbleu < 15) ) numcol = 2;
+            // sinon : indéterminé
+            if (printoption) {
+                if (numcol == 1) std::cout << " coeur  ";
+                if (numcol == 2) std::cout << " carreau ";
+                std::cout<<" intensite bleu bas - haut "<< ecartbleu << std::endl;
+            }
+            if (printoption > 1) afficherImage("gros", symbgros);
         }
-        if (printoption > 1) afficherImage("gros", symbgros);
     }
     if (estRouge && numcol > 0) {
         if (printoption) {
@@ -3046,7 +3100,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         if (printoption) std::cout << "non reconnu " << output << std::endl;
         return "";
     }
-
+    if (numcol < 0) return "" ; // couleur indéterminée
     std::string texte = "";
     if (numcol == 0) {
         texte = "P"; if (printoption) std::cout << " Pique ";

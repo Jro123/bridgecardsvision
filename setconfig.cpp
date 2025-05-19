@@ -272,19 +272,35 @@ cv::threshold(gray_image, thresh_image, 0, 255, cv::THRESH_BINARY + cv::THRESH_O
  
     if (ri != 0) {
         do {
-            char* symbol = ri->GetUTF8Text(level);
-            if (!symbol) continue;
-            std::string s(symbol);
-            float conf = ri->Confidence(level);
+            std::string motousymbole;
+            std::string s;
+            float conf;
+            char* symbol = 0;
             int x1, y1, x2, y2;
+            char* mot = ri->GetUTF8Text(tesseract::RIL_WORD);
+            if(mot){
+                s = std::string(mot);
+                level = tesseract::RIL_WORD;
+                texte = s;
+                motousymbole = "mot: ";
+            } else {
+                symbol = ri->GetUTF8Text(tesseract::RIL_SYMBOL);
+                if(!symbol) continue;
+                level = tesseract::RIL_SYMBOL;
+                s = std::string(symbol);
+                motousymbole = "symbole: ";
+            }
+            conf = ri->Confidence(level);
+            if(mot) confmax=conf;
             ri->BoundingBox(level, &x1, &y1, &x2, &y2);
-            std::wcout << "Symbol: " << symbol << " Confidence: " << conf << 
+
+            std::cout << motousymbole<< s << " Confidence: " << conf << 
             " | BoundingBox: [" << x1 << ", " << y1 << ", " << x2 << ", " << y2 << "]" 
             << thresh_image.cols <<"x"<<thresh_image.rows<< std::endl;
 
-            if(symbol) {
+            if(!mot &&  symbol) {
                 char car = *symbol;
-                std::string s = symbol;
+                s = symbol;
                 s = s[0];
                 texteorig += s;
                 if (texte == "") {
@@ -319,8 +335,9 @@ cv::threshold(gray_image, thresh_image, 0, 255, cv::THRESH_BINARY + cv::THRESH_O
                     }
                 }
             }
-            delete[] symbol;
-        } while (ri->Next(level));
+            if (symbol) delete[] symbol;
+            if (mot) delete[] mot; 
+        } while (ri->Next(level) || ri->Next(tesseract::RIL_WORD));
     }
     if (texteorig == "i)" || texteorig == "i}") texte = "D";
     if (texte == "1U") texte = "10";

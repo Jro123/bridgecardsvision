@@ -5,6 +5,11 @@
 #include <map>
 #include "config.h"
 
+#define ASSIGN_OPTION(option) \
+    if (data.find(#option) != data.end()) maconf.option = data[#option];
+#define ASSIGN_VAL(option) \
+    if (data.find(#option) != data.end()) maconf.option = data[#option] / 1000;
+
 int lireConfig(std::string nomfichier, config& maconf) {
     std::ifstream file(nomfichier);
     std::map<std::string, int> data;
@@ -25,7 +30,8 @@ int lireConfig(std::string nomfichier, config& maconf) {
     if (maconf.hauteurcarte == 0)  if (data.find("htcard") != data.end()) maconf.hauteurcarte = data["htcard"];
     htcard = maconf.hauteurcarte;
 
-    if (data.find("deltahaut") != data.end()) maconf.deltahaut = htcard*data["deltahaut"] / 1000;
+    ASSIGN_VAL(deltahaut)
+    //if (data.find("deltahaut") != data.end()) maconf.deltahaut = htcard*data["deltahaut"] / 1000;
     if (data.find("deltacadre") != data.end()) maconf.deltacadre = htcard * data["deltacadre"] / 1000;
     if (data.find("deltacadrehaut") != data.end()) maconf.deltacadrehaut = htcard * data["deltacadrehaut"] / 1000;
     if (data.find("deltacoin") != data.end()) maconf.deltacoin = htcard * data["deltacoin"] / 1000;
@@ -55,6 +61,7 @@ int lireConfig(std::string nomfichier, config& maconf) {
     if (data.find("waitoption") != data.end()) maconf.waitoption = data["waitoption"];
     if (data.find("printoption") != data.end()) maconf.printoption = data["printoption"];
     if (data.find("tesOCR") != data.end()) maconf.tesOCR = data["tesOCR"];
-
+    //if (data.find("ignorerGR") != data.end()) maconf.ignorerGS = data["ignorerGS"];
+    ASSIGN_OPTION(ignorerGS)
     return 0;
 }
