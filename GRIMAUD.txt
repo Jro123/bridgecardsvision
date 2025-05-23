@@ -1,0 +1,37 @@
+info= 0  # configuration pour les cartes de la marque GRIMAUD, en millièmes de la taille de carte
+htcard= 120  # hauteur de carte en pixels, valeur par défaut
+deltahaut= 36  # écart entre le bord supérieur ou inférieur de la carte et le chiffre
+deltacadre= 29   #écart entre le bord de carte et le cadre de Roi Dame Valet 
+deltacadrehaut= 29   # écart entre le bord de carte et le cadre de Roi Dame Valet 
+deltacoin= 120   #   150  rayon du bord arrondi de la carte. un peu plus 
+taillechiffre= 84  # hauteur du chiffre.  94 --> 106 pour 9 de carreau
+tailleVDR= 94  #hauteur du caractère V D ou R
+largeurchiffre= 70  # largeur du chiffre 10 (117 --> 137)
+largeurVDR= 47  # largeur du caractère V D ou R
+largeursymbole= 35  # largeur du (petit) symbole (59 --> 70)
+taillesymbole= 47   #hauteur du symbole cf deltahautsymbole
+deltachiffre= 29  # ecart a  gauche ou a  droite du chiffre
+deltaVDR= 12  # ecart entre le cadre et le caractere V D ou R
+deltahautVDR= 48  # écart au dessus du VDR
+deltahautsymbole= 120  # écart entre le bord haut et le symbole (modif 163)
+deltasymbole= 42  # écart entre le bord et le symbole Pique Coeur ...
+deltasymbcadre= 12  # écart entre le cadre et le symbole
+deltachsymb= 11  # écart entre le bas du caractere et le symbole
+deltagros= 106  # ecart entre le bord de carte et le gros symbole (117)
+deltagroshaut= 106  # entre 95 et 117
+largeurgros= 153  # réel 153 
+taillegros= 165  #
+deltagrosRDV= 70  # ecart entre le cadre et le gros symbole
+deltagroshautRDV= 12  # ecart entre le cadre et le haut du gros symbole
+largeurgrosRDV= 106  #
+taillegrosRDV= 152  #
+waitoption= 2  # 1:attendre après chaque frame, 2:attendre après chaque coin, 3:après chaque calcul
+printoption= 2  # 1:imprimer lignes, coins, OCR, 2: calculs divers
+tesOCR=1  # 1: utiliser tesseract et serveur, 2: tesseract sans serveur, 0: ne pas utiliser tesseract C++
+ignorerGS=9 # n: uniquement si la taille du petit symbole est >= n
+gradmin= 20 # gradiant minimum pour edge
+gradmax= 100 # gradiant supérieur pour edge
+nbvote=30 # nombre de votes pour détectionn de ligne houghlines
+nbpoints= 10 # nombre minimum de pixels d'une ligne
+ecartmax= 3 # écart maximal entre points d'une ligne
+ 

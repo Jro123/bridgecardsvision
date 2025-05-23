@@ -63,5 +63,11 @@ int lireConfig(std::string nomfichier, config& maconf) {
     if (data.find("tesOCR") != data.end()) maconf.tesOCR = data["tesOCR"];
     //if (data.find("ignorerGR") != data.end()) maconf.ignorerGS = data["ignorerGS"];
     ASSIGN_OPTION(ignorerGS)
+    ASSIGN_OPTION(gradmin)
+    ASSIGN_OPTION(gradmax)
+    ASSIGN_OPTION(nbvote)
+    ASSIGN_OPTION(nbpoints)
+    ASSIGN_OPTION(ecartmax)
+
     return 0;
 }

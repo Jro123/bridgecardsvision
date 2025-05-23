@@ -240,7 +240,7 @@ int processFrame(config& maconf, cv::Mat image) {
     ////////////////// utiliser une des images monochromatiques /////////////////
     cv::Mat grise;
     cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR);
-    if (printoption) afficherImage("grise", gray);
+    if (printoption) afficherImage("grise", grise);
     std::vector<cv::Vec4i> lines;
         int gmin = maconf.gradmin;
         int gmax = maconf.gradmax;
@@ -274,7 +274,7 @@ int processFrame(config& maconf, cv::Mat image) {
             lines.push_back(line_i);
         }
         // Afficher l'image avec les lignes détectées
-        afficherImage("Detected Lines", result);
+        afficherImage("lignes ximgproc", result);
         auto t11 = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duree = t11 - t0;
     std::cout << "Temps initial : " << duree.count() << " secondes" << std::endl;
@@ -360,7 +360,7 @@ int processFrame(config& maconf, cv::Mat image) {
     }
 
     // Afficher l'image avec les segments de droite
-    if (printoption) afficherImage("Lignes détectées", ima2);
+    if (printoption) afficherImage("Lignes toutes", ima2);
     cv::waitKey(1);
 
     int lgmax = maconf.taillechiffre; lgmax *= lgmax;
@@ -470,7 +470,7 @@ int processFrame(config& maconf, cv::Mat image) {
     }
     
     /* if (methode == 1) */ {
-        // prolonger les lignes assez longues (au moins le quart de la hauteur de carte)
+        // prolonger les lignes assez longues (au moins 1/6 de la hauteur de carte)
         // essayer de prolonger chaque ligne : regarder le pixel dans le prolongement de la ligne
         // ligne AB (B à droite de A) choisir une direction x ou y selon le maximum de |dx| et |dy|
         // AB selon X , prolongement en B : regarder le pixel blanc (dans edges) à droite (B.x +1, B.y)
@@ -481,7 +481,7 @@ int processFrame(config& maconf, cv::Mat image) {
         // itérer tant qu'on trouve des pixels blancs dans l'image des bords et noirs dans l'affichage des lignes
         double tolerance = 0.4;  // Ajustez la tolérance selon vos besoins. 0.4 entre 45 et 60 degrés
         cv::Mat contourImage = cv::Mat::zeros(edges.size(), CV_8U);
-        int maxlg = maconf.hauteurcarte / 4;
+        int maxlg = maconf.hauteurcarte / 6;
         maxlg *= maxlg;
         for (int i = 0; i < lines.size(); i++) {
             cv::Vec4i l = lines[i];
@@ -545,19 +545,21 @@ int processFrame(config& maconf, cv::Mat image) {
 
     // invalider les lignes dont la longueur est inférieure à la taille du chiffre + symbole
     // test :éliminer les ligne de longueur inférieure à la moitié de hauteur de carte
+    // éliminer les lignes plus longues que la hauteur de carte
     lgmax = maconf.taillechiffre + maconf.taillesymbole;
-    lgmax = maconf.hauteurcarte / 2;   // test à valider
+    //lgmax = maconf.hauteurcarte / 6;   // test à valider
     lgmax *= lgmax;
+    int lgmin = maconf.hauteurcarte + maconf.deltacadre; lgmin *=lgmin;
     for (int i = 0; i < lines.size(); i++) {
         cv::Vec4i l = lines[i];
         if (l[0] < 0) continue; // ligne invalidée
         cv::Point2i A(l[0], l[1]);
         cv::Point2i B(l[2], l[3]);
         double lg1 = ((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y)); // longueur**2
-        if (lg1 < lgmax) {
+        if ((lg1 < lgmax) ||  (lg1 > lgmin) ){
             lines[i][0] = -1; // invalider la ligne
             if (printoption) std::cout << "supprime la ligne " << i << " " << A << "-" << B <<" longueur "<<std::sqrt(lg1)<< std::endl;
-        }
+        } 
     }
 
 
@@ -738,6 +740,12 @@ int processFrame(config& maconf, cv::Mat image) {
 
             cv::Point2i B(coins[m][4], coins[m][5]);
             // une des lignes commune avec une de l'autre coin?
+            // TODO :
+            // le coin B doit être sur une des lignes du coin A
+            // le coin A doit être sur une des lignes du coin B
+            // les deux autres lignes doivent être // et de même sens
+            // AB semble alors etre un bord de carte
+            //
             if ((ii == i) || (ii == j) || (jj == i) || (jj == j)) {
                 cv::Point2i U, V;
                 if (ii == i) { U = K; V = KK; }
@@ -832,7 +840,7 @@ int processFrame(config& maconf, cv::Mat image) {
 
         bool trouveQ = false;
         bool QdansP = false;
-        bool eliminerP = false; // éliminer P après recherche de tous les coins contenus dans P
+        bool eliminerP; // éliminer P après recherche de tous les coins contenus dans P
         eliminerP = false;
         for (int m = n + 1; m < nbcoins; m++) {
             int ii = coins[m][0];
@@ -851,8 +859,8 @@ int processFrame(config& maconf, cv::Mat image) {
             // ne pas éliminer le coin n ou m s'ils ne sont pas proches
             // tenir compte de l'imprécision de position des bords de carte (*2)
             // il peut y avoir trois droites // : le cadre d'un RDV et deux droites proches du bord de carte
-            if (abs(Q.x - P.x) > maconf.deltacadre + 1) continue;
-            if (abs(Q.y - P.y) > maconf.deltacadre + 1) continue;
+            if (abs(Q.x - P.x) > 3*maconf.deltacadre/2 + 1) continue;  // *3/2 si oblique
+            if (abs(Q.y - P.y) > 3*maconf.deltacadre/2 + 1) continue;
 
             int k = coins[m][2];  // 0 pour origine, 2 pour extrémité de la première ligne
             int kk = coins[m][3];  // 0 pour origine, 2 pour extrémité de la deuxième ligne
@@ -915,7 +923,7 @@ int processFrame(config& maconf, cv::Mat image) {
             if (std::max(abs(d), abs(dd)) > dc + epsilon) continue; // Q loin de PR ou de PS donc n'est pas le cadre
             if (coins[m][0] >= 0 ) { // Q pas encore éliminé
                 bool elimQ= false;
-                if(d> 0 && d < dc + 2*epsilon && dd > 0 && dd < dc + 2*epsilon) elimQ = true;
+                if(d>= 0 && d < dc + 2*epsilon && dd >= 0 && dd < dc + 2*epsilon) elimQ = true;
 
                 if ((d >= -epsilon && dd >= dc / 2) 
                 || (dd >= -epsilon && d >= dc / 2) ) elimQ = true;
@@ -924,7 +932,8 @@ int processFrame(config& maconf, cv::Mat image) {
                     // marquer le coin Q "éliminé"
                     coins[m][0] = -ii;
                     coins[m][1] = -jj;
-                    if (printoption) std::cout<<" --> elimination du coin "<< m <<std::endl;
+                    if (printoption) std::cout<<" --> elimination du coin "<< m 
+                         << " dans le coin "<< n <<std::endl;
                 }
             }
 
@@ -933,8 +942,10 @@ int processFrame(config& maconf, cv::Mat image) {
             if ((d<1 && dd < -epsilon && dd + dc >= -epsilon )
                 || (dd< 1 && d < -epsilon && d + dc >= -epsilon)) {
                     eliminerP = true;
+                    if (printoption) std::cout<<" --> elimination du coin "<< n 
+                         << " dans le coin "<< m <<std::endl;
             }
-            if (coins[m][0] >= 0) {
+            if (coins[m][0] >= 0) { // Q pas encore éliminé
                 // P est-il le sommet du cadre de Q ?
                 // a distance deltacadre du coté négatif des droites du coin Q
                 if ((dd < 0 && std::abs(dd + dc) <= epsilon) 
@@ -944,6 +955,9 @@ int processFrame(config& maconf, cv::Mat image) {
                     coins[m][6] = 1; //  Q estunRDV
                     coins[m][7] = P.x;
                     coins[m][8] = P.y;
+                    eliminerP = true;
+                    if (printoption) std::cout<<" --> elimination du coin "<< n 
+                         << " dans le coin "<< m <<std::endl;
                 }
                 continue;
             }
@@ -974,6 +988,8 @@ int processFrame(config& maconf, cv::Mat image) {
                 coins[n][6] = 1; // estunRDV
                 coins[n][7] = Q.x;
                 coins[n][8] = Q.y;
+                coins[m][0] = -ii; // éliminer Q
+                coins[m][1] = -jj;
                 continue;
             }
 
@@ -982,6 +998,7 @@ int processFrame(config& maconf, cv::Mat image) {
 
             // Q n'est pas sur le cadre de P
         } // for m
+
         // éliminatio différée de P ?
         if (eliminerP) {  // c'est peut-être déjà fait
             if(coins[n][0] >= 0) {
@@ -1049,6 +1066,7 @@ int processFrame(config& maconf, cv::Mat image) {
 
         if (i < 0 || j < 0) { // coin éliminé précédemment
             cv::circle(imaC, P, 2, cv::Scalar(255,255,255), -2); //  cercle blanc au sommet du coin
+            cv::circle(grise, P, 2, cv::Scalar(0,0,255), -2); //  cercle rouge au sommet du coin
             // si ce coin ressemble à un cadre, afficher les lignes en trait fin gris
             cv::line(imaC, cv::Point(nl1[0], nl1[1]), cv::Point(nl1[2], nl1[3]), cv::Scalar(128, 128, 128), 1); // petit trait
             cv::line(imaC, cv::Point(nl2[0], nl2[1]), cv::Point(nl2[2], nl2[3]), cv::Scalar(128, 128, 128), 1); // petit trait
@@ -1058,7 +1076,10 @@ int processFrame(config& maconf, cv::Mat image) {
         cv::line(imaC, cv::Point(nl1[0], nl1[1]), cv::Point(nl1[2], nl1[3]), couleurs[c], 1); // petit trait
         cv::line(imaC, cv::Point(nl2[0], nl2[1]), cv::Point(nl2[2], nl2[3]), couleurs[c], 1); // petit trait
         if (coins[n][6] > 0) cv::circle(imaC, P, 5, couleurs[c], 3); //  cercle au sommet du coin
-        else  cv::circle(imaC, P, 5, couleurs[c], 1); //  cercle épais (RDV) au sommet du coin
+        else {  
+            cv::circle(imaC, P, 5, couleurs[c], 1); //  cercle épais (RDV) au sommet du coin
+            cv::circle(grise, P, 5, couleurs[c], 1);
+        }
         // TODO : afficher le numéro du coin
         std::string texte = std::to_string(n);
         cv::putText(imaC, texte, P, cv::FONT_HERSHEY_SIMPLEX, 1.0,
@@ -1066,12 +1087,15 @@ int processFrame(config& maconf, cv::Mat image) {
         c++; if (c >= NBCOULEURS) c = 0;
 
     }
-    if (printoption) std::cout << "probable hauteur de carte : " << htmax << std::endl;
-    if (htmax) {
+    if (htmax > 4*maconf.hauteurcarte/5) {
+        if (printoption) std::cout << "probable hauteur de carte : " << htmax << std::endl;
         cv::circle(imaC, P1, 6, cv::Scalar(0, 128, 128), 4);
         cv::circle(imaC, P2, 6, cv::Scalar(0, 128, 128), 4);
     }
-    if (printoption) afficherImage("coins détectés", imaC);
+    if (printoption) { 
+        afficherImage("coins détectés", imaC);
+        afficherImage("grise", grise);
+    }
     cv::waitKey(1);
 
 
@@ -1138,5 +1162,39 @@ int processFrame(config& maconf, cv::Mat image) {
     }
     std::cout << "====== fini ======" << std::endl;
     if (waitoption) cv::waitKey(0);
+    {
+    double val;
+    val = cv::getWindowProperty("symbole", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("symbole");
+    val = cv::getWindowProperty("orient", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("orient");
+    val = cv::getWindowProperty("coin", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("coin");
+    val = cv::getWindowProperty("Artefact", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("Artefact");
+    val = cv::getWindowProperty("coins détectés", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("coins détectés");
+    val = cv::getWindowProperty("Ext", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("Ext");
+    val = cv::getWindowProperty("bords", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("bords");
+    val = cv::getWindowProperty("lignes ximgproc", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("lignes ximgproc");
+    val = cv::getWindowProperty("Lignes", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("Lignes");
+    val = cv::getWindowProperty("Lignes toutes", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("Lignes toutes");
+    val = cv::getWindowProperty("Extrait", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("Extrait");
+    val = cv::getWindowProperty("chiffre", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("chiffre");
+    val = cv::getWindowProperty("gros", cv::WND_PROP_VISIBLE);
+    if (val > 0) cv::destroyWindow("gros");
+    val = cv::getWindowProperty("droit", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("droit");
+    val = cv::getWindowProperty("avant rot", cv::WND_PROP_VISIBLE);
+    if(val > 0) cv::destroyWindow("avant rot");
+    }
+
     return 0;
 }

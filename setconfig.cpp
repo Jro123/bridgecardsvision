@@ -51,7 +51,7 @@ cv::String setconfig(config& maconf) {
     maconf.gradmin = 100;     // 200 : détecte seulement les meilleure lignes
     maconf.gradmax = 250;    // 250 : ?
     maconf.nbvote = 30;      // 30 : valeur plutot faible : beaucoup de lignes détectées 
-    maconf.nbpoints = 20;    // 20 : nombre de pixels pour une ligne
+    maconf.nbpoints = 10;    // 20 : nombre de pixels pour une ligne
     maconf.ecartmax = 3;    //  3 : plutot faible. 5: moyen. 20 : fouillis de lignes dans Roi Dame Valet. écart maximal entre segments détectés 
 
     maconf.deltacadre = maconf.deltachiffre / 2;
@@ -231,19 +231,15 @@ void resetconfig(double htcard, config& maconf) {
    
 
 std::string  tesOCR(cv::Mat image, bool estunRDV, double *pconfiance, double *pangle) {
-    //std::cout << tesseract::TessBaseAPI::Version() << std::endl;
 
-    //std::vector<cv::Mat> canaux;
-    //cv::split(image, canaux);
-    //cv::Mat gray_image = canaux[0];
-
+cv::Mat thresh_image = image;
 // Convertir en niveaux de gris
-cv::Mat gray_image;
-cv::cvtColor(image, gray_image, cv::COLOR_BGR2GRAY);
+//cv::Mat gray_image;
+//cv::cvtColor(image, gray_image, cv::COLOR_BGR2GRAY);
 
 // Appliquer un seuil
-cv::Mat thresh_image;
-cv::threshold(gray_image, thresh_image, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+//cv::threshold(gray_image, thresh_image, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+//cv::imshow("thresh", thresh_image); cv::waitKey(1);
 //thresh_image = gray_image;
 // Initialiser Tesseract
      // Initialiser Tesseract

@@ -254,6 +254,74 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         HO = KK;
         VE = HH;
     }
+    bool estArtefact = false;
+
+    // si on a déjà déterminé que c'est un RDV, ne pas tester les décallages de position du coin
+    //  préciser la position du coin en fonction des bordures dessus, dessous, à droite, à gauche
+    // 4 cas pour la position de P et Q
+    // P est le coin de carte : bordures blanches à l'intérieur du coin
+    // P est décalé à l'intérieur en X : bordure horizontale blanche, bordure verticale contient un caractère
+    //     et bordure blanche verticale à l'extérieur
+    // P est décalé à l'intérieur en Y : bordure verticale blanche, b. Horiz contient un caractère
+    //     et bordure blanche horizontale à l'extérieur
+    // P est complètement décalé en X et Y : bordure horizontale et verticale contient un caractère
+    //     et bordures blanches H et V à l'extérieur
+    if (!estunRDV){
+        cv::circle(extrait, PP, 1, cv::Scalar(255,0,0)); afficherImage("Extrait", extrait);
+        cv::Rect r;
+        cv::Mat bordH, bordV, bordHX, bordVX;
+        cv::Scalar mH, mV, mHX, mVX, ectH, ectV, ectHX, ectVX;
+        int dx(0), dy(0);
+        int dc = maconf.deltacadre;
+        int dw = 1; if(dc > 5) dw = 2;
+        // bordure intérieure horizontale
+        r.width = dc + maconf.deltachiffre;
+        r.height = dc - 2*dw;
+        r.x = PP.x; if (HO.x > PP.x) r.x += maconf.deltacoin; else r.x -= (1 + r.width);
+        r.y = PP.y; if (VE.y > PP.y) r.y +=dw; else r.y = PP.y - dw - r.height;
+        bordH = coinPetit(r); meanStdDev (bordH, mH, ectH);
+        // bordure intérieure verticale
+        r.width = dc - 2*dw;
+        r.height = dc + maconf.deltachiffre;
+        r.x = PP.x; if (HO.x > PP.x) r.x +=dw; else r.x = PP.x - dw - r.width;
+        r.y = PP.y; if (VE.y > PP.y) r.y = PP.y + maconf.deltacoin; else r.y = PP.y - (1 + r.height);
+        bordV = coinPetit(r); cv::meanStdDev(bordV, mV, ectV);
+        // bordure extérieure horizontale
+        r.width = dc + maconf.deltachiffre;
+        r.height = dc - 2*dw;
+        r.x = PP.x; if (HO.x > PP.x) r.x += maconf.deltacoin; else r.x -= (maconf.deltacoin + r.width);
+        r.y = PP.y; if (VE.y > PP.y) r.y = PP.y - r.height; else r.y += dw;
+        bordHX = coinPetit(r); meanStdDev (bordHX, mHX, ectHX);
+        // bordure extérieure verticale
+        r.width = dc - 2*dw;
+        r.height = dc + maconf.deltachiffre;
+        r.x = PP.x; if (HO.x > PP.x) r.x = PP.x - r.width; else r.x += dw;
+        r.y = PP.y; if (VE.y > PP.y) r.y = PP.y + maconf.deltacoin; else r.y = PP.y - maconf.deltacoin;
+        bordVX = coinPetit(r); cv::meanStdDev(bordVX, mVX, ectVX);
+
+        if (ectH[0] > 30) { // caractère à droite ou à gauche de PP
+            // vérifier que la bordure horizontale extérieure est uniforme, sinon artefact
+            if(ectHX[0] > 20) {
+                estArtefact = true; std::cout<<" Artefact bord H"<<std::endl; return "";}
+            dx = dc; if (HO.x > PP.x) dx = -dc; // noter décallage à droite ou à gauche
+            std::cout<<"décallage coin X "<<dx<<std::endl;
+        }
+        if (ectV[0] > 30) { // caractère dessus ou dessous  de PP
+            // vérifier que la bordure verticale extérieure est blanche, sinon artefact
+            if(ectVX[0] > 20) {
+                estArtefact = true; std::cout<<" Artefact bord V"<<std::endl; return "";}
+            dy = dc; if (VE.y > PP.y) dy = -dc; // noter décallage dessus ou dessous
+            std::cout<<"Décallage coin Y "<<dy<<std::endl;
+        }
+        if (dx) {PP.x += dx; HO.x +=dx; VE.x += dx;
+            if (HO.x > PP.x) QQ.x = PP.x + dc; else QQ.x = PP.x - dc;
+            estunRDV = true;
+        }
+        if (dy) {PP.y += dy; HO.y += dy; VE.y += dy;
+            if (VE.y > PP.y) QQ.y = PP.y + dc; else QQ.y = PP.y - dc;
+            estunRDV = true;
+        }
+    }
     //
     // préciser la position du coin selon la présence des traits des bords
     // on recherche les traits à distance de l'arrondi du coin de carte
@@ -346,9 +414,6 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         afficherImage("Ext", extrait); afficherImage("Extrait", extrait);
     }
 
-
-
-    bool estArtefact = false; // pour différer après la lecture du caractère
 
     // déterminer si c'est un artefact:
     // le coin ne doit pas être uniforme. carré de coté deltacadre centré sur le coin
@@ -738,7 +803,7 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
     cv::Mat z1,z2;
     cv::Scalar m1,m2, ect1, ect2;
     cv::Rect rz, rz2;
-    int limsombre = 180;
+    int limsombre = 160;
     if(moncoin.moyblanc[2] < 200) limsombre = 128;  // TODO : 200 et 128 à préciser
     if (A.x < PP.x) {rz.x = A.x; rz.width = PP.x - A.x;}
     else {rz.x = PP.x; rz.width = B.x - PP.x;}
@@ -810,7 +875,7 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// identification du caractère par appel à l' OCR /////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    int ls, ts; // largeur et taille du symbole
+    int ls, ts; // largeur et taille du caractère 
     cv::Mat ima_carW;  // pour affichage éventuellement grossi
     double confs[8]; // indices de confiance des résultats des 8 cas (4 verticaux et 4 horizontaux)
     std::string out[8];  // 8 caractères lus
@@ -900,33 +965,47 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         r.y += Box[2] - 1;
         r.height = Box[3] - Box[2] + 3;
         ima_car = coinPetit(r).clone();
+        // blanchir les pixels plus clairs que moy (moyenne limitée au caractère)
+        {
+            cv::Vec3b blanc = {255,255,255};
+            for (int x = 0; x < ima_car.cols; x++){
+                for (int y=0; y < ima_car.rows; y++){
+                    cv::Vec3b pixel = ima_car.at<cv::Vec3b>(y, x);
+                    if (pixel[0] > moy[0])
+                        ima_car.at<cv::Vec3b>(y , x) = blanc;
+                }
+            }
+        }
+     
+
+
+
         blanchircadre(ima_car, moyext, 1);  // blanchir le cadre
         //blanchircadre(ima_car, cv::Scalar(255,255,255), 2);  // blanchir le cadre
 
-        amplifyContrast(ima_car);
+        //amplifyContrast(ima_car);
         //eclaircirfond(ima_car);  // erreur sur caractère noir clair
         // si on sait que le caractère est vertical et si il est au dessus du coin, tourner de 180 degrés
         // de toutes façons, si le caractère est au dessus, s'il est vertical, il est à l'envers
-#ifdef _WIN32
-        nomcoin = "D:\\coins\\coin" + std::to_string(0) + ".png";
-#else
-        nomcoin = "coin" + std::to_string(0) + ".png";
-#endif
-        //cv::imwrite(nomcoin, ima_car);
+
         // si le caractère est dessus, le retourner de 180 degrés
         if (U.y < PP.y) cv::rotate(ima_car, ima_car, cv::ROTATE_180);
-        ima_carW = ima_car.clone();
+        amplifyContrast(ima_car);
+        cv::cvtColor(ima_car, ima_carW, cv::COLOR_BGR2GRAY);
+        cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+        //ima_carW = ima_car.clone();
         ima_CARV = ima_carW.clone();
         //if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 8.0, 8.0);
         if (printoption > 1) afficherImage("V1", ima_CARV);
         if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
         nonvu = true;
         std::string outRDV;
-        if (maconf.tesOCR == 1) {
+        if (maconf.tesOCR >= 1) {
             std::string outserv; 
             output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
-            if (output != "" && confiance < 0.30){
-                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+            if (maconf.tesOCR == 1 && output != "" && confiance < 0.30){
+                double angW;
+                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angW);
                 if (outserv != output) output = ""; // invalider la détection douteuse
             }
         }
@@ -934,8 +1013,8 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         if (printoption > 1 && output.size() > 0) 
             std::cout<< "V1 " << output << " confiance " << confiance << " angle "<< angle<< std::endl;
         if (output == "?") output = "";
-        if (confiance < 0.7) output=""; // éviter les fausses détections
-        if ((int)angle == 90 && confiance > 0.8) { inverse = true; }
+        //if (confiance < 0.7) output=""; // éviter les fausses détections
+        if ((int)angle == 90 && confiance > 0.9) { inverse = true; }
         bool testerVDR = true;
         if(output.size() > 0) { 
             // accepter 10  V et R si la confiance est suffisante
@@ -960,16 +1039,21 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
             ima_RDV = coinPetit(r).clone();
             if (U.y < PP.y) cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_180);
             //if (dx < 20) cv::resize(ima_RDV, ima_RDV, cv::Size(), 8.0, 8.0);
-            amplifyContrast(ima_RDV);
+            //amplifyContrast(ima_RDV);
             //eclaircirfond(ima_RDV);
-            if (printoption >1 ) afficherImage("V1X", ima_RDV);
+            cv::cvtColor(ima_RDV, ima_carW, cv::COLOR_BGR2GRAY);
+            cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+            if (printoption >1 ) afficherImage("V1X", ima_carW);
             if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
-            if (maconf.tesOCR == 1) outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+            if (maconf.tesOCR >= 1){
+                 outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+                 if (outRDV == "" && maconf.tesOCR == 1) 
+                    outRDV = execOCR("SERVEUR", ima_RDV, &confRDV, &angRDV);
+            }
             else outRDV = execOCR(nomOCR, ima_RDV, &confRDV, &angRDV);
             if (outRDV == "?") outRDV = "";
-            if (confRDV < 0.7) outRDV="";
-            if (printoption > 1) 
             if (printoption) std::cout << "   OCR V1 pour RDV " << outRDV << " confiance " << confRDV << " angle " << angRDV << std::endl;
+            //if (confRDV < 0.7) outRDV="";
             if (outRDV.size() >= 2 && (outRDV[1] == 'R' || outRDV[1] == 'D' || outRDV[1] == 'V') )
                 outRDV = outRDV[1];
             if (outRDV.size() > 0)
@@ -1076,7 +1160,7 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
             if (output == "V" || output == "D" || output == "R") {
                 rr.width = 2*maconf.largeurgrosRDV / 3;  // couper la tête des honneurs
                 rr.height = maconf.taillegrosRDV; 
-                //if(output == "D") rr.height /=2; // couper la fleur tenue par la reine de carreau
+                if(output == "D") rr.height /=2; // couper la fleur tenue par la reine de carreau
                 if (!estunRDV){
                     if (UU.x > PP.x) rr.x = PP.x+ maconf.deltacadre + maconf.deltagrosRDV; 
                     else rr.x = PP.x - maconf.deltacadre - maconf.deltagrosRDV - rr.width;
@@ -1242,29 +1326,32 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
         ima_car = coinPetit(r).clone();
         blanchircadre(ima_car, moyext, 1);  // blanchir le cadre
         //blanchircadre(ima_car, cv::Scalar(255,255,255), 1);  // blanchir le cadre
-        amplifyContrast(ima_car);
+        //amplifyContrast(ima_car);
         // eclaircirfond(ima_car); // pire résultat
 
        if (B.x > PP.x) cv::rotate(ima_car, ima_car, cv::ROTATE_90_CLOCKWISE);
         else cv::rotate(ima_car, ima_car, cv::ROTATE_90_COUNTERCLOCKWISE);
-        ima_carW = ima_car.clone();
+        //ima_carW = ima_car.clone();
+        cv::cvtColor(ima_car, ima_carW, cv::COLOR_BGR2GRAY);
+        cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
         ima_CARH = ima_carW.clone();
         //if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 8.0, 8.0);
-        amplifyContrast(ima_carW);
+        //amplifyContrast(ima_carW);
         if (printoption > 1) afficherImage("H1", ima_CARH);
         if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
         std::string outRDV;
-        if (maconf.tesOCR == 1) {
+        if (maconf.tesOCR >= 1) {
             output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
-            if (output != "" && confiance < 0.30) {
+            if (maconf.tesOCR == 1 && output != "" && confiance < 0.30) {
+                double angW;
                 std::string outserv;
-                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angW);
                 if (outserv != output) output = ""; // invalider
             }
         }
         else output = execOCR(nomOCR, ima_carW, &confiance, &angle);
         if (output == "?") output = "";
-        if(confiance < 0.7) output = "";
+        //if(confiance < 0.7) output = "";
         if (output == "M") output = "V";   // bord du cadre V et un morceau de gros symbole
         if (printoption > 1 && output.size() > 0 )
             std::cout << "H1 " << output << " confiance " << confiance << " angle " << angle << std::endl;
@@ -1304,18 +1391,20 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
             r.x += Box[0]; r.y += Box[2]; r.width = ls; r.height = ts;
             ima_RDV = coinPetit(r).clone();
             //eclaircirfond(ima_RDV);
-            amplifyContrast(ima_RDV);
+            //amplifyContrast(ima_RDV);
             if (UU.x > PP.x) cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_CLOCKWISE);
             else cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_COUNTERCLOCKWISE);
             //if (dx < 20) cv::resize(ima_RDV, ima_RDV, cv::Size(), 8.0, 8.0);
-            if (printoption > 1) afficherImage("H1X", ima_RDV);
+        cv::cvtColor(ima_RDV, ima_carW, cv::COLOR_BGR2GRAY);
+        cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+            if (printoption > 1) afficherImage("H1X", ima_carW);
             if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
-            if (maconf.tesOCR == 1) outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+            if (maconf.tesOCR >= 1) outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
             else outRDV = execOCR(nomOCR, ima_RDV, &confRDV, &angRDV);
              if (printoption > 1)
             std::cout << "   OCR H1 pour RDV " << outRDV << " confiance " << confRDV << " angle " << angRDV << std::endl;
             if (outRDV == "?") outRDV = "";
-            if(confRDV < 0.7) outRDV = "";
+            //if(confRDV < 0.7) outRDV = "";
             if (outRDV == "i)" || outRDV == "1)") outRDV = "D";
             if (outRDV == "v") outRDV = "V";
             if (outRDV.size() >= 2 && (outRDV[1] == 'R' || outRDV[1] == 'D' || outRDV[1] == 'V') )
@@ -1341,14 +1430,16 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
                             angle = angRDV;
                         }
                         if ((outRDV == "1" || outRDV == "3")  && output == "7")
-                        {output = outRDV; out[0] = outRDV; confiance = confRDV;}
+                        {output = outRDV; out[4] = outRDV; confiance = confRDV;}
                     }
                 }
 
             }
         } // OCR RDV H1
         if ((int)angV == 360 && angle != 360 ) {output = ""; confs[4] = 0; out[4] = "";}
-        if ((int) angle == 360  &&  (int)angV != 360) {confs[0] = 0; out[0] = "";}
+        if ((int) angle == 360 && confiance > confs[0]  &&  (int)angV != 360) {
+            confs[0] = 0; out[0] = "";
+        }
         if (output.size() == 0 && out[0] != "" && confs[0] > 0.95) nonvu = false; // inutile de tester les décalages
         if (output.size() >= 2 && (output[1] == 'V' || output[1] == 'D' || output[1] == 'R')) output = output[1];
         if (output.size() >= 2 &&
@@ -1524,32 +1615,39 @@ std::string  traiterCoin(int *cecoin, cv::Mat image,
          inverse = !estDroit;
      }
 
-// si on n'a rien trouvé et si tesseract est sélectionné, 
+// si on n'a rien trouvé ou avec faible confiance et si tesseract est sélectionné, 
 //  essayer la recherche avec le serveur 
-if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) )){
+if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.70 && confs[4] < 0.70) )){
+    estServeur = true;
     output = execOCR("SERVEUR", ima_CARV, &confiance, &angle);
+    if(output == "") output = execOCR("SERVEUR", ima_CARH, &confiance, &angle);
     if (output.size() > 0){
         char w = output[0];
         if ( estunRDV && w != 'V' && w != 'D' && w != 'R') output = "";
         else if (w != 'V' && w != 'D' && w != 'R' && ! (w > '0' && w <= '9') 
         && output != "10" ) output = "";     
     }
-    if (output != "") {out[0] = output; confs[0] = confiance;}
-    if (output == "" ) { 
-        output = execOCR("SERVEUR", ima_CARH, &confiance, &angle);
-        if (output.size() > 0){
-            char w = output[0];
-            if ( estunRDV && w != 'V' && w != 'D' && w != 'R') output = "";
-            else if (w != 'V' && w != 'D' && w != 'R' && ! (w > '0' && w <= '9') 
-            && output != "10" ) output = "";     
+    if (output != "") {
+        if (output == out[0]) { // confirmer la détection tesseract
+            if (confiance > confs[0]) confs[0] = confiance;
+            else confiance = confs[0];
+            confs[4] = 0;
+            estServeur = false;
+        } else if (output == out[4]) { // confirmer la détection inverse
+            if (confiance > confs[4]) confs[4] = confiance;
+            else confiance = confs[4];
+            confs[0] = 0;
+            estServeur = false;
+        } else {
+            moncoin.caractere = output[0];
         }
-        if (output != "") {out[4] = output; confs[4] = confiance;}
     }
     if (output != "") {
         if (printoption) std::cout << "==> serveur "<< output << " confiance "<< confiance<< std::endl;
-        estServeur = true;
+        moncoin.caractere = output[0];
+        if (output == "10") moncoin.caractere = 'X';
     }
-    if (confiance < 0.4) {
+    if (confiance < 0.65) {
         output = ""; out[0] = out[4] = "";
         if (printoption) std::cout<<"!!! confiance trop faible "<< confiance<<std::endl;
     }
@@ -1660,11 +1758,11 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
 
     }
     //////////////////////////// tester les autres positions horizontales par appel de l' OCR /////////////////
-    if (nonvu && !estDroit && !inverse) {
+    if ((nonvu || confiance < 0.7) && !estDroit && !inverse) {
         dx = abs(BB.x - AA.x);
         dy = abs(BB.y - AA.y);
-        xg = min(AA.x, BB.x);
-        yh = min(AA.y, BB.y);
+        xg = std::min(AA.x, BB.x);
+        yh = std::min(AA.y, BB.y);
         if (estunRDV) dy++;
         if (estunRDV && UU.y < PP.y) yh--;
 
@@ -1698,7 +1796,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
                 }
             }
         }
-        if (nonvu && ! cadreX && !cadreY) {
+        if ((nonvu || confiance < 0.7) && ! cadreX && !cadreY) {
             // cas où les deux bords du coin sont le cadre
             if (U.y < PP.y) // au dessus, décaler de deltacadre vers le bas
                 yh += dc;
@@ -1729,7 +1827,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
                 }
             }
         }
-        if (nonvu && !cadreY) {
+        if ((nonvu || confiance < 0.7) && !cadreY) {
             // dernier cas le bord horizontal du coin est le cadre
             if (UU.x > PP.x) // à droite, décaler de deltacadre à gauche
                 xg += dc; // on revient à l'état initial
@@ -1880,7 +1978,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
     if (estArtefact && output != "10" ){
         cv::circle(result,cv::Point2i(cecoin[4],cecoin[5]), 4, cv::Scalar(255,0,0), -1);
         if (printoption) std::cout<<"Artefact "<<std::endl;
-        return "";
+        if (maconf.deltacadre > 10 || confiance < 0.8) return  "";  // sinon les bords peuvent être flous
     }
 
     if (recalcul){
@@ -1985,8 +2083,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         BB.x = std::max(0, BB.x);
         BB.y = std::max(0, BB.y);
 
-        // mémoriser les caractéristiques du coin qu'on vient de calculer
-        uncoin  moncoin;
+        // mémoriser les caractéristiques du coin qu'on vient de recalculer
         moncoin.A = A;
         moncoin.B = B;
         moncoin.AA = AA;
@@ -2002,7 +2099,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         moncoin.estunRDV = estunRDV;
         moncoin.ima_coin = coinPetit;
         moncoin.moyblanc = cv::Scalar(255, 255, 255);
-        moncoin.caractere = ' ';
+        // moncoin.caractere = ' ';  // déjà déterminé
 
         calculerBlanc(moncoin, maconf);
         reafficher = true;
@@ -2142,9 +2239,8 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
 
     }
     else { // le symbole est sous un chiffre
-        // élargir  la zone du symbole sauf vers le chiffre:
-        // ajouter 1 pixel vers le chiffre, à enlever plus tard
-        ajout = 1;
+        // élargir  la zone du symbole,  1 ou 2 pixels vers le chiffre, à enlever plus tard
+        ajout = 1; if (maconf.taillesymbole > 7) ajout = 2;
         // si le chiffre est 10, on aura peut-être décalé PP vers l'extérieur du coin, de deltacadre
         // car un des deux petits rectangles de test dans le coin rencontre le caractère 1 ou le caractère 0
         // dans ce cas, élargir la zone du coin de deltacadre vers l'intérieur du coin
@@ -2154,7 +2250,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
             else yh -=3*ajout; // et 3 pixels vers le bord
             dx += 4*ajout;   // 3 pixels sous le symbole 1 pixel vers le chiffre
             if(UU.x < PP.x) { xg -= 3*ajout; } // 1 pixel vers le chiffre
-            else xg--; // 1 pixel vers le chiffre
+            else xg -= ajout; // 1 pixel vers le chiffre
         }
         else { // vertical
             dx += 6*ajout; // 3 pixels vers l'intérieur 3 pixels vers le bord lateral
@@ -2162,7 +2258,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
             else xg -=3*ajout;
             dy += 4*ajout;  // 3 pixels sous le symbole et 1 pixel vers le chiffre
             if(U.y < PP.y) yh -= 3*ajout;
-            else yh--;
+            else yh -= ajout;
         }
     }
     if (xg < 0) xg = 0;
@@ -2218,7 +2314,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         int xg, Box[4];
         cv::Mat lig;
         if(estRouge) {
-            eclaircirfond(roi_image);
+            eclaircirfond(roi_image);  // indispensable pour trouver le haut du symbole
             // chercher la ligne blanche éventuelle (entre caractère et symbole) à partir du haut,
             // parmi les 3 premières lignes
             r.x = 0; r.width = roi_image.cols; r.height = 1;
@@ -2247,7 +2343,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         }
         // on a une position dans le symbole
         // remonter jusqu'à la ligne blanche au dessus du symbole
-        r.y --;
+        r.y-= ts;
         while(r.y >= 0){
             lig = roi_image(r).clone();
             moy = cv::mean(lig);
@@ -2445,7 +2541,8 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
     #endif 
     // roi_image : petit ou gros symbole           
     amplifyContrast(roi_image); // parfois contre productif
-    if (estRouge) eclaircirfond(roi_image);
+    // if (estRouge) eclaircirfond(roi_image); // déjà fait
+    if (estRouge && estgrossymb) eclaircirfond(roi_image); // déjà fait pour petit symbole
     symbgros = roi_image.clone();
     // cv::namedWindow("gros", cv::WINDOW_NORMAL);
     if (printoption) { 
@@ -2463,7 +2560,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
     // en ignorant la partie centrale si la couleur est noire
     r.x = Box[0]; r.width = Box[1] + 1 - Box[0];
     int hBH = ts/3;
-    if (ts & 1 != hBH & 1) { hBH--; if (hBH <= 0) hBH += 2;} // même parité
+    if ((ts & 1) != (hBH & 1)) { hBH--; if (hBH <= 0) hBH += 2;} // même parité
     //if (ts < 8) hBH = 1;
     r.height = hBH;
     int minb = 255;
@@ -2583,8 +2680,8 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         int xopt3 = xopt;
         r.width = 1; if(ls > 8) r.width = 3;   // calcul avec largeur 1 ou 3
         r.x = xgBH; // gauche de la bande horizontale
-        if (estgrossymb){
-            r.x = Box[0] + ls / 3;
+        if (ls >= 18){
+            r.x += ls / 6;
             xmax -= ls/3;
         }
 
@@ -2625,49 +2722,58 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         //
         //  coeur  carreau  carreau     tester les pixels x : 
         // RR?RR    ?      R?R             x plus blanc que ? pour carreau sinon coeur
-        // xRRRx  xRRRx   xRRRx
+        // xRWRx  xRWRx   xRWRx
         // RRRRR  RRRRR
         //
         cv::Rect rr; rr.x = xaxe; rr.width = largeurcol;
         rr.y = r.y; rr.height = 1;
         bande = roi_image(rr); moy = cv::mean(bande); // 1 pou 3 pixels
+        rr.y++; // ligne en dessous
+        if(rr.x > 0) rr.x--; rr.width +=2;   // zone centrale élargie ( Zone RWR)
+        if(rr.width > roi_image.cols - rr.x) rr.width = roi_image.cols - rr.x;
+        bande = roi_image(rr); cv::Scalar moy1 = cv::mean(bande); // milieu (zone RWR) 
 
-        rr.x = xmin + 1; rr.width = xmax-xmin - 1;
-        rr.y = Box[2]; rr.height = 1;  // inchangé
+        rr.x = xmin + 1; rr.width = xmax-xmin - 1; // ligne en dessous moins pixels du bord
         bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
-        double mb = (moy2[0]*rr.width - moy[0]*largeurcol) / (rr.width - largeurcol);
-        //rr.y++; bande = roi_image(rr); cv::Scalar moy2 = cv::mean(bande);
-        if (moy[0] - mb > 30 ) // centre moins rouge que les bords : coeur probablement
-            r.y++;
-        // on a le haut du symbole dans la colonne centrale (r.y ) :
-        // la pointe du carreau ou le creux du coeur
-        r.x = xopt; // largeur  1 2 ou 3
-        r.height = Box[3] + 1 - r.y;
-        int wv = r.width; // largeur de la bande verticale
+        double mb = (moy2[0]*rr.width - moy1[0]*(largeurcol+2)) / (rr.width - largeurcol - 2); // bords
+        r.height = Box[3] + 1 - r.y; r.x = xaxe; r.width = largeurcol;
         if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
+        if (moy[0] - mb > 30 ){ // centre moins rouge que les bords : coeur
+            r.y++;
+            numcol = 1;
+        } else numcol = 2;
 
-        /*if (largeurcol == 1)*/{ //seul cas où il y a un doute TEST TOUJOURS --> OK experimental
-            cv::Scalar m1(0),m2(0);
-            int l1,l2, ytop; ytop = std::max(Box[2], r.y - 1);
-            cv::Rect rr;
-            rr.x = xmin; rr.y = ytop; rr.height = 1;
-            l1 = xaxe-xmin;
-            if (l1 > 0) {
-                rr.x = xmin; rr.width = xaxe-xmin; rr.y = ytop + 1; rr.height = 1;
-                bande = roi_image(rr); m1 = mean(bande);
+        if (numcol < 0) {
+            // on a le haut du symbole dans la colonne centrale (r.y ) :
+            // la pointe du carreau ou sous le creux du coeur
+            r.x = xopt; // largeur  1 2 ou 3
+            r.height = Box[3] + 1 - r.y;
+            int wv = r.width; // largeur de la bande verticale
+            if (printoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
+
+            /*if (largeurcol == 1)*/{ //seul cas où il y a un doute TEST TOUJOURS --> OK experimental
+                cv::Scalar m1(0),m2(0);
+                int l1,l2, ytop; ytop = std::max(Box[2], r.y);
+                cv::Rect rr;
+                rr.x = xmin; rr.y = ytop; rr.height = 1;
+                l1 = xaxe-xmin;
+                if (l1 > 0) {
+                    rr.x = xmin; rr.width = xaxe-xmin; rr.y = ytop + 1; rr.height = 1;
+                    bande = roi_image(rr); m1 = mean(bande);
+                }
+                l2 = xmax - xaxe -largeurcol;
+                if (l2 > 0){
+                    rr.x = xaxe + largeurcol; rr.width = l2;
+                    bande = roi_image(rr); m2 = mean(bande);
+                } else l2 = 0;
+                m1 = (m1*l1 + m2*l2)/(l1+l2);
+                double ecartbleu = m1[0] - moy[0];
+                if (printoption) std::cout<<"Ecart dessous - sommet "<<ecartbleu<<std::endl;
+                if ( ecartbleu > -30 ) { // sommet rouge --> carreau
+                    numcol = 2; // carreau
+                } else if (ecartbleu < -100 ) numcol = 1; // coeur
+                // sinon indéterminé
             }
-            l2 = xmax - xaxe -largeurcol;
-            if (l2 > 0){
-                rr.x = xaxe + largeurcol; rr.width = l2;
-                bande = roi_image(rr); m2 = mean(bande);
-            } else l2 = 0;
-            m1 = (m1*l1 + m2*l2)/(l1+l2);
-            double ecartbleu = m1[0] - moy[0];
-            if (printoption) std::cout<<"Ecart dessous - sommet "<<ecartbleu<<std::endl;
-            if ( ecartbleu > -30 ) { // sommet rouge --> carreau
-                numcol = 2; // carreau
-            } else if (ecartbleu < -100 ) numcol = 1; // coeur
-            // sinon indéterminé
         }
         if (numcol < 0) {
             // !!!!!!! ceci ne devrait jamais arriver !!!!!!
@@ -2813,12 +2919,12 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
             centre = roi_image(r);
             //amplifyContrast(centre);
             cv::meanStdDev(centre, moy, ect);
-            std::cout<<" P/T ? écart type "<<ect<<std::endl;
+            if (printoption) std::cout<<" P/T ? écart type "<<ect<<std::endl;
             if (ect[0] < 15) numcol = 0;
             if (ect[0] > 60 ) numcol = 3;
-            // Pique : écart type < 30
+            // Pique : écart type < 15
             // Trefle : > 60
-            // indéterminé entre 30 et 60
+            // indéterminé entre 15 et 60
             // 
         }
         if (numcol < 0) {
@@ -2879,7 +2985,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
                 else {numcol = 3; if (printoption) std::cout << "Trefle";}
             }
             else {
-                if (std::abs(ecr) < 10){    // zones haute et centrale peu différentes
+                if (std::abs(ecr) <= 10){    // zones haute et centrale peu différentes
                     //  examiner les zones à gauche et à droite du rectangle central
                     cv::Mat gauche, droite; cv::Scalar moyg, moyd;
                     r = rc; r.x = Box[0]; gauche = roi_image(r); moyg = cv::mean(gauche);
@@ -2892,7 +2998,7 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
                 }
                 if (ecr > 20) {  // 20 expérimental, écart  net pour Pique
                     numcol = 0; if (printoption) std::cout << "Pique";
-                } else if(ecr < -10){ // centre plus clair
+                } else if(ecr <= -10){ // centre plus clair
                     numcol = 3; if (printoption) std::cout << "Trefle";
                 } else {
                     if (printoption) std::cout<<"couleur noire indéterminable Trefle ?"<< ecr<<std::endl;
@@ -3039,10 +3145,8 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
 
 
         // vérifier 
-        cv::Mat imagros = ima_car;
+        //cv::Mat imagros = ima_car;
         // cv::resize(ima_car, imagros, cv::Size(), 4.0, 4.0); // n'améliore rien
-        if (printoption) afficherImage("chiffre", imagros);
-        if (waitoption > 2)  cv::waitKey(0); else cv::waitKey(1);
         // Enregistrer l'image extraite au format PNG
         cv::String nomcoin;
 #ifdef _WIN32
@@ -3053,14 +3157,19 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
         //cv::imwrite(nomcoin, ima_car);
 
         cv::Mat ima_ch= ima_car;
+        cv::cvtColor(ima_car, ima_ch, cv::COLOR_BGR2GRAY);
+        cv::threshold(ima_ch, ima_ch, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+        if (printoption) afficherImage("chiffre", ima_ch);
+        if (waitoption > 2)  cv::waitKey(0); else cv::waitKey(1);
+
         //std::string output;
         output = tesOCR(ima_ch, estunRDV, &confiance, &angle);
-            if (output == "" || confiance < 0.30)
+            if (maconf.tesOCR < 2 && (output == "" || confiance < 0.30) )
             output = execOCR("SERVEUR", ima_ch, &confiance, &angle);
 
         if(printoption > 1) std::cout<<output<<" confiance "<<confiance<<std::endl;
         if (waitoption > 2)  cv::waitKey(0); else cv::waitKey(1);
-
+        if (confiance < 0.8) output = "";
         nonreconnu = false;
         if (output == "" && outprec != "") output = outprec;
         int sz = output.size();
@@ -3146,18 +3255,21 @@ if (maconf.tesOCR == 1 && (output == "" || (confs[0] < 0.30 && confs[4] < 0.30) 
     // Dessiner le rectangle rempli avec la couleur rectColor
     cv::rectangle(result, rectOrigin, rectCorner, rectColor, cv::FILLED);
 
-cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
+    cv::Scalar coulsymb = cv::Scalar(0,0,255); // rouge
+    if (numcol == 0 ) coulsymb = cv::Scalar(0,0,0); // noir sur fond jaune
+    if (numcol == 3) coulsymb = cv::Scalar(0,128,0); // vert foncé sur fond jaune
+#ifndef _WIN32    
+    cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
     ft2->loadFontData("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0);
 
     // Définition des symboles Unicode
     std::vector<std::string> symbols = {"♠", "♥", "♦", "♣"};
     std::string texteW = texte; texteW[0] = ' ';
     cv::putText(result, texteW, PT, font, scale, colt, epais);
-    cv::Scalar coulsymb = cv::Scalar(0,0,255); // rouge
-    if (numcol == 0 ) coulsymb = cv::Scalar(0,0,0); // noir sur fond jaune
-    if (numcol == 3) coulsymb = cv::Scalar(0,128,0); // vert foncé sur fond jaune
     ft2->putText(result, symbols[numcol], PT, 10, coulsymb , -1, cv::LINE_AA, true);
-
+#else
+    cv::putText(result, texte, PT, font, scale, colt, epais);
+#endif
     if (printoption) afficherImage("result",result);
 
     if (printoption) std::cout << std::endl;

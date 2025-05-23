@@ -369,7 +369,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
     cv::Mat lig;
     cv::Rect r;
     cv::Scalar moyblanc = moncoin.moyblanc;
-    int bleulim = 9; // �cart de bleu entre le blanc et la zone test�e pour le petit symbole (*3 pour GS)
+    int bleulim = 4; // �cart de bleu entre le blanc et la zone test�e pour le petit symbole (*3 pour GS)
     bool estgrossymb = false;
     bool inverse(false);
 
@@ -384,9 +384,35 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
 
     // U V UU VV mal recalculés si l'OCR n'a pas permis de déterminer l'orientation
     // dans ce cas , l'orientation a été fixée à ***inverse***
-    cv::Mat z1, z2;
-    cv::Scalar m1, m2;
+    cv::Mat z1, z2, z3;  // PS vertical, horizontal, sous PS vertical
+    cv::Scalar m1, m2, m3;
+    cv::Rect r2;
+    cv::Mat imacop = moncoin.ima_coin.clone();
+
+    // analyser la zone du petit symbole horizontal
+    r.width = maconf.taillesymbole; r.height = maconf.largeursymbole;
+    if (moncoin.estunRDV) {
+        if (moncoin.UU.x < moncoin.QQ.x) r.x = moncoin.QQ.x - maconf.deltaVDR 
+            - maconf.tailleVDR - maconf.deltachsymb - r.width;
+        else r.x = moncoin.QQ.x + maconf.deltaVDR + maconf.tailleVDR + maconf.deltachsymb;
+        if (moncoin.U.y < moncoin.QQ.y) r.y = moncoin.QQ.y - maconf.deltaVDR - r.height;
+        else r.y = moncoin.QQ.y + maconf.deltaVDR;
+    } else {
+        /* if(moncoin.caractere == 'X') */ r.height -= (maconf.largeursymbole / 3);
+        if (moncoin.UU.x < moncoin.PP.x) r.x = moncoin.PP.x - maconf.deltahautsymbole - r.width;
+        else r.x = moncoin.PP.x + maconf.deltahautsymbole;
+        if (moncoin.U.y < moncoin.PP.y) r.y = moncoin.PP.y - maconf.deltasymbole - r.height;
+        else r.y = moncoin.PP.y + maconf.deltasymbole;
+    }
+    if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
+    z2 = moncoin.ima_coin(r).clone();
+    m2 = cv::mean(z2);
+    r2 = r;
+
+    // analyser la zone du petit symbole vertical
     r.width = maconf.largeursymbole; r.height = maconf.taillesymbole;
+    // grossir sous la zone du symbole vertical
+    r.height = 3*r.height/2;
     // petit symbole vertical (z1)
     if (moncoin.estunRDV){
         if (moncoin.UU.x < moncoin.QQ.x) r.x = moncoin.QQ.x - maconf.deltaVDR - r.width;
@@ -403,95 +429,89 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         else r.y = moncoin.PP.y + maconf.deltahautsymbole;
 
     }
-    cv::Mat imacop = moncoin.ima_coin.clone();
     if (printoption) cv::circle(imacop, moncoin.PP, 1, cv::Scalar(0,255, 0));
     if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,255)); // petit symbole vertical
     //TODO : ajouter 1 pixel sur les 4 cotés pour avoir la couleur extérieure
     z1 = moncoin.ima_coin(r).clone();
     cv:: Rect r1 = r;
     m1 = cv::mean(z1);  // zone du petit symbole vertical
+
     // amplifyContrast(z1);  // attention moyblanc pas amplifié
     if (moyblanc[0] - m1[0] > bleulim || moyblanc[1] - m1[1] > bleulim || moyblanc[2] - m1[2] > bleulim )
     {   // zone non blanche
-        if (moncoin.estunRDV && moncoin.caractere == 'R') {
-            if (moncoin.U.y > moncoin.PP.y) r.y += r.height;
-            else r.y -= r.height/2;
-            r.height /= 2;  // éviter le sceptre du roi (près du petit symbole)
+        // vérifier maintenant la zone du symbole horizontal
+        //         si elle est blanche, on valide la zone z1
+        if (moyblanc[0] - m2[0] < bleulim ){ // z2  blanche : z1 = petit symbole vertical
+            // z2 blanche : valider z1
         } else {
-            if (moncoin.U.y > moncoin.PP.y) r.y += r.height;
-            else r.y -= r.height;
-        }
-        
-        if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,0,0)); // sous symbole vertical
-        z2 = moncoin.ima_coin(r).clone(); // zone sous le petit symbole vertical
-        m2 = cv::mean(z2);
-        r = r1;
-        // gros symbole ?
-        if (moncoin.estunRDV && (moyblanc[0] - m2[0]) > 2*bleulim ) // gros symbole présent sur le coté vertical
-        {
-            // nécéssairement un honneur (pas de gros symbole si près du bord pour les autres cartes)
-            // carte COFALU : de plus, c'est un coeur, et la carte est horizontale
-            inverse = true;
-            estgrossymb = true;
-            // le petit symbole est sur le bord horizontal
-            // l'extraire pour obtenir la couleur 
-        }
-        else{ // petit symbole suivi de blanc ou morceau de GS suivi de blanc
-            // analyser la zone du petit symbole horizontal
-            r.width = maconf.taillesymbole; r.height = maconf.largeursymbole;
-            if (moncoin.estunRDV) {
-                if (moncoin.UU.x < moncoin.QQ.x) r.x = moncoin.QQ.x - maconf.deltaVDR 
-                   - maconf.tailleVDR - maconf.deltachsymb - r.width;
-                else r.x = moncoin.QQ.x + maconf.deltaVDR + maconf.tailleVDR + maconf.deltachsymb;
-                if (moncoin.U.y < moncoin.QQ.y) r.y = moncoin.QQ.y - maconf.deltaVDR - r.height;
-                else r.y = moncoin.QQ.y + maconf.deltaVDR;
-            } else {
-                /* if(moncoin.caractere == 'X') */ r.height -= (maconf.largeursymbole / 3);
-                if (moncoin.UU.x < moncoin.PP.x) r.x = moncoin.PP.x - maconf.deltahautsymbole - r.width;
-                else r.x = moncoin.PP.x + maconf.deltahautsymbole;
-                if (moncoin.U.y < moncoin.PP.y) r.y = moncoin.PP.y - maconf.deltasymbole - r.height;
-                else r.y = moncoin.PP.y + maconf.deltasymbole;
-
+            // z1 non blanche, z2 non blanche. z1 ou z2 morceau de gros symbole
+            // analyser la zone sous le symbole vertical (blanche ou morceau de gros symbole)
+            // retrouver la position juste sous la zone du symbole vertical
+            r.height = maconf.taillesymbole;
+            if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.V.y + 1;
+            else r.y = moncoin.U.y - 1;
+            if (moncoin.caractere == 'R') {
+                r.height = maconf.taillesymbole / 2;  // éviter le sceptre du roi noir
+            } 
+            if (moncoin.U.y < moncoin.PP.y) r.y -= r.height;
+            
+            if (moncoin.caractere == 'D'){ // une fleur proche pour D de carreau ou pique
+                r.width /= 2;
+                if (moncoin.UU.x < moncoin.PP.x) r.x += r.width;
             }
-
-            if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
-            z2 = moncoin.ima_coin(r).clone();
-            m2 = cv::mean(z2);
-            if (moyblanc[0] - m2[0] < bleulim ){ // z2  blanche : z1 = petit symbole vertical
-            // blanche -> ps vertical.   
-            } else {
-                //  autre -> indéterminé : cas possibles : honneur Pique Trefle ou carreau
-                //  dans ce cas, utiliser la détection faite par l'OCR
-                // selon l'orientation du coin, il y a un gros symbole à coté du caractère vertical
-                // vérifier s'il est présent
-                char car = moncoin.caractere;
-                estgrossymb = false;
-                if (car == 'V' || car == 'D' || car == 'R'){
-                    // extraire le gros symbole éventuel
-                    r.width = maconf.largeurgrosRDV; r.height = maconf.taillegrosRDV;
-                    if(moncoin.UU.x > moncoin.PP.x) r.x = moncoin.QQ.x + maconf.deltagrosRDV;
-                    else r.x = moncoin.QQ.x - maconf.deltagrosRDV - r.width;
-                    if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagroshautRDV;
-                    else r.y = moncoin.QQ.y - maconf.deltagroshautRDV - r.height;
-                    cv::Mat GS = moncoin.ima_coin(r).clone();
-                    m2 = cv::mean(GS);
-                    if (moyblanc[0] - m2[0] > bleulim) { // il y a un gros symbole
-                        if (moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y) inverse = true;
-                        if (moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y) inverse = true;
-                    } else { // il n'y a pas de GS
-                        if (moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y) inverse = true;
-                        if (moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y) inverse = true;
+            
+            if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,0,0)); // sous symbole vertical
+            z3 = moncoin.ima_coin(r).clone(); // zone sous le petit symbole vertical
+            m3 = cv::mean(z3);
+            r = r1;
+            // gros symbole ?
+            if (moncoin.estunRDV && (moyblanc[0] - m3[0]) > 2*bleulim ) // gros symbole présent sur le coté vertical
+            {
+                // nécéssairement un honneur (pas de gros symbole si près du bord pour les autres cartes)
+                // carte COFALU : de plus, c'est un coeur, et la carte est horizontale
+                inverse = true;
+                estgrossymb = true;
+                // le petit symbole est sur le bord horizontal
+                // l'extraire pour obtenir la couleur 
+            }
+            else{ // petit symbole suivi de blanc ou morceau de GS suivi de blanc
+                if (moyblanc[0] - m2[0] < bleulim ){ // z2  blanche : z1 = petit symbole vertical
+                // blanche -> ps vertical.   
+                } else {
+                    //  autre -> indéterminé : cas possibles : honneur Pique Trefle ou carreau
+                    //  dans ce cas, utiliser la détection faite par l'OCR
+                    // selon l'orientation du coin, il y a un gros symbole à coté du caractère vertical
+                    // vérifier s'il est présent
+                    char car = moncoin.caractere;
+                    estgrossymb = false;
+                    if (car == 'V' || car == 'D' || car == 'R'){
+                        // extraire le gros symbole éventuel
+                        r.width = maconf.largeurgrosRDV; r.height = maconf.taillegrosRDV;
+                        if(moncoin.UU.x > moncoin.PP.x) r.x = moncoin.QQ.x + maconf.deltagrosRDV;
+                        else r.x = moncoin.QQ.x - maconf.deltagrosRDV - r.width;
+                        if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagroshautRDV;
+                        else r.y = moncoin.QQ.y - maconf.deltagroshautRDV - r.height;
+                        cv::Mat GS = moncoin.ima_coin(r).clone();
+                        m2 = cv::mean(GS);
+                        if (moyblanc[0] - m2[0] > bleulim) { // il y a un gros symbole
+                            if (moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y) inverse = true;
+                            if (moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y) inverse = true;
+                        } else { // il n'y a pas de GS
+                            if (moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y) inverse = true;
+                            if (moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y) inverse = true;
+                        }
+                        moncoin.inverse = inverse;
                     }
-                    moncoin.inverse = inverse;
+                    if (moncoin.inverse) { z1 = z2; r1 = r2;}
                 }
-                if (moncoin.inverse) { z1 = z2; r1 = r;}
             }
         }
-    }
+    } // z1 non blanche
     else { // zone z1 blanche, le petit symbole est sur le coté horizontal
         inverse = true;
     }
     if(inverse) { // extraire le petit symbole pour déterminer la couleur
+        // r1 = r2;
         r.x = moncoin.UU.x; r.y = moncoin.UU.y;
         r.width = moncoin.VV.x - moncoin.UU.x + 1;
         r.height = moncoin.VV.y -moncoin.UU.y + 1;
@@ -515,11 +535,10 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         ts = maconf.taillesymbole;
         ls = maconf.largeursymbole;
     }
-    // pour déterminer la couleur, agrandir z1
-    // TODO : !!!!!!!!!!!!!!!!!!!!!! r n'est plus z1 initial OK !!!!!
+    // pour déterminer la couleur, agrandir la zone du petit symbole (vertical ou horizontal)
     r = r1;
     r.x--; r.y--; r.width += 2, r.height += 2;
-    z1 = moncoin.ima_coin(r);
+    z1 = moncoin.ima_coin(r).clone();
     amplifyContrast(z1);
     calculerBox(z1, ts, ls, moy, Box, moyext, maconf);
     if (ts >= z1.rows || ls >= z1.cols)
@@ -772,7 +791,7 @@ void eclaircirfond(cv::Mat& image) {
       for (int x = 0; x < image.cols; x++){
         for (int y=0; y < image.rows; y++){
             cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
-            if (pixel[0] - pixel[2] > -10) 
+            if (pixel[0] - pixel[2] > -20) 
             image.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 230);
         }
     }
@@ -813,6 +832,35 @@ void blanchircadre(cv::Mat& image, cv::Scalar moyblanc, int nb) {
 
 
 void amplifyContrast(cv::Mat& image) {
+// déterminer le minimum et le maximum par couleur et global
+int min[3]={255,255,255};
+int max[3]= {0,0,0};
+    for (int x = 0; x < image.cols; x++){
+        for (int y=0; y < image.rows; y++){
+            cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
+            for (int i = 0; i<3; i++){
+                if (pixel[i] < min[i]) min[i]= pixel[i];
+                if (pixel[i] > max[i]) max[i]= pixel[i];
+            }
+        }
+    }
+int ming, maxg;
+ming = min[0]; ming = std::min(ming, min[1]); ming = std::min(ming, min[2]); 
+maxg = max[0]; maxg = std::max(maxg, max[1]); maxg = std::max(maxg, max[2]); 
+
+    for (int x = 0; x < image.cols; x++){
+        for (int y=0; y < image.rows; y++){
+            cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
+            pixel = {255*(pixel[0]-ming)/ (maxg- ming),
+                255*(pixel[1]-ming)/ (maxg- ming),
+                255*(pixel[2]-ming)/ (maxg- ming) };
+
+            image.at<cv::Vec3b>(y, x) = pixel;
+        }
+    }
+
+
+/*****************
     CV_Assert(image.type() == CV_8UC3);  // Assurez-vous que l'image est de type CV_8UC3
 
     // Convertir l'image en flottant pour le traitement
@@ -824,22 +872,23 @@ void amplifyContrast(cv::Mat& image) {
     double minV, maxV;
     std::vector<cv::Mat> channels(3);
     cv::split(floatImage, channels);
+        minV = 255; maxV = 0;
+        for (int i = 0; i < 3; ++i) {
+            cv::minMaxLoc(channels[i], &minVal[i], &maxVal[i]);
+            if (minVal[i] < minV) minV = minVal[i];
+            if (maxV < maxVal[i]) maxV = maxVal[i];
+        }
 
-    minV = 255; maxV = 0;
-    for (int i = 0; i < 3; ++i) {
-        cv::minMaxLoc(channels[i], &minVal[i], &maxVal[i]);
-        if (minVal[i] < minV) minV = minVal[i];
-        if (maxV < maxVal[i]) maxV = maxVal[i];
-    }
-
-    // Ajuster chaque canal pour que les valeurs aillent de 0 � 255
-    for (int i = 0; i < 3; ++i) {
-        channels[i] = 255 * (channels[i] - minV) / (maxV - minV);
-    }
-
+        // Ajuster chaque canal pour que les valeurs aillent de 0 � 255
+        for (int i = 0; i < 3; ++i) {
+            channels[i] = 255 * (channels[i] - minV) / (maxV - minV);
+        }
     // Fusionner les canaux ajust�s
     cv::merge(channels, floatImage);
-    floatImage.convertTo(image, CV_8U);
+    cv::Mat ima2;
+    floatImage.convertTo(ima2, CV_8U);
+    image = ima2;
+    *******************/
 }
 
 
