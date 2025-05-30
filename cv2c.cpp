@@ -909,7 +909,7 @@ int processFrame(config& maconf, cv::Mat image) {
             // 
             int dc = maconf.deltacadre;
             double d, dd; // distances algébriques de Q à PS et PR
-            int epsilon = std::max(1, dc / 4);
+            double epsilon = std::max(1, dc / 2);
             // tenir compte de l'orthogonalité PR xPS
             // projections de Q : H sur PR   K sur PS
             // PH = PQ.PR / ||PR||
@@ -925,8 +925,10 @@ int processFrame(config& maconf, cv::Mat image) {
                 bool elimQ= false;
                 if(d>= 0 && d < dc + 2*epsilon && dd >= 0 && dd < dc + 2*epsilon) elimQ = true;
 
-                if ((d >= -epsilon && dd >= dc / 2) 
-                || (dd >= -epsilon && d >= dc / 2) ) elimQ = true;
+                //if ((d >= -epsilon && dd >= dc / 2) 
+                //|| (dd >= -epsilon && d >= dc / 2) ) elimQ = true;
+                if ((d >= -epsilon/4 && dd >= epsilon/4 && dd < dc + 2*epsilon) 
+                || (dd >= -epsilon/4 && d >= epsilon && d < dc + 2*epsilon)  ) elimQ = true;
                 if (elimQ) {
                     // Q à l'intérieur du coin P
                     // marquer le coin Q "éliminé"

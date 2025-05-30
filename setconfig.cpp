@@ -269,8 +269,8 @@ cv::Mat thresh_image = image;
     if (ri != 0) {
         do {
             std::string motousymbole;
-            std::string s;
-            float conf;
+            std::string s = "";
+            float conf(0.);
             char* symbol = 0;
             int x1, y1, x2, y2;
             char* mot = ri->GetUTF8Text(tesseract::RIL_WORD);
@@ -278,15 +278,21 @@ cv::Mat thresh_image = image;
                 s = std::string(mot);
                 level = tesseract::RIL_WORD;
                 texte = s;
+                conf = ri->Confidence(level);
                 motousymbole = "mot: ";
-            } else {
-                symbol = ri->GetUTF8Text(tesseract::RIL_SYMBOL);
-                if(!symbol) continue;
-                level = tesseract::RIL_SYMBOL;
-                s = std::string(symbol);
-                motousymbole = "symbole: ";
             }
-            conf = ri->Confidence(level);
+            if (s.size() < 2 || conf < 70 ) {
+                symbol = ri->GetUTF8Text(tesseract::RIL_SYMBOL);
+                if(!symbol && ! mot ) continue;
+                level = tesseract::RIL_SYMBOL;
+                if (symbol) {
+                    if(ri->Confidence(level) > conf) { 
+                        conf = ri->Confidence(level);
+                        s = std::string(symbol);
+                        motousymbole = "symbole: ";
+                    }
+                }
+            }
             if(mot) confmax=conf;
             ri->BoundingBox(level, &x1, &y1, &x2, &y2);
 
