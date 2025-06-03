@@ -369,4 +369,6 @@ CMakeFiles/cv2c.dir/outils.cpp.o: /home/jro/DEV/CV2C/outils.cpp \
  /home/jro/myenv/include/opencv4/opencv2/video/tracking.hpp \
  /home/jro/myenv/include/opencv4/opencv2/video/background_segm.hpp \
  /usr/include/c++/13/stack /usr/include/c++/13/bits/stl_stack.h \
- /home/jro/DEV/CV2C/config.h
+ /home/jro/DEV/CV2C/config.h /usr/include/c++/13/thread \
+ /usr/include/c++/13/bits/std_thread.h \
+ /usr/include/c++/13/bits/this_thread_sleep.h

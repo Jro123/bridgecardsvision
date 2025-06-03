@@ -296,9 +296,9 @@ cv::Mat thresh_image = image;
             if(mot) confmax=conf;
             ri->BoundingBox(level, &x1, &y1, &x2, &y2);
 
-            std::cout << motousymbole<< s << " Confidence: " << conf << 
-            " | BoundingBox: [" << x1 << ", " << y1 << ", " << x2 << ", " << y2 << "]" 
-            << thresh_image.cols <<"x"<<thresh_image.rows<< std::endl;
+            //std::cout << motousymbole<< s << " Confidence: " << conf << 
+            // " | BoundingBox: [" << x1 << ", " << y1 << ", " << x2 << ", " << y2 << "]" 
+            // << thresh_image.cols <<"x"<<thresh_image.rows<< std::endl;
 
             if(!mot &&  symbol) {
                 char car = *symbol;
@@ -440,13 +440,13 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
-static CURL* curl = nullptr;
+// static CURL* curl = nullptr;
 
 std::string sendImageToServer(cv::Mat image, double *pconfiance, double *pangle, std::string port) {
     std::string serv_url = "http://127.0.0.1:" + port + "/predict";
     std::vector<uchar> buf;
     cv::imencode(".bmp", image, buf);
-    //CURL* curl;
+    CURL* curl = nullptr;
     CURLcode res;
     std::string readBuffer = "";
     if (!curl) {

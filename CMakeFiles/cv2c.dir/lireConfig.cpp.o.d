@@ -370,4 +370,6 @@ CMakeFiles/cv2c.dir/lireConfig.cpp.o: /home/jro/DEV/CV2C/lireConfig.cpp \
  /home/jro/myenv/include/opencv4/opencv2/stitching/detail/camera.hpp \
  /home/jro/myenv/include/opencv4/opencv2/video.hpp \
  /home/jro/myenv/include/opencv4/opencv2/video/tracking.hpp \
- /home/jro/myenv/include/opencv4/opencv2/video/background_segm.hpp
+ /home/jro/myenv/include/opencv4/opencv2/video/background_segm.hpp \
+ /usr/include/c++/13/thread /usr/include/c++/13/bits/std_thread.h \
+ /usr/include/c++/13/bits/this_thread_sleep.h

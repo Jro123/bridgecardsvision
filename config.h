@@ -1,6 +1,8 @@
 #pragma once
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
+#include <vector>
+#include <thread>
 
 class config {
 public:
@@ -41,6 +43,7 @@ public:
     int ecartmax; // ecart maxi entre deux points d'une droite
     int waitoption;
     int printoption;
+    int threadoption;
     int tesOCR;  // 1: utiliser tesseract, 0 : uniquement le serveur
     int ignorerGS; // utiliser le gros symbole si la taille du petit est plus perite
     config() {}
@@ -74,13 +77,13 @@ void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleu
 
 void afficherImage(std::string nom, cv::Mat image);
 
-void calculerOrientation(uncoin& moncoin, config& maconf);
-void calculerBlanc(uncoin& moncoin, config& maconf);  // d�terminer la composition du blanc
+void calculerOrientation(uncoin& moncoin, const config& maconf);
+void calculerBlanc(uncoin& moncoin, const config& maconf);  // d�terminer la composition du blanc
 void calculerMinimum(const cv::Mat& image, cv::Scalar& minimum);
 
 void calculerMoyenneSymbole(const cv::Mat& image, const cv::Scalar ref, cv::Scalar& moy);
 void calculerBox(const cv::Mat& image, const int ts, const int ls, cv::Scalar& moy,
-    int *pBox, cv::Scalar& moyext, config& maconf);
+    int *pBox, cv::Scalar& moyext, const config& maconf);
 
 void calculerEncombrement(const cv::Mat& image, const cv::Scalar ref, cv::Scalar& moy,
      int *pBox, cv::Mat& imaR, cv::Scalar& moyext);
@@ -106,8 +109,11 @@ std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance= 0, doubl
 std::string execOCRVDR(cv::String nom, cv::Mat ima_ch, double *pconfiance = 0, double *pangle=0);
 //tescmd = "tesseract.exe " + nomcoin + "  stdout --psm 10 -l fra ffb ";
 
-std::string traiterCoin(int *cecoin, cv::Mat image,
-    cv::Mat result, int *l1, int *l2, config& maconf);
+void traiterCoin(int n, const int coins[][10], cv::Mat image,  std::vector<std::string>& resultats, 
+    cv::Mat result, const int *l1, const int *l2, const config& maconf);
+
+//void traiterCointhread(std::vector<std::thread> *pthreads,int n, int coins[500][10], cv::Mat image,  std::vector<std::string>& resultats, 
+//    cv::Mat result, int *l1, int *l2, config& maconf);
 
 
 // TODO:

@@ -6,7 +6,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "/home/jro/DEV/CV2C/build/cv2c",  // Remplacez par le chemin correct de votre exécutable
-            "args": ["~/DEV/CV2C/rdpckt_169.png"],  // Ajoutez vos paramètres ici
+            "args": ["~/DEV/CV2C/DRpckt_107.png"],  // Ajoutez vos paramètres ici
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

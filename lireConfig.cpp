@@ -61,6 +61,7 @@ int lireConfig(std::string nomfichier, config& maconf) {
 
     ASSIGN_OPTION(waitoption)
     ASSIGN_OPTION(printoption)
+    ASSIGN_OPTION(threadoption)
     ASSIGN_OPTION(tesOCR)
     ASSIGN_OPTION(ignorerGS)
     ASSIGN_OPTION(gradmin)

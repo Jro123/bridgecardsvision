@@ -25,16 +25,41 @@
 #include <opencv2/freetype.hpp>
 #include "config.h"
 
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+
 #ifndef _WIN32
 #include <thread> // pour std::thread
 // #include <atomic>  // pour std::atomic
 // std::atomic<bool> is_window_open(true);
 #endif
 
-std::string traiterCoin(int *cecoin, cv::Mat image,
-                        cv::Mat result, int *l1, int *l2, config &maconf)
+extern std::mutex mtx;
+extern std::condition_variable cvar;
+extern int activeThreads;
+extern int threadoption;
+
+std::mutex resultMutex;
+
+void retourcoin(int n){
+    std::cout<<"+++ fin de tache du coin "<<n<<std::endl;
+    cvar.notify_one();
+     return;
+}
+
+
+void traiterCoin(int n, const int coins[][10], cv::Mat image,  std::vector<std::string>& resultats, 
+                        cv::Mat result, const int *l1, const int *l2, const config &maconf)
 {
 
+    
+    int cecoin[10];
+    for (int i = 0; i<10; i++) cecoin[i] = coins[n][i];
+    std::cout<< "+++Traitercoin " <<n <<std::endl;
+    std::cout << "+++Thread " << std::this_thread::get_id() << " demarre..." << std::endl;
     std::string nomOCR = "tesOCR";
     if (maconf.tesOCR == 0)
         nomOCR = "SERVEUR";
@@ -44,10 +69,11 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     bool estunRDV = false;
     int waitoption = maconf.waitoption;
     int printoption = maconf.printoption;
+    int threadoption = maconf.threadoption;
     int i = cecoin[0]; // indice de ligne
     int j = cecoin[1];
     if (i < 0 || j < 0)
-        return ""; // coin éliminé
+        {retourcoin(n); return;} // coin éliminé
     if (cecoin[6])
         estunRDV = cecoin[6];
     estunRDV = false; // détection douteuse, désactivée
@@ -210,7 +236,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     {
         if (printoption)
             std::cout << " rotation " << angdeg << " degres" << std::endl;
-        // if (printoption) afficherImage("avant rot", coinPetit);
+        // if (printoption && !threadoption) afficherImage("avant rot", coinPetit);
         cv::Point2f ctr(coinPetit.cols / 2, coinPetit.rows / 2);
         cv::Mat imarot;
 
@@ -253,12 +279,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         }
     }
     cv::Mat extrait = coinPetit.clone();
-    if (printoption)
+    if (printoption && !threadoption) {
         afficherImage("Extrait", extrait);
-    if (waitoption > 2)
-        cv::waitKey(0);
-    else
-        cv::waitKey(1);
+        if (waitoption > 2)
+            cv::waitKey(0);
+        else
+            cv::waitKey(1);
+    }
 
     cv::Point2i HO; // point Horizontal HH ou KK
     cv::Point2i VE; // point vertical KK ou HH
@@ -306,8 +333,10 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         mbl = cv::mean(lig); // valeur de référence du blanc
         mb3 = mbl[0] + mbl[1] + mbl[2];
         cv::circle(extrait, PP, 7, cv::Scalar(255, 0, 0));
-        afficherImage("Ext", extrait);
-        afficherImage("Extrait", extrait);
+        if (printoption && !threadoption) {
+            afficherImage("Ext", extrait);
+            afficherImage("Extrait", extrait);
+        }
         int dx = 1;
         if (HO.x < PP.x)
             dx = -1; // d'une colonne à la suivante à l'intérieur du coin
@@ -438,8 +467,10 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             std::cout << "deplacement horizontal du coin " << PP.x - xpre << std::endl;
 
         cv::circle(extrait, PP, 1, cv::Scalar(0, 255, 255)); // position éventuellement décallée
-        afficherImage("Ext", extrait);
-        afficherImage("Extrait", extrait);
+        if (printoption && !threadoption) {
+            afficherImage("Ext", extrait);
+            afficherImage("Extrait", extrait);
+        }
     }
 
     // si on a déjà déterminé que c'est un RDV, ne pas tester les décallages de position du coin
@@ -456,7 +487,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     if (false && !estunRDV)
     { // désactivé, car les décallages viennent d'être calculés
         cv::circle(extrait, PP, 1, cv::Scalar(255, 0, 0));
-        afficherImage("Extrait", extrait);
+        if (printoption && !threadoption) afficherImage("Extrait", extrait);
         cv::Rect r, rH, rV, rHX, rVX;
         cv::Mat bordH, bordV, bordHX, bordVX;
         cv::Scalar mH, mV, mHX, mVX, ectH, ectV, ectHX, ectVX;
@@ -531,13 +562,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
 
         if (ectH[0] > 30)
         { // caractère à droite ou à gauche de PP
-            tracerRectangle(rH, extrait, "Extrait", cv::Scalar(255, 0, 0));
+            if (printoption && !threadoption) tracerRectangle(rH, extrait, "Extrait", cv::Scalar(255, 0, 0));
             // vérifier que la bordure horizontale extérieure est uniforme, sinon artefact
             if (ectHX[0] > 20)
             {
                 estArtefact = true;
                 std::cout << " Artefact bord H" << std::endl;
-                return "";
+                {retourcoin(n); return;}
             }
             dy = dc;
             if (VE.y > PP.y)
@@ -546,13 +577,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         }
         if (ectV[0] > 30)
         { // caractère dessus ou dessous  de PP
-            tracerRectangle(rV, extrait, "Extrait", cv::Scalar(255, 0, 0));
+            if (printoption && !threadoption) tracerRectangle(rV, extrait, "Extrait", cv::Scalar(255, 0, 0));
             // vérifier que la bordure verticale extérieure est blanche, sinon artefact
             if (ectVX[0] > 20)
             {
                 estArtefact = true;
                 std::cout << " Artefact bord V" << std::endl;
-                return "";
+                {retourcoin(n); return;} 
             }
             dx = dc;
             if (HO.x > PP.x)
@@ -603,13 +634,12 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         if (ect1[0] < m1[0] / 20 && ect1[1] < m1[1] / 20 && ect1[2] < m1[2] / 20)
         {
             cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 4, cv::Scalar(255, 0, 0), -1);
-            if (printoption)
+            if (printoption && !threadoption) {
                 afficherImage("result", result);
-            if (printoption)
                 tracerRectangle(rr, extrait, "Artefact", cv::Scalar(255, 0, 0));
-            if (printoption)
                 std::cout << " artefact coin uniforme " << m1 << ect1 << std::endl;
-            // return "";
+            }
+            // return ;
         }
         // les bandes entre le bord de carte et la position éventuelle du cadre ou du chiffre
         //    doivent être uniformes et plutot claires (surtout en rouge)
@@ -644,14 +674,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         cv::meanStdDev(lig, m1, ect1);
         if (ect1[0] > m1[0] / 10 || ect1[1] > m1[1] / 10 || ect1[2] > m1[2] / 10)
         {
-            if (printoption)
+            if (printoption && !threadoption) {
                 afficherImage("result", result);
-            if (printoption)
                 tracerRectangle(rr, extrait, "Artefact", cv::Scalar(255, 0, 0));
-            if (printoption)
                 std::cout << " artefact H " << m1 << ect1 << std::endl;
+            }
             estArtefact = true;
-            // return ""; // uniquement si le caractère n'est pas 10
+            // return ; // uniquement si le caractère n'est pas 10
         }
         // bande verticale
         rr.height = maconf.taillechiffre + maconf.taillesymbole;
@@ -678,14 +707,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         cv::meanStdDev(lig, m1, ect1);
         if (ect1[0] > m1[0] / 10 || ect1[1] > m1[1] / 10 || ect1[2] > m1[2] / 10)
         {
-            if (printoption)
+            if (printoption && !threadoption) {
                 afficherImage("result", result);
-            if (printoption)
                 tracerRectangle(rr, extrait, "Artefact", cv::Scalar(255, 0, 0));
-            if (printoption)
                 std::cout << " artefact V " << m1 << ect1 << std::endl;
+            }
             estArtefact = true;
-            // return "";
+            // return ;
         }
     }
     if (!estunRDV)
@@ -830,7 +858,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     if (estunRDV)
         cv::circle(extrait, QQ, 1, cv::Scalar(0, 0, 255), -1); // cercle rouge au coin du cadre
 
-    // if (printoption) afficherImage("droit", extrait);
+    // if (printoption && !threadoption) afficherImage("droit", extrait);
 
     cv::Scalar moy, ect;
     cv::Scalar moyext;     // moyennes à l'extérieur du symbole ou chiffre
@@ -1152,9 +1180,9 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         if (printoption)
             std::cout << "coin trop sombre " << m1[2] << std::endl;
         cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 4, cv::Scalar(255, 0, 0), -1);
-        if (printoption)
+        if (printoption && !threadoption)
             tracerRectangle(rz, extrait, "Artefact", cv::Scalar(255, 0, 0));
-        return "";
+        {retourcoin(n); return;} 
     }
 
     // deux zones foncées
@@ -1174,19 +1202,17 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     // std::cout<<m1[2]<<" "<<m2[2]<<"..";
     if (m1[2] < limsombre && m2[2] < limsombre)
     {
-        if (printoption)
-            std::cout << " coin artefact " << m1 << m2 << std::endl;
         if (!estunRDV)
             cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 4, cv::Scalar(255, 0, 0), -1);
-        if (printoption)
+        if (printoption && !threadoption) {
+            std::cout << " coin artefact " << m1 << m2 << std::endl;
             tracerRectangle(rz, extrait, "Artefact", cv::Scalar(255, 0, 0));
-        if (printoption)
             tracerRectangle(rz2, extrait, "Artefact", cv::Scalar(255, 0, 0));
-        if (printoption)
             afficherImage("result", result);
+        }
         // normal pour R D V avec gros et petit symbole
         if (!estunRDV)
-            return "";
+            {retourcoin(n); return;} 
         // return ""; // prochain coin;
     }
 
@@ -1202,9 +1228,10 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
 
     if (estunRDV)
         cv::circle(extrait, QQ, 2, cv::Scalar(0, 0, 128), -1); // cercle rouge foncé
-    if (printoption)
+    if (printoption && !threadoption) {
         afficherImage("coin", extrait);
-    cv::waitKey(1);
+        cv::waitKey(1);
+    }
 
     int deltaect = 20; // 20 : valeur expérimentale
     int dc = maconf.deltacadre;
@@ -1265,7 +1292,8 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ls = maconf.largeurVDR;
             ts = maconf.tailleVDR;
         }
-#ifndef INACTIVE
+        // provoque des erreurs désactivé:
+#ifdef INACTIVE
         ////////////////////// !!!!!!!!!!!!!!!!! élargissement de la zone du chiffre !!!!!!!!!!!
         if (!estunRDV)
         {
@@ -1383,30 +1411,20 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         }
         // ima_carW = ima_car.clone();
         ima_CARV = ima_carW.clone();
-        if (printoption > 1){
+        if (printoption > 1 && !threadoption){
             afficherImage("V1c", ima_car);
             afficherImage("V1", ima_CARV);
         }
-        if (waitoption > 2)
-            cv::waitKey(0);
-        else
-            cv::waitKey(1);
+        if (printoption && !threadoption){
+            if (waitoption > 2)
+                cv::waitKey(0);
+            else
+                cv::waitKey(1);
+        }
         nonvu = true;
         std::string outRDV;
-        if (maconf.tesOCR >= 1)
-        {
-            std::string outserv;
-            output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
-            if (maconf.tesOCR == 1 && output != "" && confiance < 0.30)
-            {
-                double angW;
-                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angW);
-                if (outserv != output)
-                    output = ""; // invalider la détection douteuse
-            }
-        }
-        else
-            output = execOCR(nomOCR, ima_carW, &confiance, &angle);
+        if (maconf.tesOCR >= 1) output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
+        else                    output = execOCR(nomOCR, ima_carW, &confiance, &angle);
         if (printoption > 1 && output.size() > 0)
             std::cout << "V1 " << output << " confiance " << confiance << " angle " << angle << std::endl;
         if (output == "?")
@@ -1459,17 +1477,18 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             // eclaircirfond(ima_RDV);
             cv::cvtColor(ima_RDV, ima_carW, cv::COLOR_BGR2GRAY);
             cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption ) {
                 afficherImage("V1X", ima_carW);
-            if (waitoption > 2)
-                cv::waitKey(0);
-            else
-                cv::waitKey(1);
+                if (waitoption > 2)
+                    cv::waitKey(0);
+                else
+                    cv::waitKey(1);
+                }
             if (maconf.tesOCR >= 1)
             {
                 outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
-                if (outRDV == "" && maconf.tesOCR == 1)
-                    outRDV = execOCR("SERVEUR", ima_RDV, &confRDV, &angRDV);
+                //if (outRDV == "" && maconf.tesOCR == 1)
+                //    outRDV = execOCR("SERVEUR", ima_RDV, &confRDV, &angRDV);
             }
             else
                 outRDV = execOCR(nomOCR, ima_RDV, &confRDV, &angRDV);
@@ -1539,7 +1558,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         {
             if ((output.size() == 1 && (output[0] > '0' && output[0] <= '9')) || ((output.size() >= 2) && ((output[0] == '1' || output[0] == 'I' || output[0] == 'i') && (output[1] == '0' || output[1] == 'O' || output[1] == '9' || output[1] == 'C' || output[1] == 'U' || output[1] == 'Q' || output[1] == '6'))))
             {
-                if (printoption > 1)
+                //if (printoption > 1)
                     std::cout << "V1===>" << output << " confiance " << confiance << " angle " << angle << std::endl;
                 if (output.size() >= 2)
                 {
@@ -1624,7 +1643,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     else
                         rr.y = QQ.y - maconf.deltagroshautRDV - rr.height - 1;
                 }
-                if (printoption)
+                if (printoption && !threadoption)
                     tracerRectangle(rr, extrait, "valider", cv::Scalar(255, 0, 0));
                 GS = coinPetit(rr).clone();
                 // amplifyContrast(GS);
@@ -1736,7 +1755,8 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ts = maconf.largeurVDR;
             ls = maconf.tailleVDR;
         }
-#ifndef INACTIVE
+        // provoque des erreurs : désactivé :
+#ifdef INACTIVE
         if (!estunRDV)
         {
             // zone large et haute, mais à au moins 2 pixels du bord de carte sur le coté
@@ -1858,39 +1878,24 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         ima_CARH = ima_carW.clone();
         // if (dx < 20) cv::resize(ima_carW, ima_carW, cv::Size(), 8.0, 8.0);
         // amplifyContrast(ima_carW);
-        if (printoption > 1){
+        if (printoption > 1 && !threadoption){
             afficherImage("H1c", ima_car);
             afficherImage("H1", ima_CARH);
         }
-        if (waitoption > 2)
-            cv::waitKey(0);
-        else
-            cv::waitKey(1);
-        std::string outRDV;
-        if (maconf.tesOCR >= 1)
-        {
-            output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
-            if (maconf.tesOCR == 1 && output != "" && confiance < 0.30)
-            {
-                double angW;
-                std::string outserv;
-                outserv = execOCR("SERVEUR", ima_carW, &confiance, &angW);
-                if (outserv != output)
-                    output = ""; // invalider
-            }
+        if (printoption && !threadoption){
+            if (waitoption > 2)
+                cv::waitKey(0);
+            else
+                cv::waitKey(1);
         }
-        else
-            output = execOCR(nomOCR, ima_carW, &confiance, &angle);
-        if (output == "?")
-            output = "";
-        // if(confiance < 0.7) output = "";
-        if (output == "M")
-            output = "V"; // bord du cadre V et un morceau de gros symbole
+        std::string outRDV;
+        if (maconf.tesOCR >= 1) output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
+        else                    output = execOCR(nomOCR, ima_carW, &confiance, &angle);
+        if (output == "?")  output = "";
+        if (output == "M")  output = "V"; // bord du cadre V et un morceau de gros symbole
         if (printoption > 1 && output.size() > 0)
             std::cout << "H1 " << output << " confiance " << confiance << " angle " << angle << std::endl;
-        // if ((int)angle == 360 && confiance > 0.5) { inverse = true; }
-        /*else*/ // accepter 10  V et R si la confiance est suffisante
-        bool testerVDR = true;
+        bool testerVDR = !estunRDV;
         if (output.size() > 0)
         {
             // accepter 10  V et R si la confiance est suffisante
@@ -1908,25 +1913,20 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             }
         }
 
-        if (!estunRDV && testerVDR)
+        if (testerVDR)
         {
             double confRDV;
             double angRDV;
             r.width = maconf.tailleVDR + maconf.deltachsymb + 2; // rapproche du symbole
             // agrandir la zone en hauteur sauf s'il y a un gros symbole
             if (((UU.x > PP.x) && (U.y < PP.y)) || ((UU.x < PP.x) && (U.y > PP.y)))
-                r.height = maconf.largeurVDR + maconf.deltachsymb; // !! gros symbole
-            else
-                r.height = maconf.largeurVDR + 2 * maconf.deltachsymb; // agrandir la zone
+                 r.height = maconf.largeurVDR + maconf.deltachsymb; // !! gros symbole
+            else r.height = maconf.largeurVDR + 2 * maconf.deltachsymb; // agrandir la zone
 
-            if (UU.x > PP.x)
-                r.x = PP.x + maconf.deltahautVDR /* + 1*/;
-            else
-                r.x = PP.x - maconf.deltahautVDR - r.width;
-            if (U.y > PP.y)
-                r.y = PP.y + maconf.deltacadre /* + maconf.deltaVDR */;
-            else
-                r.y = PP.y - maconf.deltacadre - r.height /* - maconf.deltaVDR */;
+            if (UU.x > PP.x) r.x = PP.x + maconf.deltahautVDR /* + 1*/;
+            else             r.x = PP.x - maconf.deltahautVDR - r.width;
+            if (U.y > PP.y)  r.y = PP.y + maconf.deltacadre /* + maconf.deltaVDR */;
+            else             r.y = PP.y - maconf.deltacadre - r.height /* - maconf.deltaVDR */;
             cv::Mat ima_RDV = coinPetit(r).clone();
             ts = maconf.largeurVDR;
             ls = maconf.tailleVDR;
@@ -1938,39 +1938,28 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_RDV = coinPetit(r).clone();
             // eclaircirfond(ima_RDV);
             // amplifyContrast(ima_RDV);
-            if (UU.x > PP.x)
-                cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_CLOCKWISE);
-            else
-                cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_COUNTERCLOCKWISE);
-            // if (dx < 20) cv::resize(ima_RDV, ima_RDV, cv::Size(), 8.0, 8.0);
+            if (UU.x > PP.x)  cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_CLOCKWISE);
+            else              cv::rotate(ima_RDV, ima_RDV, cv::ROTATE_90_COUNTERCLOCKWISE);
             cv::cvtColor(ima_RDV, ima_carW, cv::COLOR_BGR2GRAY);
             cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
-            if (printoption > 1)
-                afficherImage("H1X", ima_carW);
-            if (waitoption > 2)
-                cv::waitKey(0);
-            else
-                cv::waitKey(1);
-            if (maconf.tesOCR >= 1)
-                outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
-            else
-                outRDV = execOCR(nomOCR, ima_RDV, &confRDV, &angRDV);
+            
+            if (printoption && !threadoption) {
+                if (printoption > 1) afficherImage("H1X", ima_carW);
+                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+            }
+            if (maconf.tesOCR >= 1) outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+            else                    outRDV = execOCR(nomOCR, ima_RDV, &confRDV, &angRDV);
             if (printoption > 1)
                 std::cout << "   OCR H1 pour RDV " << outRDV << " confiance " << confRDV << " angle " << angRDV << std::endl;
-            if (outRDV == "?")
-                outRDV = "";
-            // if(confRDV < 0.7) outRDV = "";
-            if (outRDV == "i)" || outRDV == "1)")
-                outRDV = "D";
-            if (outRDV == "v")
-                outRDV = "V";
+            if (outRDV == "?") outRDV = "";
+            if (outRDV == "i)" || outRDV == "1)")   outRDV = "D";
+            if (outRDV == "v")    outRDV = "V";
             if (outRDV.size() >= 2 && (outRDV[1] == 'R' || outRDV[1] == 'D' || outRDV[1] == 'V'))
                 outRDV = outRDV[1];
             // ignorer si ce n'est pas un R D V
             if (outRDV.size() > 0)
             {
-                if (outRDV == "M")
-                    outRDV = "V";
+                if (outRDV == "M") outRDV = "V";
                 if (outRDV[0] == 'V' || outRDV[0] == 'D' || outRDV[0] == 'R')
                 {
                     if (output[0] == 'R' && outRDV[0] == 'D')
@@ -1980,11 +1969,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                         output = outRDV;
                         confiance = confRDV;
                         angle = angRDV;
-                        if (angle == 360 && confiance > 0.8)
-                        {
-                            inverse = true;
-                            nonvu = false;
-                        }
+                        if (angle == 360 && confiance > 0.8) { inverse = true; nonvu = false; }
                     }
                 }
             }
@@ -2007,10 +1992,8 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         if (output.size() >= 2 &&
             (output[0] == 'V' || output[0] == 'v' || output[0] == 'D' || output[0] == 'R'))
             output = output[0];
-        if (output == "v")
-            output = "V";
-        if (output == "M")
-            output = "V"; // bord du cadre V et un morceau de gros symbole
+        if (output == "v") output = "V";
+        if (output == "M") output = "V"; // bord du cadre V et un morceau de gros symbole
                           // normalement le caractère V a été détecté lors de l'analyse du caractère vertical
         /*if ((output == "<" || output == ">") && ((int)angle == 360)
                 && out[0] != "R" && out[0] != "D" && confiance > confs[0]) {
@@ -2051,7 +2034,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     }
                 } // V D R attendu ou confiance assez bonne
             }
-            if ((int)angle == 90)
+            if ((int)angle == 90) // ce cas ne se produit plus après adaptation tesseract c++
             {
                 if (out[0] == "")
                 {
@@ -2071,8 +2054,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     || output[1] == 'C' || output[1] == '1' || output[1] == '9' 
                     || output[1] == 'U' || output[1] == 'Q' || output[1] == '6')))
             {
-                if (output.size() >= 2)
-                    output = "10";
+                if (output.size() >= 2)  output = "10";
                 if (printoption > 1)
                     std::cout << "H1===>" << output << " confiance " << confiance << " angle " << angle << std::endl;
                 if ((int)angle == 90)
@@ -2084,22 +2066,15 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                         Vcar = output;
                         confs[4] = 0;
                     }
-                }
-                else
-                {
+                } else {
                     Hcar = output;
                     out[4] = output;
                     confs[4] = confiance;
                     recalcul = true;
-                    if (output == "10")
-                    {
-                        inverse = true;
-                        nonvu = false;
-                    }
+                    if (output == "10") { inverse = true; nonvu = false; }
                     if ((out[0] == "V" || out[0] == "D" || out[0] == "R") && confs[0] > 0.8)
                         nonvu = false;
-                    if (!vuprec || Hcar == Vcar)
-                        if (confiance > 0.99)
+                    if ((!vuprec || Hcar == Vcar) && (confiance > 0.99))
                             nonvu = false; // chiffre fiable confirmé horizontal ou vertical ?
                     if (out[0] == "10" && confs[0] > 0.8 && confs[4] < 0.5)
                         nonvu = false; // inutile de chercher un décalage
@@ -2139,33 +2114,24 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                 //    rr.width /= 2; // couper la fleur de la reine de carreau
                 if (estunRDV)
                 {
-                    if (UU.x > QQ.x)
-                        rr.x = QQ.x + maconf.deltagroshautRDV;
-                    else
-                        rr.x = QQ.x - maconf.deltagroshautRDV - rr.width;
-                    if (U.y > QQ.y)
-                        rr.y = QQ.y + maconf.deltagrosRDV;
-                    else
-                        rr.y = QQ.y - maconf.deltagrosRDV - rr.height;
+                    if (UU.x > QQ.x) rr.x = QQ.x + maconf.deltagroshautRDV;
+                    else             rr.x = QQ.x - maconf.deltagroshautRDV - rr.width;
+                    if (U.y > QQ.y)  rr.y = QQ.y + maconf.deltagrosRDV;
+                    else             rr.y = QQ.y - maconf.deltagrosRDV - rr.height;
                 }
                 else
                 {
-                    if (UU.x > PP.x)
-                        rr.x = PP.x + maconf.deltacadrehaut + maconf.deltagroshautRDV + 1; // cadre
-                    else
-                        rr.x = PP.x - maconf.deltacadrehaut - maconf.deltagroshautRDV - rr.width - 1;
-                    if (U.y > PP.y)
-                        rr.y = PP.y + maconf.deltacadre + maconf.deltagrosRDV;
-                    else
-                        rr.y = PP.y - maconf.deltacadre - maconf.deltagrosRDV - rr.height;
+                    if (UU.x > PP.x) rr.x = PP.x + maconf.deltacadrehaut + maconf.deltagroshautRDV + 1; // cadre
+                    else             rr.x = PP.x - maconf.deltacadrehaut - maconf.deltagroshautRDV - rr.width - 1;
+                    if (U.y > PP.y)  rr.y = PP.y + maconf.deltacadre + maconf.deltagrosRDV;
+                    else             rr.y = PP.y - maconf.deltacadre - maconf.deltagrosRDV - rr.height;
                 }
-                if (printoption)
+                if (printoption && !threadoption)
                     tracerRectangle(rr, extrait, "valider", cv::Scalar(255, 0, 0));
                 GS = coinPetit(rr).clone();
                 // amplifyContrast(GS);
                 cv::meanStdDev(GS, m, ect);
-                if (ect[0] > 5 + (255 - m[0]) / 10)
-                    estGS = true;
+                if (ect[0] > 5 + (255 - m[0]) / 10) estGS = true;
                 if ((!estGS && ((UU.x > PP.x && U.y < PP.y) || (UU.x < PP.x && U.y > PP.y))) || (estGS && ((UU.x > PP.x && U.y > PP.y) || (UU.x < PP.x && U.y < PP.y))))
                 {
                     if (printoption)
@@ -2192,14 +2158,10 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     rr.width /= 2;
                 }
                 // eviter gros symbole central pour 2 ou 3
-                if (UU.x > PP.x)
-                    rr.x = PP.x + maconf.deltagroshaut + 1;
-                else
-                    rr.x = PP.x - maconf.deltagroshaut - rr.width - 1;
-                if (U.y > PP.y)
-                    rr.y = PP.y + maconf.deltagros;
-                else
-                    rr.y = PP.y - maconf.deltagros - rr.height;
+                if (UU.x > PP.x) rr.x = PP.x + maconf.deltagroshaut + 1;
+                else             rr.x = PP.x - maconf.deltagroshaut - rr.width - 1;
+                if (U.y > PP.y)  rr.y = PP.y + maconf.deltagros;
+                else             rr.y = PP.y - maconf.deltagros - rr.height;
                 GS = coinPetit(rr).clone();
                 // amplifyContrast(GS);
                 cv::meanStdDev(GS, m, ect);
@@ -2223,7 +2185,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                         confs[4] = 0;
                         if (out[0] == "")
                             nonvu = true;
-                        if (printoption)
+                        if (printoption && !threadoption)
                             tracerRectangle(rr, extrait, "Extrait", cv::Scalar(255, 0, 0));
                     }
                 }
@@ -2231,10 +2193,8 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         }
     }
 
-    if (confs[4] > confs[0] || out[0] == "")
-        output = out[4];
-    else
-        output = out[0];
+    if (confs[4] > confs[0] || out[0] == "") output = out[4];
+    else                                     output = out[0];
     if (output == "V" || output == "D" || output == "R")
         if (!estunRDV || confiance > 0.5) estunRDV = true;
     // si on a trouvé en vertical et/ou horizontal, avec une confiance très élevée,
@@ -2242,8 +2202,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     if (std::max(confs[0], confs[4]) > 0.9)
     {
         nonvu = false;
-        if (confs[0] > confs[4])
-            estDroit = true;
+        if (confs[0] > confs[4]) estDroit = true;
         inverse = !estDroit;
     }
 
@@ -2267,19 +2226,15 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         {
             if (output == out[0])
             { // confirmer la détection tesseract
-                if (confiance > confs[0])
-                    confs[0] = confiance;
-                else
-                    confiance = confs[0];
+                if (confiance > confs[0])   confs[0] = confiance;
+                else                        confiance = confs[0];
                 confs[4] = 0;
                 estServeur = false;
             }
             else if (output == out[4])
             { // confirmer la détection inverse
-                if (confiance > confs[4])
-                    confs[4] = confiance;
-                else
-                    confiance = confs[4];
+                if (confiance > confs[4])   confs[4] = confiance;
+                else                        confiance = confs[4];
                 confs[0] = 0;
                 estServeur = false;
             }
@@ -2305,6 +2260,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         }
     }
 
+    // tester les autres possibilités verticales décalées (par expérience,  ceci arrive rarement)
 #ifdef INACTIVE
     // tester les autres possibilités verticales décalées (par expérience,  ceci arrive rarement)
     if (!inverse && !estDroit)
@@ -2327,7 +2283,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_carW = ima_car.clone();
             if (dx < 20)
                 cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("V2", ima_carW);
             if (waitoption > 2)
                 cv::waitKey(0);
@@ -2373,7 +2329,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_carW = ima_car.clone();
             if (dx < 20)
                 cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("V3", ima_carW);
             if (waitoption > 2)
                 cv::waitKey(0);
@@ -2418,7 +2374,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_carW = ima_car.clone();
             if (dx < 20)
                 cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("V4", ima_carW);
             if (waitoption > 2)
                 cv::waitKey(0);
@@ -2486,7 +2442,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_carW = ima_car.clone();
             if (dx < 20)
                 cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("H2", ima_carW);
             if (waitoption > 2)
                 cv::waitKey(0);
@@ -2533,7 +2489,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_carW = ima_car.clone();
             if (dx < 20)
                 cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("H3", ima_carW);
             if (waitoption > 2)
                 cv::waitKey(0);
@@ -2581,7 +2537,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             ima_carW = ima_car.clone();
             if (dx < 20)
                 cv::resize(ima_carW, ima_carW, cv::Size(), 4.0, 4.0);
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("H4", ima_carW);
             if (waitoption > 2)
                 cv::waitKey(0);
@@ -2708,7 +2664,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         moncoin.caractere = output[0];
         if (output == "10")
             moncoin.caractere = 'X';
-        if (printoption > 0)
+        //if (printoption > 0)
             std::cout << "=======>" << output << " confiance " << confiance << std::endl;
         if (k < 4)
         {
@@ -2733,54 +2689,38 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             if (k == 1 || k == 5)
             {
                 QQ.x = PP.x;
-                if (UU.x > PP.x)
-                    PP.x -= dc;
-                else
-                    PP.x += dc;
+                if (UU.x > PP.x) PP.x -= dc;
+                else             PP.x += dc;
             }
             else if (k == 2 || k == 6)
             {
                 QQ = PP;
-                if (UU.x > PP.x)
-                    PP.x -= dc;
-                else
-                    PP.x += dc;
-                if (U.y > PP.y)
-                    PP.y -= dc;
-                else
-                    PP.y += dc;
+                if (UU.x > PP.x) PP.x -= dc;
+                else       PP.x += dc;
+                if (U.y > PP.y) PP.y -= dc;
+                else            PP.y += dc;
             }
             else if (k == 3 || k == 7)
             {
                 QQ.y = PP.y;
-                if (U.y > PP.y)
-                    PP.y -= dc;
-                else
-                    PP.y += dc;
+                if (U.y > PP.y) PP.y -= dc;
+                else            PP.y += dc;
             }
             else if (!etaitRDV)
             {
                 if (inverse)
                 {
-                    if (UU.x > PP.x)
-                        QQ.x = PP.x + maconf.deltacadrehaut;
-                    else
-                        QQ.x = PP.x - maconf.deltacadrehaut;
-                    if (U.y > PP.y)
-                        QQ.y = PP.y + maconf.deltacadre;
-                    else
-                        QQ.y = PP.y - maconf.deltacadre;
+                    if (UU.x > PP.x) QQ.x = PP.x + maconf.deltacadrehaut;
+                    else             QQ.x = PP.x - maconf.deltacadrehaut;
+                    if (U.y > PP.y)  QQ.y = PP.y + maconf.deltacadre;
+                    else             QQ.y = PP.y - maconf.deltacadre;
                 }
                 else
                 {
-                    if (UU.x > PP.x)
-                        QQ.x = PP.x + maconf.deltacadre;
-                    else
-                        QQ.x = PP.x - maconf.deltacadre;
-                    if (U.y > PP.y)
-                        QQ.y = PP.y + maconf.deltacadrehaut;
-                    else
-                        QQ.y = PP.y - maconf.deltacadrehaut;
+                    if (UU.x > PP.x) QQ.x = PP.x + maconf.deltacadre;
+                    else             QQ.x = PP.x - maconf.deltacadre;
+                    if (U.y > PP.y)  QQ.y = PP.y + maconf.deltacadrehaut;
+                    else             QQ.y = PP.y - maconf.deltacadrehaut;
                 }
             }
             estunRDV = true;
@@ -2790,31 +2730,22 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             // recalculer seulement la position de PP
             if (k == 1 || k == 5)
             {
-                if (UU.x > PP.x)
-                    PP.x -= dc;
-                else
-                    PP.x += dc;
+                if (UU.x > PP.x) PP.x -= dc;
+                else             PP.x += dc;
             }
             else if (k == 2 || k == 6)
             {
-                if (UU.x > PP.x)
-                    PP.x -= dc;
-                else
-                    PP.x += dc;
-                if (U.y > PP.y)
-                    PP.y -= dc;
-                else
-                    PP.y += dc;
+                if (UU.x > PP.x) PP.x -= dc;
+                else             PP.x += dc;
+                if (U.y > PP.y)  PP.y -= dc;
+                else             PP.y += dc;
             }
             else if (k == 3 || k == 7)
             {
-                if (U.y > PP.y)
-                    PP.y -= dc;
-                else
-                    PP.y += dc;
+                if (U.y > PP.y) PP.y -= dc;
+                else            PP.y += dc;
             }
-            if (k != 0 && k != 4)
-                recalcul = true;
+            if (k != 0 && k != 4) recalcul = true;
         }
         if (k != 0 && k != 4)
         { // la position du coin change
@@ -2836,7 +2767,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         if (printoption)
             std::cout << "Artefact " << std::endl;
         // if (maconf.deltacadre > 10 || confiance < 0.8)  // ne pas laisser de fausse détection
-            return ""; // sinon les bords peuvent être flous
+            {retourcoin(n); return;}  // sinon les bords peuvent être flous
     }
 
     if (recalcul)
@@ -2983,7 +2914,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     // déterminer l'orientation et la couleur
     calculerOrientation(moncoin, maconf);
     // priorité à cette détermination si OCR via le serveur
-    // sinon choisir la détermination par OCR
+    // sinon choisir la détermination par OCR si différente trè fiable
     if (estServeur)
     {
         inverse = moncoin.inverse;
@@ -3008,7 +2939,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     }
     else if (moncoin.inverse != inverse && angle != 90)
     {
-        if (moncoin.inverse)
+        if (moncoin.inverse && confiance > 0.9)
         {
             if (nonvu || out[0] == "" || out[4] != "")
             {
@@ -3018,7 +2949,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     nonvu = false;
             }
         }
-        else
+        else if (confiance > 0.9)
         {
             if (out[4] == "" || out[0] != "")
             {
@@ -3027,13 +2958,17 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                 if (Vcar != "")
                     nonvu = false;
             }
+        } else {
+            nonvu = true;
+            outprec = output = Hcar = Vcar = out[0] = out[4] = "";
+            inverse = moncoin.inverse;
         }
     }
     moncoin.inverse = inverse;
     estDroit = !inverse;
     estRouge = moncoin.estRouge;
     estNoir = !estRouge;
-    if (printoption)
+    //if (printoption)
     {
         std::cout << "==>";
         if (inverse)
@@ -3107,12 +3042,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
 
         if (estunRDV)
             cv::circle(extrait, QQ, 2, cv::Scalar(0, 0, 128), -1); // cercle rouge foncé
-        if (printoption)
+        if (printoption && !threadoption) {
             afficherImage("Extrait", extrait);
-        if (waitoption > 2)
-            cv::waitKey(0);
-        else
-            cv::waitKey(1);
+            if (waitoption > 2)
+                cv::waitKey(0);
+            else
+                cv::waitKey(1);
+        }
     }
 
     cv::Mat roi2_image;
@@ -3203,7 +3139,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     {
         // extraire
         cv::Rect roi3(xg, yh, dx, dy);
-        if (printoption)
+        if (printoption && !threadoption)
             tracerRectangle(roi3, extrait, "Extrait", cv::Scalar(0, 255, 255));
         if (waitoption > 2)
             cv::waitKey(0);
@@ -3324,7 +3260,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         cv::Mat image_bordee;
         cv::copyMakeBorder(ima, image_bordee, 1, 1, 1, 1, cv::BORDER_CONSTANT, cv::Scalar(255));
         ima = image_bordee;
-        if (printoption)
+        if (printoption && !threadoption)
             afficherImage("PS", ima);
         if (waitoption > 2)
             cv::waitKey(0);
@@ -3516,7 +3452,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         }
         if (estgrossymb)
         {
-            if (printoption)
+            if (printoption  && !threadoption)
                 tracerRectangle(r, extrait, "Extrait", cv::Scalar(255, 0, 0));
             echelle = 1; // agrandir n'améliore pas le résultat
             if (estunRDV)
@@ -3529,7 +3465,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                 ts = maconf.taillegros;
                 ls = maconf.largeurgros;
             }
-            if (waitoption > 2)
+            if (waitoption > 2 && !threadoption)
                 cv::waitKey(0);
             roi_image = coinPetit(r).clone(); // gros symbole
             // redresser
@@ -3558,7 +3494,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     if (estRouge && estgrossymb)
         eclaircirfond(roi_image); // déjà fait pour petit symbole
     symbgros = roi_image.clone();
-    if (printoption)
+    if (printoption && !threadoption)
     {
         afficherImage("symbole", symbgros);
         afficherImage("gros", symbgros);
@@ -3608,7 +3544,8 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     r.y = yBH;
     cv::Scalar coulBH = cv::Scalar(0, 0, 255);
     if (estRouge) coulBH = cv::Scalar(0, 0, 0);
-    if (printoption)
+    cv::Mat bandeH = symbgros(r).clone();
+    if (printoption && !threadoption)
         tracerRectangle(r, symbgros, "gros", coulBH);
 
     ///////////////////////////////////////////////////////////////////////////////////////
@@ -3661,12 +3598,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             cv::line(extrait, cv::Point2i(r.x, r.y), cv::Point2i(r.x + r.width, r.y), cv::Scalar(0, 0, 0));
             cv::line(extrait, cv::Point2i(r.x, r.y + r.height), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
             cv::line(extrait, cv::Point2i(r.x + r.width, r.y), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
-            if (printoption)
+            if (printoption && !threadoption) {
                 afficherImage("Extrait", extrait);
-            if (waitoption > 2)
-                cv::waitKey(0);
-            else
-                cv::waitKey(1);
+                if (waitoption > 2)
+                    cv::waitKey(0);
+                else
+                    cv::waitKey(1);
+            }
 
             cv::meanStdDev(ima_gs, moy, ect);
             if (printoption > 1)
@@ -3691,7 +3629,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         r.x = xgBH; // gauche de la bande horizontale
         r.y = yBH;  // haut de cette bande
         r.width = std::min(Box[1] - r.x + 1, xmax - xmin + 1);
-        if (printoption)
+        if (printoption && !threadoption)
             tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 0, 0)); // bande horizontale centrée
         CS.x = (xmin + xmax) / 2;                                      // donc le centre horizontal du symbole
         // rechercher la position de la bande verticale optimale (avec le plus de rouge = le moins de bleu)
@@ -3811,7 +3749,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         r.height = Box[3] + 1 - r.y;
         r.x = xaxe;
         r.width = largeurcol;
-        if (printoption)
+        if (printoption && !threadoption)
             tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
         if (moy[0] - mb > 30)
         { // centre moins rouge que les bords : coeur
@@ -3828,7 +3766,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             r.x = xopt; // largeur  1 2 ou 3
             r.height = Box[3] + 1 - r.y;
             int wv = r.width; // largeur de la bande verticale
-            if (printoption)
+            if (printoption && !threadoption)
                 tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
 
             /*if (largeurcol == 1)*/ { // seul cas où il y a un doute TEST TOUJOURS --> OK experimental
@@ -3895,7 +3833,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             r.x = xopt; // largeur  1 2 ou 3
             r.height = Box[3] + 1 - r.y;
             int wv = r.width; // largeur de la bande verticale
-            if (printoption)
+            if (printoption && !threadoption)
                 tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0)); // bande vericale centrée
             // on a la position haute du symbole : le haut du carreau, le creux du coeur
             // analyser un segment à gauche ou à droite à cette hauteur : très bleu (blanc)  pour carreau, moins pour coeur (un peu rouge)
@@ -3953,7 +3891,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             }
             if (r.height > Box[3] + 1 - r.y)
                 r.height = Box[3] + 1 - r.y;
-            if (printoption)
+            if (printoption && !threadoption)
                 tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0)); // petite ligne en haut à gauche ou droite
             lig = roi_image(r);
             moy = cv::mean(lig);
@@ -3961,7 +3899,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
 
             r.y = std::max(0, ybas + 1 - r.height);
             // r.x et r.width inchangés
-            if (printoption)
+            if (printoption && !threadoption)
                 tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0)); // petite ligne de test en haut à gauche
             lig = roi_image(r);
             moy = cv::mean(lig);
@@ -3981,18 +3919,18 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     std::cout << " carreau ";
                 std::cout << " intensite bleu bas - haut " << ecartbleu << std::endl;
             }
-            if (printoption > 1)
+            if (printoption > 1 && !threadoption)
                 afficherImage("gros", symbgros);
         }
     }
     if (estRouge && numcol > 0)
     {
-        if (printoption)
+        if (printoption && !threadoption)
         {
             if (numcol == 1)  std::cout << " coeur" << std::endl;
             else              std::cout << " carreau " << std::endl;
+            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
         }
-        if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////
@@ -4020,42 +3958,48 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         if (moncoin.caractere == 'R' && !estgrossymb)
         {
             // déterminer la position du haut de la lyre du roi de pique
-            if (inverse)
-            {
-                r.width = maconf.taillesymbole;
-                if (UU.x < QQ.x)
-                    r.x = UU.x - r.width - 1;
+            // uniquement inverse (dessus gauche ou dessous droit)
+            //           ou droit (dessous gauche ou dessus droit)
+            bool testerlire = false; 
+            if ((inverse && ( UU.x < PP.x && U.y < PP.y|| UU.x > PP.x && U.y > PP.y))
+            || (!inverse && ( UU.x > PP.x && U.y < PP.y|| UU.x < PP.x && U.y > PP.y))
+            ) {
+                if (inverse){
+                    r.width = maconf.taillesymbole;
+                    if (UU.x < QQ.x) // à gauche
+                        r.x = UU.x - r.width - 1;
+                    else
+                        r.x = VV.x + 1;
+                    r.height = maconf.largeursymbole;
+                    if (U.y > QQ.y)
+                        r.y = (UU+VV).y / 2;
+                    else
+                        r.y = (UU+VV).y /2 - r.height;
+                }
                 else
-                    r.x = VV.x + 1;
-                r.height = maconf.largeursymbole;
-                if (U.y > QQ.y)
-                    r.y = VV.y + 1;
-                else
-                    r.y = UU.y - r.height - 1;
+                {
+                    r.width = maconf.largeursymbole;
+                    r.height = maconf.taillesymbole;
+                    if (UU.x < QQ.x)
+                        r.x = (U+V).x /2  - r.width;
+                    else
+                        r.x = (U+V).x /2;
+                    if (U.y > QQ.y)
+                        r.y = V.y + 1;
+                    else
+                        r.y = U.y - r.height - 1;
+                }
+                lig = coinPetit(r).clone();
+                if (printoption && !threadoption) tracerRectangle(r, extrait, "Extrait", cv::Scalar(0, 0, 255));
+                cv::meanStdDev(lig, moy, ect);
+                if (printoption)
+                    std::cout << "ecart type lyre du roi noir " << ect << std::endl;
+                if (ect[0] > 30)
+                    numcol = 0; // Pique
+                else if (ect[0] < 10)
+                    numcol = 3; // Trefle
+                // sinon : indéterminé
             }
-            else
-            {
-                r.width = maconf.largeursymbole;
-                r.height = maconf.taillesymbole;
-                if (UU.x < QQ.x)
-                    r.x = U.x - r.width - 1;
-                else
-                    r.x = V.x + 1;
-                if (U.y > QQ.y)
-                    r.y = V.y + 1;
-                else
-                    r.y = U.y - r.height - 1;
-            }
-            lig = coinPetit(r).clone();
-            tracerRectangle(r, extrait, "Extrait", cv::Scalar(0, 0, 255));
-            cv::meanStdDev(lig, moy, ect);
-            if (printoption)
-                std::cout << "ecart type lyre du roi noir " << ect << std::endl;
-            if (ect[0] > 30)
-                numcol = 0; // Pique
-            else if (ect[0] < 10)
-                numcol = 3; // Trefle
-            // sinon : indéterminé
         }
 
         cv::Mat haut, centre;
@@ -4069,19 +4013,19 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             // r.y = BoxW[2] + (ts)/3 ; r.height = (ts) / 3;
             r.y = yBH;
             r.height = hBH;
-            tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 255, 0));
+            if (printoption && !threadoption) tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 255, 0));
             centre = roi_image(r);
             // amplifyContrast(centre);
             cv::meanStdDev(centre, moy, ect);
             if (printoption)
                 std::cout << " P/T ? écart type " << ect << std::endl;
-            if (ect[0] < 15)
+            if (ect[0] < 10)
                 numcol = 0;
             if (ect[0] > 60)
                 numcol = 3;
-            // Pique : écart type < 15
+            // Pique : écart type < 10
             // Trefle : > 60
-            // indéterminé entre 15 et 60
+            // indéterminé entre 10 et 60
             //
         }
         if (numcol < 0)
@@ -4142,7 +4086,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             r.width = wopt;
             rc.width = wopt;
 
-            if (printoption)
+            if (printoption && !threadoption)
             {
                 tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0));
                 tracerRectangle(rc, symbgros, "gros", cv::Scalar(0, 255, 0));
@@ -4183,12 +4127,12 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     r.x = Box[0];
                     gauche = roi_image(r);
                     moyg = cv::mean(gauche);
-                    if (printoption)
+                    if (printoption && !threadoption)
                         tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0));
                     r.x = Box[1] + 1 - r.width;
                     droite = roi_image(r);
                     moyd = mean(droite);
-                    if (printoption)
+                    if (printoption && !threadoption)
                         tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0));
                     moyhaut = (moyg[0] + moyd[0] + moyg[1] + moyd[1] + moyg[2] + moyd[2]) / 2;
                     ecr = 100 * (moyhaut - moycent) / moyhaut;
@@ -4212,7 +4156,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                     if (printoption)
                         std::cout << "couleur noire indéterminable Trefle ?" << ecr << std::endl;
                     cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 4, cv::Scalar(0, 0, 255), -1);
-                    return "";
+                    {retourcoin(n); return;} 
                 }
             }
             // si c'est un Valet, tester la couleur du chapeau
@@ -4256,12 +4200,13 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
                 cv::line(extrait, cv::Point2i(r.x, r.y), cv::Point2i(r.x + r.width, r.y), cv::Scalar(0, 0, 0));
                 cv::line(extrait, cv::Point2i(r.x, r.y + r.height), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
                 cv::line(extrait, cv::Point2i(r.x + r.width, r.y), cv::Point2i(r.x + r.width, r.y + r.height), cv::Scalar(0, 0, 0));
-                if (printoption)
+                if(printoption && !threadoption) {
                     afficherImage("Extrait", extrait);
-                if (waitoption > 2)
-                    cv::waitKey(0);
-                else
-                    cv::waitKey(1);
+                    if (waitoption > 2)
+                        cv::waitKey(0);
+                    else
+                        cv::waitKey(1);
+                }
 
                 cv::meanStdDev(ima_gs, moy, ect);
                 if (printoption > 1)
@@ -4360,7 +4305,7 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         if (inverse) cv::line(extrait, A, B, cv::Scalar(0, 255, 0), 1); // petit trait vert
         else         cv::line(extrait, A, B, cv::Scalar(0, 0, 0), 1); // petit trait noir
         if (estunRDV)  cv::circle(extrait, PP, 4, cv::Scalar(0, 0, 0), 2); // cercle noir
-        if (printoption) afficherImage("Extrait", extrait);
+        if (printoption && !threadoption) afficherImage("Extrait", extrait);
         x = A.x;
         y = A.y;
         dx = std::max(1, 1 + B.x - A.x);
@@ -4395,18 +4340,22 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
         cv::Mat image_bordee;
         cv::copyMakeBorder(ima_ch, image_bordee, 2, 2, 2, 2, cv::BORDER_CONSTANT, cv::Scalar(255));
         ima_ch = image_bordee;
-        if (printoption)  afficherImage("chiffre", ima_ch);
-        if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+        if (printoption && !threadoption) {
+            afficherImage("chiffre", ima_ch);
+            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+        }
 
-        output = tesOCR(ima_ch, estunRDV, &confiance, &angle);
-        if (maconf.tesOCR < 2 && (output == "" || confiance < 0.30))
+        if (maconf.tesOCR > 0) output = tesOCR(ima_ch, estunRDV, &confiance, &angle);
+        if (maconf.tesOCR <= 1 && (output == "" || confiance < 0.30))
             output = execOCR("SERVEUR", ima_ch, &confiance, &angle);
         if (printoption > 1) std::cout << output << " confiance " << confiance << std::endl;
         if (confiance < 0.7) output = "";
         if (output != ""){
             if (output[0] == 'R' || output[0] == 'D' || output[0] == 'V') output = output[0];
         }
-        if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+        if (printoption && !threadoption){
+            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+        }
         nonreconnu = false;
         if (output == "" ) output = outprec;
         int sz = output.size();
@@ -4448,9 +4397,9 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     if (nonreconnu)
     {
         if (printoption)  std::cout << "non reconnu " << output << std::endl;
-        return "";
+        {retourcoin(n); return;} 
     }
-    if (numcol < 0)  return ""; // couleur indéterminée
+    if (numcol < 0)  {retourcoin(n); return;}  // couleur indéterminée
     std::string texte = "";
     if (numcol == 0) { texte = "P"; if (printoption) std::cout << " Pique ";}
     if (numcol == 1) { texte = "C"; if (printoption) std::cout << " Coeur ";}
@@ -4460,46 +4409,9 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
     if (!nonvu && outprec != "" && outprec != output)
         if (printoption)
             std::cout << "detection incoherente " << output << " <> " << outprec << std::endl;
-    std::cout << output << " confiance " << confiance << std::endl
-              << std::endl;
+    std::cout << output << " confiance " << confiance << std::endl << std::endl;
     texte += output;
-    // afficher le texte sur l'image originale
-    cv::Point2i PT(cecoin[4], cecoin[5]);
-    int font = cv::FONT_HERSHEY_SIMPLEX;
-    double scale = 0.4;
-    cv::Scalar colt(0, 0, 0);          // texte noir
-    cv::Scalar rectColor(0, 255, 255); // sur fond jaune
-    int epais = 1;
 
-    // Obtenir la taille du texte
-    int baseline = 0;
-    cv::Size textSize = cv::getTextSize(texte, font, scale, epais, &baseline);
-    // baseline += epais;
-    // Définir le coin inférieur gauche du rectangle
-    cv::Point rectOrigin = PT + cv::Point(0, baseline);
-    // Définir le coin supérieur droit du rectangle
-    cv::Point rectCorner = rectOrigin + cv::Point(textSize.width, -3 * textSize.height / 2);
-    // Dessiner le rectangle rempli avec la couleur rectColor
-    cv::rectangle(result, rectOrigin, rectCorner, rectColor, cv::FILLED);
-
-    cv::Scalar coulsymb = cv::Scalar(0, 0, 255); // rouge
-    if (numcol == 0)  coulsymb = cv::Scalar(0, 0, 0); // noir sur fond jaune
-    if (numcol == 3)  coulsymb = cv::Scalar(0, 128, 0); // vert foncé sur fond jaune
-#ifndef _WIN32
-    cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
-    ft2->loadFontData("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0);
-
-    // Définition des symboles Unicode
-    std::vector<std::string> symbols = {"♠", "♥", "♦", "♣"};
-    std::string texteW = texte;
-    texteW[0] = ' ';
-    cv::putText(result, texteW, PT, font, scale, colt, epais);
-    ft2->putText(result, symbols[numcol], PT, 10, coulsymb, -1, cv::LINE_AA, true);
-#else
-    cv::putText(result, texte, PT, font, scale, colt, epais);
-#endif
-    if (printoption)
-        afficherImage("result", result);
 
     if (printoption)
         std::cout << std::endl;
@@ -4526,5 +4438,20 @@ std::string traiterCoin(int *cecoin, cv::Mat image,
             cv::destroyWindow("avant rot");
     }
 #endif
-    return texte;
+    if(printoption) std::cout<< "=> fin traitercoin "<< n<<" texte lu:"<< texte <<std::endl;
+       // Protection du vecteur de résultats
+    
+    {
+        if (threadoption) std::lock_guard<std::mutex> verrou (resultMutex);
+        std::string txtnum;
+        txtnum = texte + "#" + std::to_string(n);
+        resultats.push_back(txtnum);
+        if (threadoption) --activeThreads;
+    }
+
+    if (threadoption) retourcoin(n); // Signal que l'on peut démarrer une nouvelle tâche
+    //std::cout<<"Apres notify_one"<<std::endl;
+
+return ;
+
 }

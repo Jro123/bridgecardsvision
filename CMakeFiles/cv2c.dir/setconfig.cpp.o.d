@@ -368,6 +368,8 @@ CMakeFiles/cv2c.dir/setconfig.cpp.o: /home/jro/DEV/CV2C/setconfig.cpp \
  /home/jro/myenv/include/opencv4/opencv2/video.hpp \
  /home/jro/myenv/include/opencv4/opencv2/video/tracking.hpp \
  /home/jro/myenv/include/opencv4/opencv2/video/background_segm.hpp \
+ /usr/include/c++/13/thread /usr/include/c++/13/bits/std_thread.h \
+ /usr/include/c++/13/bits/this_thread_sleep.h \
  /usr/include/x86_64-linux-gnu/curl/curl.h \
  /usr/include/x86_64-linux-gnu/curl/curlver.h \
  /usr/include/x86_64-linux-gnu/curl/system.h \

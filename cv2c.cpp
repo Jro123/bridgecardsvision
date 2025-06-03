@@ -21,11 +21,13 @@
 #include <array>
 #include <cmath>
 
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/ximgproc.hpp> // Inclure le module ximgproc pour LSD
+#include <opencv2/freetype.hpp>
 #include "config.h"
 
 
@@ -34,8 +36,14 @@
 #include <atomic>  // pour std::atomic
 std::atomic<bool> is_window_open(true);
 #endif
-using std::max;
-using std::min;
+
+#include <vector>
+#include <mutex>
+#include <condition_variable>
+
+
+//using std::max;
+//using std::min;
 
 
 
@@ -46,6 +54,9 @@ int waitoption = 1;   // 0 : pas d'attente après affichages
 int printoption = 2;  // 0 : ne pas imprimer
                       // 1 : imprimer les lignes, coins détectés, OCR
                       // 2 : imprimer les calculs d'intensités et écarts types
+int threadoption = 1; // 0 : monotache
+                      // 1 : autant que de coeurs
+                      // n : nombre de sous-taches  
 std::string nomOCR = "tesOCR";                      
 
 cv::Point2f computeIntersection(cv::Point2f p1, cv::Point2f p2, cv::Point2f p3, cv::Point2f p4) {
@@ -81,6 +92,12 @@ bool PointEntreDeux(cv::Point2i M, cv::Point2i P, cv::Point2i Q) {
     if (abs(pmpq) > abs(pqpq)) return false;
     return true;
 }
+
+int MAX_THREADS = std::thread::hardware_concurrency(); // Limite du nombre de sous-tâches actives
+std::mutex mtx;             // Protection des accès concurrents
+std::condition_variable cvar; // Synchronisation des sous-tâches
+int activeThreads = 0;      // Nombre de sous-tâches en cours
+
 
 
 ///////////////////// principe de détermination de la dernière carte posée ///////////////////
@@ -137,7 +154,7 @@ int processVideo(config& maconf, cv::String nomfichier) {
             }
             if (nbf == 0) {
                 nbf = 25;
-                if (printoption) afficherImage("Frame", frame); // Afficher la frame
+                if (printoption) cv::imshow("Frame", frame); // Afficher la frame
                 processFrame(maconf, frame);
 
                 // Attendre 30 ms et quitter si 'q' est pressé
@@ -187,12 +204,18 @@ int main(int argc, char** argv) {
     // else  if (maconf.hauteurcarte != 0) resetconfig(maconf.hauteurcarte, maconf);
     waitoption = maconf.waitoption;
     printoption = maconf.printoption;
+    threadoption = maconf.threadoption;
     if(maconf.tesOCR == 0) nomOCR = "SERVEUR"; else nomOCR = "tesOCR";
     return processVideo(maconf, nomfichier);
 }
 
 int processFrame(config& maconf, cv::Mat image) {
+    activeThreads = 0;
+    if (maconf.threadoption > 1) MAX_THREADS = maconf.threadoption;
     auto t0 = std::chrono::high_resolution_clock::now();
+
+    std::vector<std::string> resultats; // vecteur des résultats
+    std::vector<std::thread> threads;
 
 #define NBCOULEURS 7
     cv::Scalar couleurs[7];
@@ -213,18 +236,18 @@ int processFrame(config& maconf, cv::Mat image) {
     auto start = std::chrono::high_resolution_clock::now();
 
     // afficher l'image en couleurs
-    if (printoption) afficherImage("couleur", image);
+    if (printoption) cv::imshow("couleur", image);
 
     // Séparer les canaux Bleu, Vert, Rouge 
     std::vector<cv::Mat> bgrChannels(3);
     cv::split(image, bgrChannels);
     // Utiliser seulement le canal Vert (par exemple) 
     cv::Mat greenChannel = bgrChannels[1];
-    //afficherImage("vert", greenChannel);
+    //cv::imshow("vert", greenChannel);
     cv::Mat blueChannel = bgrChannels[0];
-    //afficherImage("bleu", blueChannel);
+    //cv::imshow("bleu", blueChannel);
     cv::Mat redChannel = bgrChannels[2];
-    //afficherImage("rouge", redChannel);
+    //cv::imshow("rouge", redChannel);
 
     // Convertir en niveaux de gris
     cv::Mat gray;
@@ -234,13 +257,13 @@ int processFrame(config& maconf, cv::Mat image) {
     // Appliquer le flou gaussien pour réduire le bruit
     cv::Mat blurred;
     cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 0);
-    //afficherImage("blur", blurred);
+    //cv::imshow("blur", blurred);
 
 
     ////////////////// utiliser une des images monochromatiques /////////////////
     cv::Mat grise;
     cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR);
-    if (printoption) afficherImage("grise", grise);
+    if (printoption) cv::imshow("grise", grise);
     std::vector<cv::Vec4i> lines;
         int gmin = maconf.gradmin;
         int gmax = maconf.gradmax;
@@ -274,11 +297,11 @@ int processFrame(config& maconf, cv::Mat image) {
             lines.push_back(line_i);
         }
         // Afficher l'image avec les lignes détectées
-        afficherImage("lignes ximgproc", result);
+        if (printoption) cv::imshow("lignes ximgproc", result);
         auto t11 = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> duree = t11 - t0;
-    std::cout << "Temps initial : " << duree.count() << " secondes" << std::endl;
-        cv::waitKey(0);
+        std::chrono::duration<double> duree = t11 - t0;
+        std::cout << "Temps initial : " << duree.count() << " secondes" << std::endl;
+        if(waitoption > 1 )    cv::waitKey(0);
     }
         auto t22 = std::chrono::high_resolution_clock::now();
         cv::Mat edges;
@@ -287,7 +310,7 @@ int processFrame(config& maconf, cv::Mat image) {
         ima2 = grise.clone();
         cv::Canny(ima2, edges, gmin, gmax, 3, false);
         //cv::Canny(gray, edges, gmin, gmax, 3, false);
-        if (printoption) afficherImage("bords", edges); cv::waitKey(iwait);
+        if (printoption) cv::imshow("bords", edges); cv::waitKey(iwait);
 
     if (methode == 1){
         // Utiliser la détection de contours de Canny
@@ -321,7 +344,7 @@ int processFrame(config& maconf, cv::Mat image) {
         // cv::HoughLinesP(gray, lines, 1, CV_PI / 360, maconf.nbvote, maconf.nbpoints, maconf.ecartmax); // ne fonctionne pas
         // on refait le calcul des bords pour la suite
         cv::Canny(ima2, edges, gmin, gmax, 3, false);
-        if (printoption) afficherImage("bords", edges); cv::waitKey(iwait);
+        if (printoption) cv::imshow("bords", edges); cv::waitKey(iwait);
 
         // les lignes sont agrandies
         //
@@ -360,15 +383,17 @@ int processFrame(config& maconf, cv::Mat image) {
     }
 
     // Afficher l'image avec les segments de droite
-    if (printoption) afficherImage("Lignes toutes", ima2);
-    cv::waitKey(1);
+    if (printoption) {
+        cv::imshow("Lignes toutes", ima2);
+        cv::waitKey(1);
+    }
 
     int lgmax = maconf.taillechiffre; lgmax *= lgmax;
     if (false) {
         // fusionner les lignes AB (la plus grande)  et CD si // si C et D sont proches de la ligne AB
         //   et si C ou D est proche de A ou B : AB --> AC ou AD ou BC ou BD
-        double epsilon = max(1, maconf.deltacadre / 2);
-        epsilon = min(1.5, epsilon);
+        double epsilon = std::max(1, maconf.deltacadre / 2);
+        epsilon = std::min(1.5, epsilon);
         int deltamax = maconf.deltacoin;
         for (int k = 0; k < 5; k++) { // fusionner des lignes fusionnées, de plus en plus distantes
 
@@ -401,22 +426,22 @@ int processFrame(config& maconf, cv::Mat image) {
                     // 
                     int xmin, xmax, ymin, ymax;
                     if (abs(A.x - B.x) > abs(A.y - B.y)) {
-                        xmin = min(A.x, B.x);
+                        xmin = std::min(A.x, B.x);
                         if (xmin > C.x && xmin > D.x) { // AB à droite de CD
                             if ((xmin - C.x) > deltamax && (xmin - D.x) > deltamax) continue; // segments loins
                         }
                         else {
-                            xmax = max(A.x, B.x);
+                            xmax = std::max(A.x, B.x);
                             if (C.x - xmax > deltamax && D.x - xmax > deltamax) continue;
                         }
                     }
                     else {
-                        ymin = min(A.y, B.y);
+                        ymin = std::min(A.y, B.y);
                         if (ymin > C.y && ymin > D.y) { // AB à droite de CD
                             if ((ymin - C.y) > deltamax && (ymin - D.y) > deltamax) continue; // segments loins
                         }
                         else {
-                            ymax = max(A.y, B.y);
+                            ymax = std::max(A.y, B.y);
                             if (C.y - ymax > deltamax && D.y - ymax > deltamax) continue;
                         }
                     }
@@ -528,8 +553,10 @@ int processFrame(config& maconf, cv::Mat image) {
             else {
                 if (printoption) std::cout << i << "Aucun contour trouve en B." << B << std::endl;
             }
-            if (printoption > 1) afficherImage("Contour", contourImage);
-            cv::waitKey(1);
+            if (printoption > 1) {
+                cv::imshow("Contour", contourImage);
+                cv::waitKey(1);
+            }
             lines[i][0] = A.x;
             lines[i][1] = A.y;
             lines[i][2] = B.x;
@@ -591,8 +618,10 @@ int processFrame(config& maconf, cv::Mat image) {
     }
     if (printoption) std::cout << "longueur maximale " << maxlg << std::endl;
     // Afficher l'image avec les segments de droite
-    if (printoption) afficherImage("Lignes", ima2);
-    cv::waitKey(1);
+    if (printoption) {
+        cv::imshow("Lignes", ima2);
+        cv::waitKey(1);
+    }
 
 
 
@@ -1056,12 +1085,12 @@ int processFrame(config& maconf, cv::Mat image) {
         // uniquement si la ligne est plus logue que la demi-largeur de carte et pour l'affichage : faire une copie
 
         k = coins[n][2]; // vaut 0 ou 2
-        if (max(abs(B.x - A.x), abs(B.y - A.y)) > maconf.hauteurcarte / 3) {
+        if (std::max(abs(B.x - A.x), abs(B.y - A.y)) > maconf.hauteurcarte / 3) {
             nl1[2 - k] = (A.x + B.x) / 2;
             nl1[3 - k] = (A.y + B.y) / 2;
         }
         k = coins[n][3];
-        if (max(abs(D.x - C.x), abs(D.y - C.y)) > maconf.hauteurcarte / 3) {
+        if (std::max(abs(D.x - C.x), abs(D.y - C.y)) > maconf.hauteurcarte / 3) {
             nl2[2 - k] = (C.x + D.x) / 2;
             nl2[3 - k] = (C.y + D.y) / 2;
         }
@@ -1095,10 +1124,10 @@ int processFrame(config& maconf, cv::Mat image) {
         cv::circle(imaC, P2, 6, cv::Scalar(0, 128, 128), 4);
     }
     if (printoption) { 
-        afficherImage("coins détectés", imaC);
-        afficherImage("grise", grise);
+        cv::imshow("coins détectés", imaC);
+        cv::imshow("grise", grise);
+        cv::waitKey(1);
     }
-    cv::waitKey(1);
 
 
 
@@ -1115,13 +1144,17 @@ int processFrame(config& maconf, cv::Mat image) {
     auto t1 = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duree = t1 - t22;
     std::cout << "Temps préparatoire : " << duree.count() << " secondes" << std::endl;
-    
+
+    result = image.clone();
+    cv::imshow("result", result);
+    int szPrec = 0;
+
     for (int n = 0; n < nbcoins; n++) {
 
         int cecoin[10];
         for (int i = 0; i < 10; i++) cecoin[i] = coins[n][i];
-        int i = cecoin[0];  // indice de ligne
-        int j = cecoin[1];
+        int i = coins[n][0];  // indice de ligne
+        int j = coins[n][1];
         if (i < 0 || j < 0) continue; // coin éliminé
         int l1W[4], l2W[4];
 
@@ -1133,25 +1166,162 @@ int processFrame(config& maconf, cv::Mat image) {
         }
         if (printoption) std::cout<<std::endl<<"coin "<<n<<"   ";
         std::string cartelue;
-        cartelue = traiterCoin(cecoin, image,
-            result, &l1W[0], &l2W[0], maconf); 
-        if (waitoption > 1) cv::waitKey(0);  else cv::waitKey(1);// attendre 
-        bool trouvee = false;
-        if (cartelue != ""){
-            for (int i=0; i < nbcartes; i++) {
-                if (cartelue == cartes[i]) { trouvee = true; break;}
-            }
-            if (!trouvee) {
-                cartes[nbcartes] = cartelue;
-                nbcartes++;
-            }
+
+         const int *p = &coins[0][0];
+        if (threadoption == 0) { // pas de sous-tache
+            traiterCoin(n, coins, image, resultats,
+                result, &l1W[0], &l2W[0], maconf); 
+            cv::imshow("result", result);
+        } else { // démarrer une sous-tache
+            std::unique_lock<std::mutex> lock(mtx);
+            //std::cout << "Avant attente cvar..." << std::endl;
+            cvar.wait(lock, [] { return activeThreads < MAX_THREADS; });
+            //std::cout << "Débloqué !" << std::endl;
+
+            ++activeThreads;
+            threads.emplace_back([n, coins, image, &resultats, result, l1W, l2W, maconf]() {
+                traiterCoin(n, coins, image, std::ref(resultats), result, l1W, l2W, maconf);
+            });
+
+
+            //std::cout<< activeThreads<< " theads actives "<< " coin "<<n <<std::endl;
+            //threads.emplace_back(traiterCoin, n, coins, std::ref(image),
+            //    std::ref(resultats), std::ref(result), l1W, l2W, std::ref(maconf));
+        }
+        if (!threadoption && resultats.size() > szPrec) {
+            szPrec = resultats.size();
+            // affichage intermédiaire
+            std::string res = resultats.back();
+            int pos = res.find('#');
+            std::string texte = res.substr(0, pos);
+            cv::Point2i PT(coins[n][4], coins[n][5]);
+            int font = cv::FONT_HERSHEY_SIMPLEX;
+            double scale = 0.4;
+            cv::Scalar colt(0, 0, 0);          // texte noir
+            cv::Scalar rectColor(0, 255, 255); // sur fond jaune
+            int epais = 1;
+
+            // Obtenir la taille du texte
+            int baseline = 0;
+            cv::Size textSize = cv::getTextSize(texte, font, scale, epais, &baseline);
+            // baseline += epais;
+            // Définir le coin inférieur gauche du rectangle
+            cv::Point rectOrigin = PT + cv::Point(0, baseline);
+            // Définir le coin supérieur droit du rectangle
+            cv::Point rectCorner = rectOrigin + cv::Point(textSize.width, -3 * textSize.height / 2);
+            // Dessiner le rectangle rempli avec la couleur rectColor
+            int numcol;
+            // Définition des symboles Unicode
+            std::vector<std::string> symbols = {"♠", "♥", "♦", "♣"};
+            std::string symcol;
+            cv::Scalar coulsymb = cv::Scalar(0, 0, 255); // rouge
+            if (texte[0] == 'C') numcol = 1;
+            if (texte[0] == 'K') numcol = 2;
+            if (texte[0] == 'P') {
+                numcol = 0; coulsymb = cv::Scalar(0, 0, 0);} // noir sur fond jaune
+            if (texte[0] == 'T') {numcol = 3; coulsymb = cv::Scalar(0, 128, 0);} // vert foncé sur fond jaune
+            symcol = symbols[numcol];
+        #ifndef _WIN32
+            cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
+            ft2->loadFontData("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0);
+
+            std::string texteW = texte;
+            texteW[0] = ' ';
+        #endif
+            cv::rectangle(result, rectOrigin, rectCorner, rectColor, cv::FILLED);
+    #ifndef _WIN32
+            cv::putText(result, texteW, PT, font, scale, colt, epais);
+            ft2->putText(result, symcol, PT, 10, coulsymb, -1, cv::LINE_AA, true);
+    #else
+            cv::putText(result, texte, PT, font, scale, colt, epais);
+    #endif        
+
+
+            if (printoption) cv::imshow("result", result);
+            if (waitoption > 1) cv::waitKey(0);  else cv::waitKey(1);// attendre 
+        } 
+    } // boucle sur les coins
+    if (threadoption > 0) {
+    // Attente de toutes les sous-tâches
+        for (auto& t : threads) {
+            t.join();
         }
     }
     auto t2 = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = t2 - t1;
     std::cout << "Temps écoulé : " << elapsed.count() << " secondes" << std::endl;
+    cv::imshow("result", result);
+       // Affichage des résultats après synchronisation
+    nbcartes = 0;
+    for (const auto& res : resultats) {
+        bool trouvee = false;
+        if (printoption) std::cout<<res<<",";
+        std::string resW;
+        // Trouver la position de #
+        size_t pos = res.find('#');
+        int n;
+        std::string texte;
+        if (pos != std::string::npos) { // Vérifier que # existe
+            resW = res.substr(0, pos);   // Partie avant #
+            std::string afterHash = res.substr(pos + 1);   // Partie après #
+            n = std::stoi(afterHash);
+        }
+        texte = resW;
+        // afficher le résultat sur l'image
+        // afficher le texte sur l'image originale
+        cv::Point2i PT(coins[n][4], coins[n][5]);
+        int font = cv::FONT_HERSHEY_SIMPLEX;
+        double scale = 0.4;
+        cv::Scalar colt(0, 0, 0);          // texte noir
+        cv::Scalar rectColor(0, 255, 255); // sur fond jaune
+        int epais = 1;
 
-    afficherImage("result", result);
+        // Obtenir la taille du texte
+        int baseline = 0;
+        cv::Size textSize = cv::getTextSize(texte, font, scale, epais, &baseline);
+        // baseline += epais;
+        // Définir le coin inférieur gauche du rectangle
+        cv::Point rectOrigin = PT + cv::Point(0, baseline);
+        // Définir le coin supérieur droit du rectangle
+        cv::Point rectCorner = rectOrigin + cv::Point(textSize.width, -3 * textSize.height / 2);
+        // Dessiner le rectangle rempli avec la couleur rectColor
+        int numcol;
+        cv::Scalar coulsymb = cv::Scalar(0, 0, 255); // rouge
+        if (texte[0] == 'C') numcol = 1;
+        if (texte[0] == 'K') numcol = 2;
+        if (texte[0] == 'P') {
+            numcol = 0; coulsymb = cv::Scalar(0, 0, 0);} // noir sur fond jaune
+        if (texte[0] == 'T') {numcol = 3; coulsymb = cv::Scalar(0, 128, 0);} // vert foncé sur fond jaune
+    #ifndef _WIN32
+        cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
+        ft2->loadFontData("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0);
+
+        // Définition des symboles Unicode
+        std::vector<std::string> symbols = {"♠", "♥", "♦", "♣"};
+        std::string texteW = texte;
+        texteW[0] = ' ';
+    #endif
+        if (printoption)
+            cv::imshow("result", result);
+        cv::rectangle(result, rectOrigin, rectCorner, rectColor, cv::FILLED);
+#ifndef _WIN32
+        cv::putText(result, texteW, PT, font, scale, colt, epais);
+        ft2->putText(result, symbols[numcol], PT, 10, coulsymb, -1, cv::LINE_AA, true);
+#else
+        cv::putText(result, texte, PT, font, scale, colt, epais);
+#endif        
+        for (int i=0; i < nbcartes; i++) {
+            if (resW  == cartes[i]) { trouvee = true; break;}
+        }
+        if (!trouvee) {
+            cartes[nbcartes] = resW;
+            nbcartes++;
+        }
+    } // for resultats
+    std::cout << std::endl;
+    // cv::imshow("result", result); // désactivé en multitache
+    cv::imshow("result", result);
+
     for(int i = 0; i < nbcartes; i++){
         char nomcol = cartes[i][0];
         std::string valeur = cartes[i].substr(1);
@@ -1162,39 +1332,40 @@ int processFrame(config& maconf, cv::Mat image) {
         else cartecouleur = "Trefle ";
         std::cout<<cartecouleur<<valeur<<std::endl;
     }
+    
     std::cout << "====== fini ======" << std::endl;
     if (waitoption) cv::waitKey(0);
     {
     double val;
-    val = cv::getWindowProperty("symbole", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("symbole", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("symbole");
-    val = cv::getWindowProperty("orient", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("orient", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("orient");
-    val = cv::getWindowProperty("coin", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("coin", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("coin");
-    val = cv::getWindowProperty("Artefact", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("Artefact", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("Artefact");
-    val = cv::getWindowProperty("coins détectés", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("coins détectés", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("coins détectés");
-    val = cv::getWindowProperty("Ext", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("Ext", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("Ext");
-    val = cv::getWindowProperty("bords", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("bords", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("bords");
-    val = cv::getWindowProperty("lignes ximgproc", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("lignes ximgproc", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("lignes ximgproc");
-    val = cv::getWindowProperty("Lignes", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("Lignes", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("Lignes");
-    val = cv::getWindowProperty("Lignes toutes", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("Lignes toutes", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("Lignes toutes");
-    val = cv::getWindowProperty("Extrait", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("Extrait", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("Extrait");
-    val = cv::getWindowProperty("chiffre", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("chiffre", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("chiffre");
-    val = cv::getWindowProperty("gros", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("gros", cv::WND_PROP_AUTOSIZE);
     if (val > 0) cv::destroyWindow("gros");
-    val = cv::getWindowProperty("droit", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("droit", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("droit");
-    val = cv::getWindowProperty("avant rot", cv::WND_PROP_VISIBLE);
+    val = cv::getWindowProperty("avant rot", cv::WND_PROP_AUTOSIZE);
     if(val > 0) cv::destroyWindow("avant rot");
     }
 

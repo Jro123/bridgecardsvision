@@ -78,6 +78,7 @@ CMakeFiles/cv2c.dir/cv2c.cpp.o: cv2c.cpp \
   /home/jro/myenv/include/opencv4/opencv2/flann/sampling.h \
   /home/jro/myenv/include/opencv4/opencv2/flann/saving.h \
   /home/jro/myenv/include/opencv4/opencv2/flann/timer.h \
+  /home/jro/myenv/include/opencv4/opencv2/freetype.hpp \
   /home/jro/myenv/include/opencv4/opencv2/highgui.hpp \
   /home/jro/myenv/include/opencv4/opencv2/imgcodecs.hpp \
   /home/jro/myenv/include/opencv4/opencv2/imgproc.hpp \
@@ -261,6 +262,7 @@ CMakeFiles/cv2c.dir/cv2c.cpp.o: cv2c.cpp \
   /usr/include/c++/13/cmath \
   /usr/include/c++/13/compare \
   /usr/include/c++/13/complex \
+  /usr/include/c++/13/condition_variable \
   /usr/include/c++/13/cstddef \
   /usr/include/c++/13/cstdint \
   /usr/include/c++/13/cstdio \
@@ -644,6 +646,7 @@ CMakeFiles/cv2c.dir/lireConfig.cpp.o: lireConfig.cpp \
   /usr/include/c++/13/bits/std_abs.h \
   /usr/include/c++/13/bits/std_function.h \
   /usr/include/c++/13/bits/std_mutex.h \
+  /usr/include/c++/13/bits/std_thread.h \
   /usr/include/c++/13/bits/stl_algo.h \
   /usr/include/c++/13/bits/stl_algobase.h \
   /usr/include/c++/13/bits/stl_bvector.h \
@@ -671,6 +674,7 @@ CMakeFiles/cv2c.dir/lireConfig.cpp.o: lireConfig.cpp \
   /usr/include/c++/13/bits/streambuf_iterator.h \
   /usr/include/c++/13/bits/string_view.tcc \
   /usr/include/c++/13/bits/stringfwd.h \
+  /usr/include/c++/13/bits/this_thread_sleep.h \
   /usr/include/c++/13/bits/uniform_int_dist.h \
   /usr/include/c++/13/bits/unique_lock.h \
   /usr/include/c++/13/bits/unique_ptr.h \
@@ -738,6 +742,7 @@ CMakeFiles/cv2c.dir/lireConfig.cpp.o: lireConfig.cpp \
   /usr/include/c++/13/string \
   /usr/include/c++/13/string_view \
   /usr/include/c++/13/system_error \
+  /usr/include/c++/13/thread \
   /usr/include/c++/13/tr1/bessel_function.tcc \
   /usr/include/c++/13/tr1/beta_function.tcc \
   /usr/include/c++/13/tr1/ell_integral.tcc \
@@ -1072,6 +1077,7 @@ CMakeFiles/cv2c.dir/outils.cpp.o: outils.cpp \
   /usr/include/c++/13/bits/std_abs.h \
   /usr/include/c++/13/bits/std_function.h \
   /usr/include/c++/13/bits/std_mutex.h \
+  /usr/include/c++/13/bits/std_thread.h \
   /usr/include/c++/13/bits/stl_algo.h \
   /usr/include/c++/13/bits/stl_algobase.h \
   /usr/include/c++/13/bits/stl_bvector.h \
@@ -1100,6 +1106,7 @@ CMakeFiles/cv2c.dir/outils.cpp.o: outils.cpp \
   /usr/include/c++/13/bits/streambuf_iterator.h \
   /usr/include/c++/13/bits/string_view.tcc \
   /usr/include/c++/13/bits/stringfwd.h \
+  /usr/include/c++/13/bits/this_thread_sleep.h \
   /usr/include/c++/13/bits/uniform_int_dist.h \
   /usr/include/c++/13/bits/unique_lock.h \
   /usr/include/c++/13/bits/unique_ptr.h \
@@ -1167,6 +1174,7 @@ CMakeFiles/cv2c.dir/outils.cpp.o: outils.cpp \
   /usr/include/c++/13/string \
   /usr/include/c++/13/string_view \
   /usr/include/c++/13/system_error \
+  /usr/include/c++/13/thread \
   /usr/include/c++/13/tr1/bessel_function.tcc \
   /usr/include/c++/13/tr1/beta_function.tcc \
   /usr/include/c++/13/tr1/ell_integral.tcc \
@@ -2080,6 +2088,7 @@ CMakeFiles/cv2c.dir/setconfig.cpp.o: setconfig.cpp \
   /usr/include/c++/13/bits/std_abs.h \
   /usr/include/c++/13/bits/std_function.h \
   /usr/include/c++/13/bits/std_mutex.h \
+  /usr/include/c++/13/bits/std_thread.h \
   /usr/include/c++/13/bits/stl_algo.h \
   /usr/include/c++/13/bits/stl_algobase.h \
   /usr/include/c++/13/bits/stl_bvector.h \
@@ -2109,6 +2118,7 @@ CMakeFiles/cv2c.dir/setconfig.cpp.o: setconfig.cpp \
   /usr/include/c++/13/bits/streambuf_iterator.h \
   /usr/include/c++/13/bits/string_view.tcc \
   /usr/include/c++/13/bits/stringfwd.h \
+  /usr/include/c++/13/bits/this_thread_sleep.h \
   /usr/include/c++/13/bits/uniform_int_dist.h \
   /usr/include/c++/13/bits/unique_lock.h \
   /usr/include/c++/13/bits/unique_ptr.h \
@@ -2188,6 +2198,7 @@ CMakeFiles/cv2c.dir/setconfig.cpp.o: setconfig.cpp \
   /usr/include/c++/13/string \
   /usr/include/c++/13/string_view \
   /usr/include/c++/13/system_error \
+  /usr/include/c++/13/thread \
   /usr/include/c++/13/tr1/bessel_function.tcc \
   /usr/include/c++/13/tr1/beta_function.tcc \
   /usr/include/c++/13/tr1/ell_integral.tcc \
@@ -2659,6 +2670,7 @@ CMakeFiles/cv2c.dir/traiterCoin.cpp.o: traiterCoin.cpp \
   /usr/include/c++/13/cmath \
   /usr/include/c++/13/compare \
   /usr/include/c++/13/complex \
+  /usr/include/c++/13/condition_variable \
   /usr/include/c++/13/cstddef \
   /usr/include/c++/13/cstdint \
   /usr/include/c++/13/cstdio \
@@ -2856,8 +2868,6 @@ CMakeFiles/cv2c.dir/traiterCoin.cpp.o: traiterCoin.cpp \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/xmmintrin.h
 
 
-/home/jro/myenv/include/opencv4/opencv2/freetype.hpp:
-
 /usr/include/x86_64-linux-gnu/curl/websockets.h:
 
 /usr/include/x86_64-linux-gnu/curl/multi.h:
@@ -3028,9 +3038,15 @@ setconfig.cpp:
 
 /usr/include/python3.12/iterobject.h:
 
+/usr/include/python3.12/import.h:
+
 /usr/include/c++/13/chrono:
 
 /usr/include/c++/13/cctype:
+
+/usr/include/python3.12/intrcheck.h:
+
+/usr/include/c++/13/bits/streambuf_iterator.h:
 
 /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h:
 
@@ -3392,6 +3408,20 @@ config.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h:
 
+/home/jro/myenv/include/opencv4/opencv2/ximgproc/paillou_filter.hpp:
+
+/usr/include/c++/13/bits/fs_path.h:
+
+/home/jro/myenv/include/opencv4/opencv2/opencv_modules.hpp:
+
+/usr/include/c++/13/bits/gslice_array.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h:
+
+/usr/include/x86_64-linux-gnu/c++/13/bits/cpu_defines.h:
+
+/usr/include/python3.12/cpython/modsupport.h:
+
 /usr/include/linux/stddef.h:
 
 /usr/include/c++/13/bits/concept_check.h:
@@ -3446,6 +3476,8 @@ config.h:
 
 /usr/include/c++/13/debug/assertions.h:
 
+/home/jro/myenv/include/opencv4/opencv2/freetype.hpp:
+
 /usr/include/x86_64-linux-gnu/curl/curl.h:
 
 /usr/include/c++/13/bits/stl_heap.h:
@@ -3494,20 +3526,6 @@ config.h:
 
 /usr/include/x86_64-linux-gnu/c++/13/bits/c++locale.h:
 
-/usr/include/c++/13/bits/fs_path.h:
-
-/home/jro/myenv/include/opencv4/opencv2/opencv_modules.hpp:
-
-/usr/include/c++/13/bits/gslice_array.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h:
-
-/usr/include/x86_64-linux-gnu/c++/13/bits/cpu_defines.h:
-
-/usr/include/python3.12/cpython/modsupport.h:
-
-/home/jro/myenv/include/opencv4/opencv2/ximgproc/paillou_filter.hpp:
-
 /usr/include/leptonica/list.h:
 
 /usr/include/python3.12/pymem.h:
@@ -3545,10 +3563,6 @@ outils.cpp:
 /usr/include/python3.12/cpython/code.h:
 
 /home/jro/myenv/include/opencv4/opencv2/flann/matrix.h:
-
-/usr/include/c++/13/stdexcept:
-
-/usr/include/c++/13/clocale:
 
 /home/jro/myenv/include/opencv4/opencv2/flann/miniflann.hpp:
 
@@ -3706,6 +3720,10 @@ outils.cpp:
 
 /home/jro/myenv/include/opencv4/opencv2/ximgproc/edgepreserving_filter.hpp:
 
+/usr/include/c++/13/stdexcept:
+
+/usr/include/c++/13/clocale:
+
 /usr/include/c++/13/cmath:
 
 /usr/include/c++/13/compare:
@@ -3716,13 +3734,23 @@ outils.cpp:
 
 /usr/include/c++/13/complex:
 
+/usr/include/c++/13/condition_variable:
+
+/usr/include/tesseract/resultiterator.h:
+
+/usr/include/x86_64-linux-gnu/bits/statx-generic.h:
+
+/usr/include/wchar.h:
+
+/usr/include/x86_64-linux-gnu/bits/stdlib-float.h:
+
 /usr/include/c++/13/cstddef:
 
 /usr/include/c++/13/cwchar:
 
-/home/jro/myenv/include/opencv4/opencv2/core/matx.hpp:
-
 /usr/include/x86_64-linux-gnu/c++/13/bits/messages_members.h:
+
+/home/jro/myenv/include/opencv4/opencv2/core/matx.hpp:
 
 /usr/include/x86_64-linux-gnu/sys/select.h:
 
@@ -3988,14 +4016,6 @@ pyOcr.cpp:
 
 /usr/include/x86_64-linux-gnu/bits/timex.h:
 
-/usr/include/tesseract/resultiterator.h:
-
-/usr/include/x86_64-linux-gnu/bits/statx-generic.h:
-
-/usr/include/wchar.h:
-
-/usr/include/x86_64-linux-gnu/bits/stdlib-float.h:
-
 /usr/include/x86_64-linux-gnu/bits/struct_mutex.h:
 
 /usr/include/x86_64-linux-gnu/bits/sched.h:
@@ -4233,9 +4253,3 @@ pyOcr.cpp:
 /usr/include/python3.12/fileobject.h:
 
 /usr/include/python3.12/genericaliasobject.h:
-
-/usr/include/python3.12/import.h:
-
-/usr/include/c++/13/bits/streambuf_iterator.h:
-
-/usr/include/python3.12/intrcheck.h:

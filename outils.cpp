@@ -4,6 +4,7 @@
 #include <cmath>
 #include "config.h"
 
+extern int threadoption;
 
 // tracer le rectangle r sur une copie de l'image et afficher la fenêtre dont le nom est s 
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur) {
@@ -13,10 +14,11 @@ void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleu
         cv::line(copie, cv::Point2i(r.x, r.y), cv::Point2i(r.x, r.y + r.height-1), couleur);
         if (r.width> 1) cv::line(copie, cv::Point2i(r.x + r.width - 1, r.y + r.height-1), cv::Point2i(r.x + r.width - 1, r.y), couleur);
     }
-    afficherImage(s, copie); cv::waitKey(1);
+    afficherImage(s, copie); //cv::waitKey(1);
 }
 
 void afficherImage(std::string nom, cv::Mat image) {
+    if (threadoption) return;
 #ifndef _WIN32
     //cv::namedWindow(nom, cv::WINDOW_AUTOSIZE);
     cv::namedWindow(nom, cv::WINDOW_NORMAL);
@@ -60,7 +62,7 @@ double calculerSinus(cv::Vec4i& l1, cv::Vec4i& l2) {
     return pv;
 }
 
-void calculerBlanc(uncoin& moncoin, config& maconf) {
+void calculerBlanc(uncoin& moncoin, const config& maconf) {
     cv::Mat lig;
     cv::Rect r;
     int db = 1; // d�calage de la zone de test du blanc par rapport au bord
@@ -175,7 +177,7 @@ void calculerMinimum(const cv::Mat& image, cv::Scalar& minimum) {
 // et fournir la moyenne des intensités du symbole et du fonds
 // on ignore le rouge, à cause des symboles rouges
 void calculerBox(const cv::Mat& imageW, const int ts, const int ls, cv::Scalar& moy,
-    int *pBox, cv::Scalar& moyext, config& maconf){
+    int *pBox, cv::Scalar& moyext, const config& maconf){
     int printoption = maconf.printoption;
     cv::Rect r;
     cv::Mat image = imageW.clone();
@@ -348,7 +350,7 @@ void calculerEncombrement(const cv::Mat& image, const cv::Scalar ref, cv::Scalar
 
 
 
-void calculerOrientation(uncoin& moncoin, config& maconf) {
+void calculerOrientation(uncoin& moncoin, const config& maconf) {
     // rechercher la pr�sence d'un gros symbole dans le coin
     // on sait si la carte est un Roi une Dame ou un Valet, ou un chiffre
     // si on trouve un gros symbole, on en d�duit l'orientation
@@ -366,6 +368,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
     // on consid�re une ligne entre le bord horizontal et la position th�orique du cadre
     //   un peu au del� du coin pour �viter le bord arrondi
     int printoption = maconf.printoption;
+    int threadoption = maconf.threadoption;
     cv::Mat lig;
     cv::Rect r;
     cv::Scalar moyblanc = moncoin.moyblanc;
@@ -399,7 +402,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         if (moncoin.U.y < moncoin.PP.y) r.y = moncoin.UU.y + maconf.largeursymbole/3;
         else r.y = moncoin.UU.y;
     }
-    if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
+    if (printoption && !threadoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
     z2 = moncoin.ima_coin(r).clone();
     m2 = cv::mean(z2);
     r2 = r;
@@ -418,7 +421,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
     }
     if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.U.y;
     else r.y = moncoin.V.y - r.height;
-    if (printoption) {
+    if (printoption && !threadoption) {
         cv::circle(imacop, moncoin.PP, 1, cv::Scalar(0,255, 0));
         if (moncoin.estunRDV) cv::circle(imacop, moncoin.QQ, 1, cv::Scalar(0,0, 255));
         tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,255)); // petit symbole vertical
@@ -451,7 +454,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
             if (moncoin.U.y > moncoin.PP.y) rG.y = moncoin.QQ.y + maconf.deltagrosRDV;
             else rG.y = moncoin.QQ.y - maconf.deltagrosRDV - rG.height;
             cv::Mat gros = moncoin.ima_coin(rG);
-            tracerRectangle(rG, imacop, "orient", cv::Scalar(255,0,0));
+            if (printoption && !threadoption) tracerRectangle(rG, imacop, "orient", cv::Scalar(255,0,0));
             cv::Scalar mG = cv::mean(gros);
             if (moyblanc[0] - mG[0] > bleulim ) estgrossymb =true;
             if (moncoin.estunRDV) {
@@ -479,7 +482,7 @@ void calculerOrientation(uncoin& moncoin, config& maconf) {
         r.x = moncoin.UU.x; r.y = moncoin.UU.y;
         r.width = moncoin.VV.x - moncoin.UU.x + 1;
         r.height = moncoin.VV.y -moncoin.UU.y + 1;
-        if (printoption) tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,0));
+        if (printoption && !threadoption) tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,0));
         z1 = moncoin.ima_coin(r).clone();
         r1 = r;
     }
