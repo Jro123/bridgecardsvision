@@ -27,8 +27,13 @@ int lireConfig(std::string nomfichier, config& maconf) {
             data[name] = value;
         }
     }
-    if (maconf.hauteurcarte == 0)  if (data.find("htcard") != data.end()) maconf.hauteurcarte = data["htcard"];
+    if (maconf.hauteurcarte == 0)  if (data.find("htcard") != data.end()) 
+      maconf.hauteurcarte = data["htcard"];
     htcard = maconf.hauteurcarte;
+    maconf.largeurcarte = htcard * 2 / 3;
+    if (data.find("largeurcarte") != data.end()) 
+      maconf.largeurcarte = data["largeurcarte"];
+    ASSIGN_OPTION(largeurcarte)
 
     ASSIGN_VAL(deltahaut)
     //if (data.find("deltahaut") != data.end()) maconf.deltahaut = htcard*data["deltahaut"] / 1000;

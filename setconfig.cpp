@@ -35,7 +35,7 @@ int numconfig = 0; // numéro de jeu de cartes : 0= GRIMAUD, 1= funbridge, 2= fu
 
 cv::String setconfig(config& maconf) {
     maconf.hauteurcarte = 0;
-    maconf.cosOrtho = 0.045; // 0.035 = 2 degr�s 0.09 = 5 degr�s
+    maconf.cosOrtho = 0.09; // 0.035 = 2 degr�s 0.09 = 5 degr�s
     maconf.cosOrthoOrtho = 0.017; // 1 degr�
     maconf.deltaradian = 0.1; // 6 degr�s
 
@@ -248,11 +248,12 @@ cv::Mat thresh_image = image;
         std::cerr << "Could not initialize tesseract." << std::endl;
         return "";
     }
-    char listecar[]="0123456789VDRv<>IUOQ";  // I U et O Q pour reconnaitre 10
+    char listecar[]="0123456789VDRKQJAv<>IUOQ";  // I U et O Q pour reconnaitre 10
     //ocr->SetImage(image.data, image.cols, image.rows, 3, image.step);
     //ocr->SetVariable("tessedit_char_whitelist", "0123456789DRVv<>IOUQ");
-    if (estunRDV) ocr->SetVariable("tessedit_char_whitelist", "DRV");
-    else ocr->SetVariable("tessedit_char_whitelist", "0123456789DRV");
+    if (estunRDV) ocr->SetVariable("tessedit_char_whitelist", "DRVKQJO0"); // ajout K Q J
+    // ajout O et 0 à cause dela Queen 
+    else ocr->SetVariable("tessedit_char_whitelist", "0123456789DRVKQJA");
 
     ocr->SetPageSegMode(tesseract::PSM_SINGLE_CHAR);
     ocr->SetVariable("debug_level", "0");
@@ -276,6 +277,12 @@ cv::Mat thresh_image = image;
             char* mot = ri->GetUTF8Text(tesseract::RIL_WORD);
             if(mot){
                 s = std::string(mot);
+                if (s == "K") s = "R";
+                if (s == "Q") s = "D";
+                if (s == "O") s = "D";
+                if (s == "0") s = "D";
+                if (s == "J") s = "V";
+                if (s == "A") s = "1";
                 level = tesseract::RIL_WORD;
                 texte = s;
                 conf = ri->Confidence(level);
@@ -307,10 +314,16 @@ cv::Mat thresh_image = image;
                 texteorig += s;
                 if (texte == "") {
                     float dconf = 0;
+                    if (car == 'K') { car = 'R'; s = "R"; dconf = 0;}
+                    if (car == 'Q') { car = 'D'; s = "D"; dconf =0;}
+                    if (car == 'J') { car = 'V'; s = "V"; dconf =0;}
+                    if (car == 'A') { car = '1'; s = "1"; dconf =0;}
+                    if (conf > 90 && car == 'O') { car = 'D'; s = "D"; dconf =20;}
+                    if (conf > 90 && car == '0') { car = 'D'; s = "D"; dconf =20;}
+
                     if (conf > 90 && car == 'W') { car = 'V'; s = "V"; dconf =20;}
                     if (conf > 90 && car == 'y') { car = 'V'; s = "V"; dconf =20;}
                     if (conf > 80 && car == 'K') { car = 'R'; s = "R"; dconf = 20;}
-                    if (conf > 80 && car == 'k') { car = 'R'; s = "R"; dconf = 20;}
                     if (conf > 80 && car == 'L') { car = '1'; s = "1"; dconf = 20;}
                     if (conf > 80 && car == 'I') { car = '1'; s = "1"; dconf =20;}
                     if (conf > 90 && car == 'i') { car = '1'; s = "1"; dconf =20;} // expérimental !
@@ -318,7 +331,6 @@ cv::Mat thresh_image = image;
                     if (conf > 95 && car == 'Z') { car = '2'; s = "2"; dconf = 20;}
                     if (conf > 95 && car == 'v') { car = 'V'; s = "V";}
                     if (conf > 95 && car == 'g') { car = '9'; s = "9"; dconf =20;}
-                    if (conf > 95 && car == 'Q') { car = '9'; s = "9"; dconf =20;}
                     if (conf > 90 && car == 'S') { car = '5'; s = "5"; dconf =20;}
                     if (conf > 80 && car == 's') { car = '5'; s = "5"; dconf =20;}
                     //if (conf > 90 && car == 'B') { car = 'R'; s = "R"; dconf =20;} // ou D
@@ -379,6 +391,9 @@ std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance, double *
     #ifdef SERVEUR
 if (response.size() == 0) {
     response = sendImageToServer(ima_ch, pconfiance, pangle);
+    if (response == "K") response = "R";
+    if (response == "Q") response = "D";
+    if (response == "J") response = "V";
 }
 #endif
     return response;

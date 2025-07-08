@@ -25,8 +25,9 @@ deltagrosRDV= 70  # ecart entre le cadre et le gros symbole
 deltagroshautRDV= 12  # ecart entre le cadre et le haut du gros symbole
 largeurgrosRDV= 106  #
 taillegrosRDV= 152  #
-waitoption= 2  # 1:attendre après chaque frame, 2:attendre après chaque coin, 3:après chaque calcul
+waitoption= 1  # 1:attendre après chaque frame, 2:attendre après chaque coin, 3:après chaque calcul
 printoption= 2  # 1:imprimer lignes, coins, OCR, 2: calculs divers
+threadoption= 0 # 0: monotache, 1: autant que de coeurs, n: nombre de sous-taches
 tesOCR=1  # 1: utiliser tesseract et serveur, 2: tesseract sans serveur, 0: ne pas utiliser tesseract C++
 ignorerGS=9 # n: uniquement si la taille du petit symbole est >= n
 gradmin= 20 # gradiant minimum pour edge

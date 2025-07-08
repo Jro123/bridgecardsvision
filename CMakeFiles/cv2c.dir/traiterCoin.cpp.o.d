@@ -393,7 +393,6 @@ CMakeFiles/cv2c.dir/traiterCoin.cpp.o: /home/jro/DEV/CV2C/traiterCoin.cpp \
  /home/jro/myenv/include/opencv4/opencv2/ximgproc/color_match.hpp \
  /home/jro/myenv/include/opencv4/opencv2/ximgproc/radon_transform.hpp \
  /home/jro/myenv/include/opencv4/opencv2/ximgproc/find_ellipses.hpp \
- /home/jro/myenv/include/opencv4/opencv2/freetype.hpp \
  /home/jro/DEV/CV2C/config.h /usr/include/c++/13/thread \
  /usr/include/c++/13/bits/std_thread.h \
  /usr/include/c++/13/bits/this_thread_sleep.h \

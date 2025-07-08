@@ -6,7 +6,8 @@
 
 class config {
 public:
-    int hauteurcarte;  // hauteur de carte affich�e
+    int hauteurcarte;  // hauteur de carte en pixels
+    int largeurcarte;   // largeur de la carte en pixels
     double cosOrtho; // cosinus pour consid�rer que deux droites sont orthogonales
     double cosOrthoOrtho; // tr�s orthogonales
     double deltaradian;  // 
@@ -52,6 +53,7 @@ public:
 // carct�ristique d'un coin de carte
 class uncoin {
 public:
+    int (*pcoins)[12];     // tableau des coins 
     int numcoin;     // num�ro de coin
     cv::Point2i A;   // haut gauche du chiffre suppos� vertical
     cv::Point2i B;   // bas droit
@@ -65,10 +67,27 @@ public:
     cv::Point2i QQ;  // position du cadre
     bool estunRDV;   // true si on a �tabli que c'est un Roi une Dame ou un Valet
     bool inverse;    // true si on a �tabli que la carte est horizontale
+    bool estDroit;   // true si on sait que la carte est verticale
     bool estRouge;   // true si le coin a un symbole rouge 
     char caractere;
     cv::Scalar moyblanc;  // couleur du "blanc"
     cv::Mat ima_coin;     // image du coin
+    uncoin() {}
+    uncoin(int (*tab)[12]) : pcoins(tab) {}  // constructeur d'initialisation
+};
+
+class ligne{
+public:
+    cv::Vec4i ln; // x1, y1, x2, y2
+    float lg; // longueur du segment
+    float a; // équation de la droite
+    float b;
+    float c;
+    ligne(){
+        ln = {0,0,0,0};
+        a = b = c = 0;
+        lg = 0;
+    }
 };
 
 int lireConfig(std::string nomfichier, config& maconf);
@@ -76,6 +95,7 @@ int lireConfig(std::string nomfichier, config& maconf);
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur);
 
 void afficherImage(std::string nom, cv::Mat image);
+int calculerCouleur(cv::Mat GS, const config& maconf);
 
 void calculerOrientation(uncoin& moncoin, const config& maconf);
 void calculerBlanc(uncoin& moncoin, const config& maconf);  // d�terminer la composition du blanc
@@ -91,6 +111,10 @@ double calculerDistance(cv::Vec4i& l1, cv::Vec4i& l2);
 
 double calculerDistance(cv::Point2i& Q, cv::Point2i P, cv::Point2i R);
 double calculerSinus(cv::Vec4i& l1, cv::Vec4i& l2);
+int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol);
+std::string ValiderOCR(std::string output, bool estserveur, bool inverse,
+             uncoin& moncoin, const config& maconf);
+
 void eclaircirfond(cv::Mat& image);
 void blanchircadre(cv::Mat& image, cv::Scalar moyblanc, int nb);
 void amplifyContrast(cv::Mat& image);
@@ -109,7 +133,7 @@ std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance= 0, doubl
 std::string execOCRVDR(cv::String nom, cv::Mat ima_ch, double *pconfiance = 0, double *pangle=0);
 //tescmd = "tesseract.exe " + nomcoin + "  stdout --psm 10 -l fra ffb ";
 
-void traiterCoin(int n, const int coins[][10], cv::Mat image,  std::vector<std::string>& resultats, 
+void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string>& resultats, 
     cv::Mat result, const int *l1, const int *l2, const config& maconf);
 
 //void traiterCointhread(std::vector<std::thread> *pthreads,int n, int coins[500][10], cv::Mat image,  std::vector<std::string>& resultats, 
