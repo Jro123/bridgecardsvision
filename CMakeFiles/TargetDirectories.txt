@@ -1,3 +1,0 @@
-/home/jro/DEV/CV2C/CMakeFiles/cv2c.dir
-/home/jro/DEV/CV2C/CMakeFiles/edit_cache.dir
-/home/jro/DEV/CV2C/CMakeFiles/rebuild_cache.dir
