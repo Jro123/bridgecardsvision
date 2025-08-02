@@ -1,11 +1,11 @@
 info=0  # configuration pour les cartes de la marque COFALU, en millièmes de la taille de carte
 htcard= 84  # hauteur de carte en pixels, valeur par défaut
-largeurcarte= 54 # largeur de la carte en pixels (2/3 de ht = 56)
-deltahaut= 24  # écart entre le bord supérieur ou inférieur de la carte et le chiffre
+largeurcarte= 56 # largeur de la carte en pixels (2/3 de ht = 56)
+deltahaut= 12  # écart entre le bord supérieur ou inférieur de la carte et le chiffre
 deltacadre= 36   #écart entre le bord de carte et le cadre de Roi Dame Valet 
 deltacadrehaut= 36    # écart entre le bord de carte et le cadre de Roi Dame Valet 
 deltacoin= 72   #   150  rayon du bord arrondi de la carte. un peu plus 
-taillechiffre= 155  # hauteur du chiffre.  94 --> 106 pour 9 de carreau
+taillechiffre= 146  # hauteur du chiffre.  94 --> 106 pour 9 de carreau
 tailleVDR= 142  #hauteur du caractère V D ou R
 largeurchiffre= 120  # largeur du chiffre 10 (117 --> 137)
 largeurVDR= 95  # largeur du caractère V D ou R
@@ -18,16 +18,16 @@ deltahautsymbole= 178  # écart entre le bord haut et le symbole (modif 163)
 deltasymbole= 24  # écart entre le bord et le symbole Pique Coeur ...
 deltasymbcadre= 0  # écart entre le cadre et le symbole
 deltachsymb= 15  # écart entre le bas du caractere et le symbole
-deltagros= 107  # ecart entre le bord de carte et le gros symbole (117)
+deltagros= 119  # ecart entre le bord de carte et le gros symbole (117)
 deltagroshaut= 107  # entre 95 et 117
 largeurgros= 155  #
 taillegros= 155  #
-deltagrosRDV= 59  # ecart entre le cadre et le gros symbole
+deltagrosRDV= 73  # ecart entre le cadre et le gros symbole
 deltagroshautRDV= 24  # ecart entre le cadre et le haut du gros symbole
-largeurgrosRDV= 107  #
-taillegrosRDV= 155  #
-waitoption=0  # 1:attendre après chaque frame, 2:attendre après chaque coin, 3:après chaque calcul
-printoption=0  # 1:imprimer lignes, coins, OCR, 2: calculs divers
+largeurgrosRDV= 115  #
+taillegrosRDV= 170  #
+waitoption=1  # 1:attendre après chaque frame, 2:attendre après chaque coin, 3:après chaque calcul
+printoption=2  # 1:imprimer lignes, coins, OCR, 2: calculs divers
 threadoption=0 # 0: monotache, 1: autant que de coeurs, n: nombre de sous-taches
 tesOCR=1  # 1: utiliser tesseract et serveur, 2: tesseract sans serveur, 0: ne pas utiliser tesseract C++
 ignorerGS=9 # n: uniquement si la taille du petit symbole est >= n

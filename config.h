@@ -95,7 +95,7 @@ int lireConfig(std::string nomfichier, config& maconf);
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur);
 
 void afficherImage(std::string nom, cv::Mat image);
-int calculerCouleur(cv::Mat GS, const config& maconf);
+int calculerCouleur(cv::Mat GS, const config& maconf, cv::Scalar mbl);
 
 void calculerOrientation(uncoin& moncoin, const config& maconf);
 void calculerBlanc(uncoin& moncoin, const config& maconf);  // d�terminer la composition du blanc
