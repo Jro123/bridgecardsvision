@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Bridge Viewer</title>
+  <style>
+    body { font-family: sans-serif; margin: 30px; }
+    select, textarea { display: block; margin: 15px 0; width: 100%; max-width: 600px; }
+    textarea { height: 200px; }
+  </style>
+</head>
+<body>
+
+  <h2>🎴 Visualisation des Plis</h2>
+
+  <!-- Liste des tables -->
+  <label for="tableSelect">Table de jeu :</label>
+  <select id="tableSelect">
+    <option value="">-- Sélectionnez une table --</option>
+  </select>
+
+  <!-- Liste des contrats -->
+  <label for="contratSelect">Contrat :</label>
+  <select id="contratSelect">
+    <option value="">-- Sélectionnez un contrat --</option>
+  </select>
+
+  <!-- Zone d'affichage des plis -->
+  <label for="plisAffiches">Plis joués :</label>
+  <textarea id="plisAffiches" readonly></textarea>
+
+  <script>
+    async function fetchData(endpoint, params = {}) {
+      const url = new URL(endpoint, window.location.href);
+      Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+      const response = await fetch(url);
+      return response.json();
+    }
+
+    const tableSelect = document.getElementById("tableSelect");
+    const contratSelect = document.getElementById("contratSelect");
+    const plisAffiches = document.getElementById("plisAffiches");
+
+    // Charger les tables au démarrage
+    fetchData("api.php", { action: "getTables" }).then(data => {
+      data.forEach(table => {
+        const opt = document.createElement("option");
+        opt.value = table.id;
+        opt.textContent = table.nom;
+        tableSelect.appendChild(opt);
+      });
+    });
+
+    // Charger les contrats après sélection d'une table
+    tableSelect.addEventListener("change", () => {
+      contratSelect.innerHTML = '<option value="">-- Sélectionnez un contrat --</option>';
+      plisAffiches.value = "";
+      const tableId = tableSelect.value;
+      if (tableId) {
+        fetchData("api.php", { action: "getContrats", table_id: tableId }).then(data => {
+          data.forEach(contrat => {
+            const opt = document.createElement("option");
+            opt.value = contrat.id;
+            opt.textContent = contrat.contrat + " (" + contrat.joueur + ")";
+            contratSelect.appendChild(opt);
+          });
+        });
+      }
+    });
+
+    // Charger les plis après sélection d'un contrat
+    contratSelect.addEventListener("change", () => {
+      plisAffiches.value = "";
+      const contratId = contratSelect.value;
+      if (contratId) {
+        fetchData("api.php", { action: "getPlis", contrat_id: contratId }).then(data => {
+          const lignes = data.map(pli =>
+            `Pli ${pli.numero} : N=${pli.carte_nord} E=${pli.carte_est} S=${pli.carte_sud} O=${pli.carte_ouest} | Joueur: ${pli.joueur}`
+          );
+          plisAffiches.value = lignes.join("\n");
+        });
+      }
+    });
+  </script>
+
+</body>
+</html>
+

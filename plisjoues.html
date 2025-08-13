@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Affichage des Plis Joués</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+    }
+    label, select, input, textarea {
+      display: block;
+      margin: 15px 0;
+      width: 100%;
+      max-width: 500px;
+    }
+    textarea {
+      height: 150px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🎴 Visualisation des Plis Joués</h2>
+
+  <!-- Zone de saisie du nom de la table -->
+  <label for="tableName">Nom de la table :</label>
+  <input type="text" id="tableName" placeholder="Ex: Belote_2025" />
+
+  <!-- Liste déroulante des données de la table -->
+  <label for="tableData">Données de la table :</label>
+  <select id="tableData">
+    <option value="">-- Sélectionnez une entrée --</option>
+  </select>
+
+  <!-- Zone d'affichage des plis joués -->
+  <label for="plisAffiches">Plis joués :</label>
+  <textarea id="plisAffiches" readonly></textarea>
+
+  <script>
+    // 🔧 Données simulées par table
+    const tableDataMap = {
+      "Belote_2025": ["Tour 1", "Tour 2", "Tour 3"],
+      "Tarot_Champ": ["Manche A", "Manche B", "Manche C"],
+      "PokerNight": ["Main 1", "Main 2", "Main 3"]
+    };
+
+    const plisMap = {
+      "Tour 1": ["♠A vs ♥K", "♦10 vs ♣J"],
+      "Tour 2": ["♠Q vs ♥10", "♦9 vs ♣8"],
+      "Tour 3": ["♠J vs ♥Q", "♦K vs ♣A"],
+      "Manche A": ["♣7 vs ♦8", "♠9 vs ♥J"],
+      "Manche B": ["♠10 vs ♥9", "♦J vs ♣Q"],
+      "Manche C": ["♠K vs ♥A", "♦Q vs ♣K"],
+      "Main 1": ["♠A♠ vs ♣K♣"],
+      "Main 2": ["♦10♦ vs ♥J♥"],
+      "Main 3": ["♣Q♣ vs ♠J♠"]
+    };
+
+    const tableNameInput = document.getElementById("tableName");
+    const tableDataSelect = document.getElementById("tableData");
+    const plisAffiches = document.getElementById("plisAffiches");
+
+    // 🎯 Mise à jour de la liste déroulante selon le nom de la table
+    tableNameInput.addEventListener("input", () => {
+      const tableName = tableNameInput.value.trim();
+      const data = tableDataMap[tableName];
+
+      // Réinitialiser la liste
+      tableDataSelect.innerHTML = '<option value="">-- Sélectionnez une entrée --</option>';
+
+      if (data) {
+        data.forEach(entry => {
+          const option = document.createElement("option");
+          option.value = entry;
+          option.textContent = entry;
+          tableDataSelect.appendChild(option);
+        });
+      }
+      plisAffiches.value = "";
+    });
+
+    // 📋 Affichage des plis joués selon la sélection
+    tableDataSelect.addEventListener("change", () => {
+      const selected = tableDataSelect.value;
+      const plis = plisMap[selected] || [];
+      plisAffiches.value = plis.join("\n");
+    });
+  </script>
+
+</body>
+</html>
+

@@ -69,11 +69,19 @@ int lireConfig(std::string nomfichier, config& maconf) {
     ASSIGN_OPTION(threadoption)
     ASSIGN_OPTION(tesOCR)
     ASSIGN_OPTION(ignorerGS)
+    ASSIGN_OPTION(coinsoption)
+    ASSIGN_OPTION(linesoption)
+    ASSIGN_OPTION(fusionoption)
     ASSIGN_OPTION(gradmin)
     ASSIGN_OPTION(gradmax)
     ASSIGN_OPTION(nbvote)
     ASSIGN_OPTION(nbpoints)
     ASSIGN_OPTION(ecartmax)
+
+    ASSIGN_OPTION(contratcouleur)
+    ASSIGN_OPTION(contratvaleur)
+    ASSIGN_OPTION(declarant)
+
 
     return 0;
 }

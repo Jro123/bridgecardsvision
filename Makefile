@@ -129,6 +129,93 @@ cv2c/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cv2c.dir/build.make CMakeFiles/cv2c.dir/build
 .PHONY : cv2c/fast
 
+#=============================================================================
+# Target rules for targets named creertables
+
+# Build rule for target.
+creertables: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 creertables
+.PHONY : creertables
+
+# fast build rule for target.
+creertables/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/creertables.dir/build.make CMakeFiles/creertables.dir/build
+.PHONY : creertables/fast
+
+#=============================================================================
+# Target rules for targets named sqltest
+
+# Build rule for target.
+sqltest: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 sqltest
+.PHONY : sqltest
+
+# fast build rule for target.
+sqltest/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sqltest.dir/build.make CMakeFiles/sqltest.dir/build
+.PHONY : sqltest/fast
+
+#=============================================================================
+# Target rules for targets named affichePlis
+
+# Build rule for target.
+affichePlis: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 affichePlis
+.PHONY : affichePlis
+
+# fast build rule for target.
+affichePlis/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/affichePlis.dir/build.make CMakeFiles/affichePlis.dir/build
+.PHONY : affichePlis/fast
+
+affichePlis.o: affichePlis.cpp.o
+.PHONY : affichePlis.o
+
+# target to build an object file
+affichePlis.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/affichePlis.dir/build.make CMakeFiles/affichePlis.dir/affichePlis.cpp.o
+.PHONY : affichePlis.cpp.o
+
+affichePlis.i: affichePlis.cpp.i
+.PHONY : affichePlis.i
+
+# target to preprocess a source file
+affichePlis.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/affichePlis.dir/build.make CMakeFiles/affichePlis.dir/affichePlis.cpp.i
+.PHONY : affichePlis.cpp.i
+
+affichePlis.s: affichePlis.cpp.s
+.PHONY : affichePlis.s
+
+# target to generate assembly for a file
+affichePlis.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/affichePlis.dir/build.make CMakeFiles/affichePlis.dir/affichePlis.cpp.s
+.PHONY : affichePlis.cpp.s
+
+creertables.o: creertables.cpp.o
+.PHONY : creertables.o
+
+# target to build an object file
+creertables.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/creertables.dir/build.make CMakeFiles/creertables.dir/creertables.cpp.o
+.PHONY : creertables.cpp.o
+
+creertables.i: creertables.cpp.i
+.PHONY : creertables.i
+
+# target to preprocess a source file
+creertables.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/creertables.dir/build.make CMakeFiles/creertables.dir/creertables.cpp.i
+.PHONY : creertables.cpp.i
+
+creertables.s: creertables.cpp.s
+.PHONY : creertables.s
+
+# target to generate assembly for a file
+creertables.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/creertables.dir/build.make CMakeFiles/creertables.dir/creertables.cpp.s
+.PHONY : creertables.cpp.s
+
 cv2c.o: cv2c.cpp.o
 .PHONY : cv2c.o
 
@@ -249,6 +336,30 @@ setconfig.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cv2c.dir/build.make CMakeFiles/cv2c.dir/setconfig.cpp.s
 .PHONY : setconfig.cpp.s
 
+sqltest.o: sqltest.cpp.o
+.PHONY : sqltest.o
+
+# target to build an object file
+sqltest.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sqltest.dir/build.make CMakeFiles/sqltest.dir/sqltest.cpp.o
+.PHONY : sqltest.cpp.o
+
+sqltest.i: sqltest.cpp.i
+.PHONY : sqltest.i
+
+# target to preprocess a source file
+sqltest.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sqltest.dir/build.make CMakeFiles/sqltest.dir/sqltest.cpp.i
+.PHONY : sqltest.cpp.i
+
+sqltest.s: sqltest.cpp.s
+.PHONY : sqltest.s
+
+# target to generate assembly for a file
+sqltest.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sqltest.dir/build.make CMakeFiles/sqltest.dir/sqltest.cpp.s
+.PHONY : sqltest.cpp.s
+
 traiterCoin.o: traiterCoin.cpp.o
 .PHONY : traiterCoin.o
 
@@ -281,7 +392,16 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... affichePlis"
+	@echo "... creertables"
 	@echo "... cv2c"
+	@echo "... sqltest"
+	@echo "... affichePlis.o"
+	@echo "... affichePlis.i"
+	@echo "... affichePlis.s"
+	@echo "... creertables.o"
+	@echo "... creertables.i"
+	@echo "... creertables.s"
 	@echo "... cv2c.o"
 	@echo "... cv2c.i"
 	@echo "... cv2c.s"
@@ -297,6 +417,9 @@ help:
 	@echo "... setconfig.o"
 	@echo "... setconfig.i"
 	@echo "... setconfig.s"
+	@echo "... sqltest.o"
+	@echo "... sqltest.i"
+	@echo "... sqltest.s"
 	@echo "... traiterCoin.o"
 	@echo "... traiterCoin.i"
 	@echo "... traiterCoin.s"

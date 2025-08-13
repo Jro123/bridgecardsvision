@@ -1,0 +1,11 @@
+{
+  version: 1,
+  mediaFileName: 'FB1A.mkv',
+  cutSegments: [
+    {
+      start: 3.68339125,
+      end: 33.050287499999996,
+      name: '',
+    },
+  ],
+}

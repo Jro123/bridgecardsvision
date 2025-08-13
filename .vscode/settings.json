@@ -72,5 +72,7 @@
         "variant": "cpp",
         "cv2c_2025-03-01": "cpp"
     },
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "editor.tabSize": 2,
+    "cmake.sourceDirectory": "/home/jro/DEV/CV2C"
 }

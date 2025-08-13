@@ -244,8 +244,10 @@ cv::Mat thresh_image = image;
 // Initialiser Tesseract
      // Initialiser Tesseract
     tesseract::TessBaseAPI *ocr = new tesseract::TessBaseAPI();
+
     if (ocr->Init(NULL, "eng")) {
         std::cerr << "Could not initialize tesseract." << std::endl;
+        delete ocr;
         return "";
     }
     char listecar[]="0123456789VDRKQJAv<>IUOQ";  // I U et O Q pour reconnaitre 10

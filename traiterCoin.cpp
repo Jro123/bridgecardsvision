@@ -295,8 +295,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         afficherImage("Extrait", extrait);
         if (waitoption > 2)
             cv::waitKey(0);
-        else
-            cv::waitKey(1);
+        // else cv::waitKey(1);
     }
 
     cv::Point2i HO; // point Horizontal HH ou KK
@@ -1296,7 +1295,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         cv::circle(extrait, QQ, 2, cv::Scalar(0, 0, 128), -1); // cercle rouge foncé
     if (printoption && !threadoption) {
         afficherImage("coin", extrait);
-        cv::waitKey(1);
+        // cv::waitKey(1);
     }
 
     int deltaect = 20; // 20 : valeur expérimentale
@@ -1529,8 +1528,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         if (printoption && !threadoption){
             if (waitoption > 2)
                 cv::waitKey(0);
-            else
-                cv::waitKey(1);
+            //else  cv::waitKey(1);
         }
         nonvu = true;
         std::string outRDV;
@@ -1597,7 +1595,8 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
                 }
             if (maconf.tesOCR >= 1)
             {
-                outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+                //outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+                outRDV = tesOCR(ima_carW, true, &confRDV, &angRDV);
                 //if (outRDV == "" && maconf.tesOCR == 1)
                 //    outRDV = execOCR("SERVEUR", ima_RDV, &confRDV, &angRDV);
             }
@@ -2027,8 +2026,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         if (printoption && !threadoption){
             if (waitoption > 2)
                 cv::waitKey(0);
-            else
-                cv::waitKey(1);
+            // else  cv::waitKey(1);
         }
         std::string outRDV;
         if (maconf.tesOCR >= 1) output = tesOCR(ima_carW, estunRDV, &confiance, &angle);
@@ -2087,9 +2085,10 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             
             if (printoption && !threadoption) {
                 if (printoption > 1) afficherImage("H1X", ima_carW);
-                if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+                if (waitoption > 2) cv::waitKey(0); // else cv::waitKey(1);
             }
-            if (maconf.tesOCR >= 1) outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+            //if (maconf.tesOCR >= 1) outRDV = tesOCR(ima_carW, estunRDV, &confRDV, &angRDV);
+            if (maconf.tesOCR >= 1) outRDV = tesOCR(ima_carW, true, &confRDV, &angRDV);
             else                    outRDV = execOCR(nomOCR, ima_RDV, &confRDV, &angRDV);
             if (printoption)
                 std::cout << "   OCR H1 pour RDV " << outRDV << " confiance " << confRDV << " angle " << angRDV << std::endl;
@@ -3231,8 +3230,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             afficherImage("Extrait", extrait);
             if (waitoption > 2)
                 cv::waitKey(0);
-            else
-                cv::waitKey(1);
+            // else cv::waitKey(1);
         }
     }
 
@@ -3671,7 +3669,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         if (printoption && !threadoption) {
             afficherImage("symbole", symbgros);
             afficherImage("gros", symbgros);
-            cv::waitKey(1);
+            // cv::waitKey(1);
         }
         ts *= echelle;
         ls *= echelle;
@@ -3815,7 +3813,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         ima_ch = image_bordee;
         if (printoption && !threadoption) {
             afficherImage("chiffre", ima_ch);
-            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+            if (waitoption > 2) cv::waitKey(0); // else cv::waitKey(1);
         }
 
         if (maconf.tesOCR > 0) output = tesOCR(ima_ch, estunRDV, &confiance, &angle);
@@ -3830,7 +3828,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         if (output == "3" && outW != "3") output = "";
         else output = outW;
         if (printoption && !threadoption){
-            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+            if (waitoption > 2) cv::waitKey(0); // else cv::waitKey(1);
         }
         nonreconnu = false;
         if (output == "" ) output = outprec;
@@ -3928,8 +3926,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
                 afficherImage("Extrait", extrait);
                 if (waitoption > 2)
                     cv::waitKey(0);
-                else
-                    cv::waitKey(1);
+                // else cv::waitKey(1);
             }
 
             cv::meanStdDev(ima_gs, moy, ect);
@@ -4255,7 +4252,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         {
             if (numcol == 1)  std::cout << " coeur" << std::endl;
             else              std::cout << " carreau " << std::endl;
-            if (waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+            if (waitoption > 2) cv::waitKey(0); // else cv::waitKey(1);
         }
     }
 
@@ -4564,8 +4561,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
                     afficherImage("Extrait", extrait);
                     if (waitoption > 2)
                         cv::waitKey(0);
-                    else
-                        cv::waitKey(1);
+                    //else  cv::waitKey(1);
                 }
 
                 cv::meanStdDev(ima_gs, moy, ect);

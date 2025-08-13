@@ -26,12 +26,22 @@ link_directories(${TESSERACT_LIBRARY_DIRS})
 
 add_definitions(${TESSERACT_CFLAGS_OTHER})
 # Ajouter les exécutables
-add_executable(cv2c "${SOURCES}")
+add_executable(cv2c cv2c.cpp lireConfig.cpp outils.cpp traiterCoin.cpp setconfig.cpp pyOcr.cpp)
+
+add_executable(creertables creertables.cpp)
+target_link_libraries(creertables sqlite3)
+
+add_executable(sqltest sqltest.cpp)
+target_link_libraries(sqltest sqlite3)
+
+add_executable(affichePlis affichePlis.cpp)
+target_link_libraries(affichePlis sqlite3 opencv_core opencv_highgui opencv_videoio)
 
 # Lier les bibliothèques d'OpenCV, curl et Python
 target_link_libraries(cv2c
 	CURL::libcurl 
 	Python::Python
+	sqlite3
 	${TESSERACT_LIBRARIES}
 	opencv_core opencv_imgproc opencv_highgui opencv_videoio opencv_ximgproc
 	freetype harfbuzz opencv_freetype

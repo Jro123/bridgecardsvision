@@ -357,8 +357,10 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
     // VDR : dessus à gauche ou dessous à droite : présence de gros symbole
     // VDR : (sinon) pas de gros symbole
     int printoption = maconf.printoption;
+    int threadoption = maconf.threadoption;
     bool estGS = false; // gros symbole présent dans le coin ?
     bool estGScent = false; // GS central haut présent ? 
+    bool estGScentral = false; // GS central présent ? 
     cv::Rect rr;
     cv::Mat GS;
     cv::Mat lig;
@@ -513,7 +515,7 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
             return "";
         }
         // extraire la zone du gros symbole attendu selon le caractère trouvé par OCR
-        if (maconf.printoption && !maconf.threadoption){
+        if (printoption && !threadoption){
             tracerRectangle(rr, extrait, "valider", cv::Scalar(255, 0, 0));
         }
         GS = moncoin.ima_coin(rr).clone();
@@ -549,11 +551,11 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
     } else  { // le caractère trouvé par OCR est un chiffre ( ou autre sauf V D R)
         if (output.size() == 2) {
             if (output[0] == '1'){  // 1x --> x 
-                if (output[1] > '1' && output[1] <= '9') {
+                if (output[1] >= '1' && output[1] <= '9') {
                     std::cout<<output<<" --> "<<output[1]<<std::endl; 
                     output = output[1];
                 }
-                else output = "";
+                else if (output[1] != '0') output = "";
             } else output = "";
         }
 
@@ -582,11 +584,14 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
         //     GS central à coté :
         //          2 ou 3 --> OK, 1 --> invalide
         // GS du coin présent: valide 4 à 10
-        //     1 : --> 4 (pas de GS sous le coin) ou 7 (GS central sous le coin) 
-        //                ou 10 (2 GS sous le coin)
-        //     2 : --> 7
-        //     3 : --> 8
-        //     >= 4 --> OK
+        //         --> 4 (0 GS sous le GS du coin, 0 GS dans la colonne centrale)
+        //         --> 5 (0 GS sous le GS du coin, 1 GS central )
+        //         --> 6 (1 GS sous le GS coin, 0 GS cans la colonne centrale)
+        //         --> 7 (1 GS au centre sous le coin, 1 GS dans la colonne centrale)
+        //         --> 8 (1 GS central sous le coin, 2 GS dans la colonne centrale)
+        //               ou (2 GS sous le GS du coin, 0 GS dans la colonne centrale) 
+        //         --> 9 (2 GS sous le GS du coin, 1 GS dans la colonne centrale)
+        //         --> 10 (2 GS sous le GS du coin, (2 GS dans la colonne centrale)
         //   
         //      
         rr.width = maconf.largeurgros;
@@ -609,67 +614,109 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
             else rr.y = moncoin.PP.y - maconf.deltagroshaut - rr.height;
         }
         if ( rr.x < 0 || rr.y < 0 || rr.width > moncoin.ima_coin.cols - rr.x || rr.height > moncoin.ima_coin.rows - rr.y){
-            if(printoption) std::cout << output << " !! gros symbole hors de l'image " << std::endl;
+            if(printoption) std::cout << output << " !! GS du coin hors de l'image " << std::endl;
             return "";
         }
         lig = moncoin.ima_coin(rr);
         m = cv::mean(lig);
         if (moncoin.moyblanc[0] - m[0] > 20 ) estGS = true;
 
-        if (maconf.printoption && !maconf.threadoption){
+        if (printoption && !threadoption){
             tracerRectangle(rr, extrait, "valider", cv::Scalar(255, 0, 0));
         }
 
-        //  GS central haut ? !! présence GS en dessous si la carte est 10, autres GS à coté
-        if (inverse){
-            rr.width = maconf.taillegros/2;
-            rr.height = 2*maconf.largeurgros/3;
-            if(moncoin.UU.x > moncoin.PP.x) rr.x = moncoin.PP.x + maconf.deltagroshaut;
-            else rr.x = moncoin.PP.x - maconf.deltagroshaut - rr.width;
-            if (moncoin.U.y  > moncoin.PP.y) rr.y = moncoin.PP.y + (maconf.largeurcarte - rr.height) / 2;
-            else rr.y = moncoin.PP.y -(maconf.largeurcarte + rr.height) / 2;
-        } else {
-            rr.height = maconf.taillegros/2;
-            rr.width = 2*maconf.largeurgros/3;
-            if(moncoin.U.y > moncoin.PP.y) rr.y = moncoin.PP.y + maconf.deltagroshaut;
-            else rr.y = moncoin.PP.y - maconf.deltagroshaut - rr.height;
-            if (moncoin.UU.x  > moncoin.PP.x) rr.x = moncoin.PP.x + (maconf.largeurcarte - rr.width) / 2;
-            else rr.x = moncoin.PP.x -(maconf.largeurcarte + rr.width) / 2;
-        }
-        if (rr.x < 0 || rr.y < 0 ||   rr.width > moncoin.ima_coin.cols - rr.x
-            || rr.height > moncoin.ima_coin.rows - rr.y) {
-            if (maconf.printoption) std::cout<<output<<" GS centre haut  inaccessible"<<std::endl;
-            return output; // controle impossible
-            }
-        lig = moncoin.ima_coin(rr);
-        m = cv::mean(lig);
-        if (moncoin.moyblanc[0] - m[0] > 20 ) estGScent = true;
-        if (maconf.printoption && !maconf.threadoption){
-            tracerRectangle(rr, extrait, "valider", cv::Scalar(0, 255, 0));
-        }
+        std::string retour = "";
 
-        if (!estGS){
-            std::string retour = "";
-            if (output == "1") {
-                if (!estGScent) retour =  output; // OK
-            } else if (output == "2" || output == "3") {
-                if (estGScent) retour =  output; // OK
-            } else if (output == "7") {
-                if (!estGScent) {
-                    std::cout<<output<<"-->"<<retour<<std::endl;
-                    retour =  "1";
-                }
-                else {
-                    // TODO : ce peut être un 2 ou un 3
-                    // à discriminer selon la précence d'un GS au centre de la carte
-                    retour = "";
-                }
-                if (printoption) std::cout << " !! 7 -->"<<retour<<std::endl; 
+        if (!estGS){   // pas de GS dans le coin : valide 1 2 ou 3
+            //  GS central haut ? absent --> 1, présent --> 2 ou 3
+            estGScent = false;
+            if (inverse){
+                rr.width = maconf.taillegros;
+                rr.height = maconf.largeurgros;
+                if(moncoin.UU.x > moncoin.PP.x) rr.x = moncoin.PP.x + maconf.deltagroshaut;
+                else rr.x = moncoin.PP.x - maconf.deltagroshaut - rr.width;
+                if (moncoin.U.y  > moncoin.PP.y) rr.y = moncoin.PP.y + (maconf.largeurcarte - rr.height) / 2;
+                else rr.y = moncoin.PP.y -(maconf.largeurcarte + rr.height) / 2;
+            } else {
+                rr.height = maconf.taillegros;
+                rr.width = 2*maconf.largeurgros;
+                if(moncoin.U.y > moncoin.PP.y) rr.y = moncoin.PP.y + maconf.deltagroshaut;
+                else rr.y = moncoin.PP.y - maconf.deltagroshaut - rr.height;
+                if (moncoin.UU.x  > moncoin.PP.x) rr.x = moncoin.PP.x + (maconf.largeurcarte - rr.width) / 2;
+                else rr.x = moncoin.PP.x -(maconf.largeurcarte + rr.width) / 2;
             }
-            if (printoption && retour == "") std::cout<<output<<" invalide"<<std::endl;
+            if (rr.x < 0 || rr.y < 0 ||   rr.width > moncoin.ima_coin.cols - rr.x
+                || rr.height > moncoin.ima_coin.rows - rr.y) {
+                if (maconf.printoption) std::cout<<output<<" GS centre haut  inaccessible"<<std::endl;
+                return output; // controle impossible
+                }
+            lig = moncoin.ima_coin(rr);
+            m = cv::mean(lig);
+            if (moncoin.moyblanc[0] - m[0] > 20 ) estGScent = true;
+            if (printoption && !threadoption){
+                tracerRectangle(rr, extrait, "valider", cv::Scalar(0, 255, 0));
+            }
+            if (!estGScent) {
+                retour = "1";
+            } else { // GS centre haut présent : --> 2 ou 3
+                // TODO : vérifier avec GS central
+                if (inverse){
+                    rr.width = maconf.taillegros;
+                    rr.height = maconf.largeurgros;
+                } else {
+                    rr.width = maconf.largeurgros;
+                    rr.height = maconf.taillegros;
+                    if (moncoin.UU.x > moncoin.PP.x )
+                         rr.x = moncoin.PP.x + (maconf.largeurcarte - rr.width) / 2;
+                    else rr.x = moncoin.PP.x - (maconf.largeurcarte + rr.width) / 2;
+                    if (moncoin.U.y > moncoin.PP.y) 
+                         rr.y = moncoin.PP.y + (maconf.hauteurcarte - rr.height) / 2;
+                    else rr.y = moncoin.PP.y - (maconf.hauteurcarte + rr.height) / 2;
+                }
+                if (rr.x < 0 || rr.y < 0 ||   rr.width > moncoin.ima_coin.cols - rr.x
+                    || rr.height > moncoin.ima_coin.rows - rr.y) {
+                    if (maconf.printoption) std::cout<<output<<" GS central  inaccessible"<<std::endl;
+                    return output; // controle impossible
+                    }
+                lig = moncoin.ima_coin(rr);
+                m = cv::mean(lig);
+                if (moncoin.moyblanc[0] - m[0] > 20 ) estGScentral = true;
+                if (printoption && !threadoption){
+                    tracerRectangle(rr, extrait, "valider", cv::Scalar(0, 255, 0));
+                }
+                if (estGScentral) retour = "3";
+                else retour = "2";
+                // manque de fiabilitité sur le GS central, peut-être caché par une autre carte :
+                if (output == "2" || output == "3") retour = output;
+            }
+            if (printoption) {
+                if (retour == "") std::cout<<output<<" invalide"<<std::endl;
+                else if (retour != output) std::cout<< output <<" --> "<< retour<<std::endl;
+            }
             return retour;
         }
         // il y a un GS dans le coin --> 4 à 10
+        // TODO 
+        // compter le nombre de GS dans la colonne sous le GS du coin
+        //      et le nombre de GS dans la colonne centrale
+        // 
+        int nbGScoin = 0;
+        int nbGScent = 0;
+        //
+        if (false) {  // TODO : à réactiver après comptages
+        if (nbGScoin == 0){ // 4 ou 5
+            if (nbGScent > 0) retour = "4";
+            else retour = "5";
+        } else if (nbGScoin == 1){ // 6 7 ou 8
+            if (nbGScent == 0) retour = "6";
+            else if (nbGScent == 1) retour = "7";
+            else retour == "8"; // 3 + 2 + 3 GS
+        } else { // 2 GS sous le coin :  8 9 ou 10
+            if (nbGScent == 0) retour = "8"; // 4 + 4 GS   pour certains modèles de cartes
+            else if (nbGScent == 1) retour = "9"; // 4 + 1 + 4
+            else retour == "10"; // 4 + 2 + 4 GS
+        }
+        }
         // selon le caractère:
         // 1 : --> 7 ou 4 ou 10   selon GS centre gauche ( TODO ) ou 5 ou 6 ou 8 ou 9
         // 2 : --> invalide
@@ -707,7 +754,7 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
             // TODO : ne faire ce test que si c'est une nouvelle carte avec 4 cotés (donc complète)
             lig = moncoin.ima_coin(rr);
             m = cv::mean(lig);
-            if (printoption && !maconf.threadoption){
+            if (printoption && !threadoption){
                 tracerRectangle(rr, extrait, "valider", cv::Scalar(0, 128, 128));
             }
             if (moncoin.moyblanc[0] - m[0] > 20 ) { // GS présent sous le coin 2/4 ou 2/3 ou 2&3/4
@@ -1132,7 +1179,7 @@ int calculerCouleur(cv::Mat GS, const config& maconf, cv::Scalar mbl){
     if (printoption && !threadoption) {
         afficherImage("symbole", symbgros);
         afficherImage("gros", symbgros);
-        cv::waitKey(1);
+        //cv::waitKey(1);
     }
     // déterminer la couleur : Rouge ou noir ?
 {
@@ -1210,7 +1257,7 @@ int calculerCouleur(cv::Mat GS, const config& maconf, cv::Scalar mbl){
     if (printoption && !threadoption) {
         afficherImage("symbole", symbgros);
         afficherImage("gros", symbgros);
-        cv::waitKey(1);
+        // cv::waitKey(1);
     }
     // calculer l'encombrement du symbole et les moyennes d'intensite du symbole
     int Box[4]; // xmin xmax ymin ymax
@@ -1533,7 +1580,7 @@ int calculerCouleur(cv::Mat GS, const config& maconf, cv::Scalar mbl){
         {
             if (numcol == 1)  std::cout << " coeur" << std::endl;
             else              std::cout << " carreau " << std::endl;
-            if (maconf.waitoption > 2) cv::waitKey(0); else cv::waitKey(1);
+            if (maconf.waitoption > 2) cv::waitKey(0); //else cv::waitKey(1);
         }
     }
 
@@ -1720,6 +1767,15 @@ int calculerCouleur(cv::Mat GS, const config& maconf, cv::Scalar mbl){
 
 
 // obtenir la valeur et la couleur d'une carte
+
+
+
+
+
+
+
+
+
 int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
     int printoption = maconf.printoption;
     int waitoption = maconf.waitoption;
@@ -1866,7 +1922,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
 #endif
     cv::Mat carte = imacarte.clone();
     // afficher l'image extraite :
-    if (printoption) cv::imshow("imacarte", imacarte);
+    if (printoption && !threadoption) cv::imshow("imacarte", imacarte);
     // 
     // l'image obtenue correspond aux 4 points:
     // A (0,0)
@@ -1896,13 +1952,13 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
     // ou sous le chiffre et le symbole du bord gauche de la carte
     // choisir le plus clair (en bleu)
     // pour un personnage: à gauche du coin haut droit
-    r.width = maconf.largeurchiffre;
-    r.x = imacarte.cols - maconf.deltacadre - maconf.largeurVDR - r.width - 1;
-    r.y = maconf.deltacadre + 1;
-    r.height = maconf.taillegros / 2;
+    r.width = maconf.largeurVDR;
+    r.x = imacarte.cols - maconf.deltacadre - maconf.largeurVDR - r.width - 2; // à gauche du caractère
+    r.y = maconf.deltacadre + maconf.tailleVDR; // nettement sous le cadre
+    r.height = maconf.tailleVDR / 2; // pas trop haut
     lig = imacarte(r);
     mbl = cv::mean(lig); // valeur du blanc
-    if (printoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
+    if (printoption && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
     // pour un personnage ou une autre carte (1 à 10): sous caractère et symbole du coin haut gauche
     if (maconf.deltagros > 5) {
         r.x = 3;
@@ -1917,7 +1973,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
     lig = imacarte(r);
     mbl2 = cv::mean(lig); // valeur du blanc
     if (mbl2[0] > mbl[0]) mbl = mbl2;
-    if (printoption){tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));}
+    if (printoption && !threadoption){tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));}
     // déterminer si c'est un personnage ou un chiffre
     // la zone centrale verticale est alors colorée (corps du R D V)
     // ________________________________
@@ -1977,7 +2033,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                 estunRDV = false; 
         } 
     }
-    if (printoption){
+    if (printoption && !threadoption){
         if (estunRDV)  tracerRectangle(rr,carte, "carte",cv::Scalar(0,0,255));
         else  tracerRectangle(rr,carte, "carte",cv::Scalar(255,0,0));
     }
@@ -1995,62 +2051,38 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         //  ____________     ________________     <--- position sur la ligne foncée
         //    **       |                 =??|
         //   ****      |     ________________
-        //             |      **         =DD| <-- (=) espace entre la tête et le caractère
-        //                   ***          DD| <--     étroit pour R Pique et coeur et d'autres
-        //                   ***          DD|      (=) : zone à analyser
+        //             |      **          DD| <-- (=) espace entre la tête et le caractère
+        //                   ***        = DD| <--     étroit pour R Pique et coeur et d'autres
+        //                   ***        = DD|      (=) : zone à analyser
         //                   ***          DD|  
         //
-        // chercher en descendant une ligne foncée : bord de carte ou cadre 
-        int cadresup = maconf.deltacadre; // position attendue du cadre en haut
+        // partir nettement sous la position attendue du cadre, (position sous le caractère)
+        // chercher en remontantant une ligne foncée (mbl - 30): cadre 
+        int cadresup = maconf.deltacadre + maconf.tailleVDR; // position nettement blanche
         r.width = maconf.largeurVDR / 2;
         r.x = imacarte.cols - maconf.deltacadre - maconf.deltaVDR - maconf.largeurVDR - 1 - r.width;
         r.height = 1;
-        for (r.y=0; r.y < maconf.deltacadre + 2; r.y++){
+        for (r.y=cadresup; r.y > 0; r.y--){
             lig = imacarte(r); m = cv::mean(lig);
-            if (m[0] < mbl[0] - 30) break; // ligne foncée ( bord ou cadre ?)
+            if (m[0] < mbl[0] - 30) break; // ligne foncée = cadre
         }
-        r.y++; // ligne suivante foncée si trait doublé
-        // chercher une ligne blanche : sous le bord ou sous le cadre
-        for (; r.y <= maconf.deltacadre + 2; r.y++){
-            lig = imacarte(r); m = cv::mean(lig);
-            if (m[0] > 2*mbl[0] / 3) { // ligne claire un peu (sous bord ou cadre)
-                // si la ligne n'est pas très claire, regarder la suivante
-                // si cette ligne suivante est foncée, c'est le cadre
-                // sinon c'était le cadre
-                if (m[0] < mbl[0] - 50) { // ligne pas très claire
-                    r.y++; lig = imacarte(r); m = cv::mean(lig);
-                    if (m[0] < mbl[0] - 30) { // ligne foncée : c'est le cadre
-                        cadresup = r.y;
-                        break;
-                    } else {
-                        cadresup = r.y - 1;
-                    }
-                } else { // ligne assez claire : blanche
-                    cadresup = r.y - 1;
-                }
-                break;
-            } else { // ligne foncée
-                // on continue à chercher une ligne claire
-            }
-        }
-        if (r.y > maconf.deltacadre + 2) {
-            cadresup = maconf.deltacadre + 2;  // douteux!!
-        }
-        r.y++; // après la ligne blanche ou déjà trop basse
-        // rechercher une ligne noire : le cadre
-        // pire situation :
-        // exemple avec deltacadre=2 :  NN NN caractère  ou N  NN caractère en position r.y=5
-        for (; r.y <= maconf.deltacadre + 3; r.y++){
-            lig = imacarte(r); m = cv::mean(lig);
-            if (m[0] < 2*mbl[0]/ 3) { // ligne assez foncée = cadre
-                // TODO : trait doublé?
-                cadresup = r.y; break;
-            }
-        }
+        cadresup = r.y;
         //TODO : vérifier que c'est bien un trait foncé à gauche (au dessus du caractère)
         //      sinon remonter d'un pixel
 
-        // on a trouvé la position du cadre en haut
+        // rechercher le cadre bas
+        // partir nettement au dessus de la position attendue du cadre, (position sur le caractère)
+        // chercher en descendant une ligne foncée (mbl - 30): cadre 
+        int cadreinf = imacarte.rows - maconf.deltacadre - maconf.tailleVDR; // position nettement blanche
+        r.width = maconf.largeurVDR / 2;
+        r.x = maconf.deltacadre + maconf.deltaVDR + maconf.largeurVDR + 2;
+        r.height = 1;
+        for (r.y=cadreinf; r.y < imacarte.rows; r.y++){
+            lig = imacarte(r); m = cv::mean(lig);
+            if (m[0] < mbl[0] - 30) break; // ligne foncée = cadre
+        }
+        cadreinf = r.y;
+        // on a trouvé la position du cadre en haut et en bas
         // considérer le caractère en haut à droite (pas géné par un gros symbole)
         //        après détermination de cadresup,
         //        partir d'une position bien à gauche du caractère
@@ -2065,110 +2097,31 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         r.width = 1;
         cv::Scalar m1;
         lig = imacarte(r); m1 = cv::mean(lig);
-        for (;r.x < imacarte.cols - maconf.deltaVDR - maconf.largeurVDR; r.x++ ){
+        for (;r.x < imacarte.cols + 2 - maconf.largeurVDR; r.x++ ){
             lig = imacarte(r); m = cv::mean(lig);
-            if (m[0] < m1[0] - 10) { // colonne un peu foncée
+            if (m[0] < m1[0] - 20) { // colonne un peu foncée
                 // c'est le bord gauche du caractère
                 break;
             }
         }
         int xcaractere = r.x;
-        
-        // chercher le cadre gauche en allant à droite dans la partie inférieure de la carte
-        //
-        // |  |***
-        // |  | **  <-- partie du corps du personnage
-        // |  |     <--
-        // |  |     (L) <-- ligne normalement claire
-        // |  | *   <-- petit symbole
-        // |  |
-        // |  | R
-        // |  | R
-        // |  |___________
-        // rechercher le premier trait foncé à gauche, sur toute la hauteur de carte
-        int cadregauche = maconf.deltacadre;
-        r.y = 0;
-        r.height = imacarte.rows;
+
+        // chercher la position du caractère bas gauche
+        r.height = maconf.tailleVDR;
+        r.y = cadreinf - 1 - r.height;
+        r.x = maconf.deltacadre + maconf.deltaVDR + maconf.largeurVDR + 4;
         r.width = 1;
-        // chercher une colonne noire
-        for(r.x = 0; r.x <= maconf.deltacadre + 2; r.x++){
+        lig = imacarte(r); m1 = cv::mean(lig);
+        for (;r.x >= maconf.largeurVDR; r.x-- ){
             lig = imacarte(r); m = cv::mean(lig);
-            if (m[0] < 2*mbl[0]/3 ) { // ligne foncée (nettement)
-                // TODO : trait doublé?
+            if (m[0] < m1[0] - 20) { // colonne un peu foncée
+                // c'est le bord droit du caractère
                 break;
-            }  
-        }
-        if (r.x == 0) {  // bord de carte ou cadre
-            // TODO
-            // cadre si la colonne suivante est claire à coté du caractère et foncée entre les petits symboles
-            cv::Scalar m1;
-            r.x = 1; r.y = cadresup + 1; r.width = 1; r.height = maconf.tailleVDR + maconf.taillesymbole;
-            lig = imacarte(r); m1 = cv::mean(lig);
-            r.y += r.height; r.height = imacarte.rows - 2*r.y;
-            lig = imacarte(r); m = cv::mean(lig);
-            if (m1[0] > 3*m[0] /2 || m1[1] > 3*m[1] / 2 || m1[2] > 3*m[2] / 2 ) { //haut nettement plus clair que centre
-                // c'est le cadre, suivi du corps du personnage
-                cadregauche = r.x - 1;
-            } else { // colonne blanche ou trait foncé doublé
-                r.x++; // après la colonne blanche ou foncée
-                if (m[0] < mbl[0] - 30) r.x++; // après le trait doublé (r.x = 2)
-                // chercher une petite colonne claire à gauche du caractère
-                r.y = cadresup + 1; r.height = maconf.tailleVDR + maconf.taillesymbole;
-                for(; r.x <= maconf.deltacadre; r.x++){
-                    lig = imacarte(r); m = cv::mean(lig);
-                    if (m[0] > mbl[0] - 30) {break;} // colonne claire (après bord ou cadre)
-                }
-                if (r.x > maconf.deltacadre) {
-                    // c'est la position à droite du cadre
-                    cadregauche = r.x - 1;
-                } else {
-                    // rechercher le cadre à droite, au plus en deltacadre + 1
-                    // seulement dans la zone juste sous le symbole, avant le coté du personnage
-                    r.x = cadresup + maconf.deltaVDR + maconf.tailleVDR + maconf.taillesymbole + 2;
-                    r.height = maconf.taillesymbole / 2;
-                    cadregauche = maconf.deltacadre;
-                    for(; r.x <= maconf.deltacadre +1; r.x++){
-                        lig = imacarte(r); m = cv::mean(lig);
-                        if (m[0] < mbl[0] - 30) { // trait foncé = cadre , doublé ?
-                            r.height = maconf.tailleVDR;
-                            r.y = cadresup + 1;
-                            r.x++; lig=imacarte(r); m = cv::mean(lig);
-                            if (m[0] < mbl[0] - 30) cadregauche = r.x; // trait foncé sur deux colonnes
-                            else cadregauche = r.x - 1;
-                            break;
-                        }
-                    }
-                }
-            }
-           
-        } else { // r.x > 0  : colonnes blanches à gauche, puis trait foncé
-            if (r.x > 1) { // plusieurs colonnes blanches
-                // probable cadre. autres colonnes foncées?
-                cadregauche = r.x; r.x++;
-                for(; r.x <= maconf.deltacadre +1; r.x++){
-                    lig = imacarte(r); m = cv::mean(lig);
-                    if (m[0] > mbl[0] - 30) {cadregauche = r.x - 1; break;} // trait clair
-                }
-            } else { // une seule colonne blanche, suivie d'un trait noir en r.x == 1
-                // le trait (bord ou cadre) peut comporter d'autres colonnes
-                // si c'est le bord de carte il y a une colonne claire à droite 
-                for(; r.x <= maconf.deltacadre +1; r.x++){
-                    lig = imacarte(r); m = cv::mean(lig);
-                    if (m[0] < mbl[0] - 30) { // trait clair
-                        cadregauche = r.x - 1;
-                        if (r.x <= maconf.deltacadre) {
-                            // rechercher le cadre à droite
-                            r.x++;
-                            for(; r.x <= maconf.deltacadre +1; r.x++){
-                                lig = imacarte(r); m = cv::mean(lig);
-                                if (m[0] < mbl[0] - 30) {cadregauche = r.x; break;} // trait foncé
-                            }
-                        }
-                        break;
-                    }
-                }
             }
         }
+        int xcaracterebas = r.x - maconf.largeurVDR;
+        int cadregauche = std::max(0,xcaracterebas - maconf.deltaVDR);
+
         // on a la position du cadre à gauche et en haut
 
         // extraire le gros symbole en haut à gauche (toujours présent pour un personnnage)
@@ -2185,15 +2138,16 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         // tester le caractère en haut à gauche
         // puis, si on ne trouve pas, le caractère en haut à droite
         std::string output;
-        double confiance, angle;
+        double confiance(0), angle(0);
         cv::Mat ima_car;
         cv::Mat ima_carW;
+
         cv::Mat ima_CARV;
         int largeurcar; // largeur du caractère gauche. à utiliser pour le caractère à droite
         for (int i = 0; i < 2; i++){
             if (i == 0){ // analyse du caractère à gauche
                 r.y = cadresup + 1;
-                r.x = cadregauche + 1;
+                r.x = xcaracterebas; // cadregauche + 1;
                 r.width = maconf.largeurVDR + maconf.deltacadre +1; // sur le GS ou  juste avant le GS à droite
                 r.height = maconf.tailleVDR + maconf.deltacadrehaut + 1; // le petit symbole est juste au dessous
                 // si la petite colonne en r.x + r.width - 1 est foncée (gros symbole) r.width--;
@@ -2244,11 +2198,15 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                 **************************/
             } else if(i == 1) {  // en prévision du test des caractères en bas
                 // analyse du caractère à droite
-                r.x = xcaractere - 1; r.width = maconf.tailleVDR + 1;
+                r.x = xcaractere - 1; r.width = maconf.largeurVDR + 1;
                 r.y = cadresup + 1; r.height = maconf.tailleVDR + 1;
                 if (r.width > imacarte.cols - r.x) r.width = imacarte.cols - r.x;
+
+                /***********************
+                // ceci n'est plus utile, la détection de la gauche du caractère est fiable
+                // le bord droit est éventuellement absent, le cadre également
                 // si la colonne de droite est foncée, réduire la largeur
-                if (r.width > largeurcar) r.width = largeurcar +1; // +1 à cause du blanc à gauche
+                if (r.width > largeurcar + 1) r.width = largeurcar +1; // +1 à cause du blanc à gauche
                 rr = r;
                 rr.x += r.width - 1; rr.width = 1;  lig = imacarte(rr); m = cv::mean(lig);
                 if (m[0] < mbl[0] - 50) r.width--;
@@ -2268,9 +2226,10 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                         r.width = rr.x - r.x; // éliminer la ligne noire (trait de cadre)
                     }
                 }
-
+                ********************/
+                if (r.width > imacarte.cols - r.x) r.width = imacarte.cols - r.x;
             }
-            tracerRectangle(r,carte, "carte",cv::Scalar(0,128, 0));
+            if (printoption && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,128, 0));
             ima_car = imacarte(r);
             cv::cvtColor(ima_car, ima_carW, cv::COLOR_BGR2GRAY);
             cv::threshold(ima_carW, ima_carW, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
@@ -2283,15 +2242,14 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                 ima_carW = image_bordee;
             }
             ima_CARV = ima_carW.clone();
-            if (printoption >= 1){
+            if (printoption && !threadoption){
                 afficherImage("V1c", ima_car);
                 afficherImage("V1", ima_CARV);
             }
             if (printoption){
                 if (waitoption > 2)
                     cv::waitKey(0);
-                else
-                    cv::waitKey(1);
+                // else cv::waitKey(1);
             }
             if (i == 1) { // on vient d'extraire le caractère de droite
                 //////////////////// analyse géométrique ////////////////
@@ -2305,12 +2263,14 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                 //  ....            #          #        ##   ##     ##   ##
                 //                                      #######     #######
                 //                                      ##   ##     _______ 
-                int xd, xg;
+                int xd(-1), xg, xd1(-1), xg1;
                 int tl[4] = {0,0,0,0}, nbl = 0; // types de lignes : 0=noire, 1= noir blanc noir
-                if (output == ""){
+                if (output == "" && !threadoption){
+                  if (printoption) {
                     afficherImage("V1c", ima_car);
                     afficherImage("V1", ima_CARV);
                     //cv::waitKey(0);
+                  }
 
                     //        (W) : 1 ou plusieurs caractères W
                     //        [X] : 0 ou plusieurs caractères W
@@ -2321,6 +2281,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                     int y1 = -1;
                     int x, y;
                     int ynoirfin = -1;
+                    int pix;
                     // rechercher la première ligne non blanche
                     for (y = 0; nontrouve && y < ima_CARV.rows; y++){
                         for (x = 0; x < ima_CARV.cols; x++){
@@ -2334,16 +2295,26 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                     }
                     if (y1 < 0) return 0; // image vide !
 
+
                     for (y = y1; y < ima_CARV.cols; y++) {
                         // déterminer le format de la ligne :
                         // 0 : ligne noire : (B) (N) (B)
                         // 1 : ligne (B) (N) (B) (N)
-                        int pix;
                         for (x = 0; x < ima_CARV.cols; x++){
                             pix = ima_CARV.at<uchar>(y,x);
                             if (pix < 128) break; // premier pixel noir de la ligne : [B]N
                         }
                         if (pix > 128) continue; // ligne blanche ignorée
+                        
+                      // déterminer le dernier pixel noir de la ligne
+                        xd1 = xd; xg1 = xg;
+                        for (int xx=ima_CARV.cols - 1; x > 0; xx--) {
+                          pix = ima_CARV.at<uchar>(y,xx);
+                          if (pix < 128){ // dernier pixel noir de la ligne
+                            xd = xx;
+                            break;
+                          }
+                        }
 
                         xg = x; // position du premier pixel noir de la ligne
                         x++; // rechercher un pixel blanc
@@ -2352,7 +2323,6 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                             if (pix > 128) break;
                         }
                         if (pix > 128) { // [B](N)B
-                            xd = x - 1; // dernier pixel noir si la ligne est noire
                             x++; // rechercher un pixel noir
                             for (; x < ima_CARV.cols; x++){
                                 pix = ima_CARV.at<uchar>(y,x);
@@ -2380,13 +2350,33 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                             continue; // ligne suivante
                         }
                     }
-                    std::cout<<nbl<<" " <<tl[0]<<"," <<tl[1]<<"," <<tl[2]<<"," <<tl[3]<<std::endl;
+                    if (printoption)
+                      std::cout<<nbl<<" " <<tl[0]<<"," <<tl[1]<<"," <<tl[2]<<"," <<tl[3]<<std::endl;
                     // Roi si 0 1 0 1
+                    // Dame   0 1 0   et bas large
+                    // Valet  1 0
+                    // Valet  0 1 0   et bas pointu (exceptionnel avec un morceau du cadre)
+                    // Valet  0       et bas pointu
                     if ( nbl >= 4 && tl[0] == 0 && tl[1] == 1 && tl[2] == 0 && tl[3] == 1) output = "R";
                     else if (nbl == 2 && tl[0] == 1 && tl[1] == 0) output = "V";
                     else if (nbl == 3 && tl[0] == 0 && tl[1] == 1 && tl[2] == 0){ // D ou V
-                        if (xd - xg <= maconf.largeurVDR / 3) output = "V";
-                        else output = "D";
+                      output = "D";
+
+                      if (xd - xg <= maconf.largeurVDR / 2) {
+                        output = ""; // indéterminé
+                      
+                        // TODO : tester aussi la ligne précédente
+                        //    Dame          Valet
+                        //  ********       ********
+                        //  **    **        **  **
+                        //  **    **         *  *
+                        //  ........       ........
+                        //  **    **          ***     <--- tester le pixel à gauche 
+                        //      *              *      <--- pixel noir parasite pour une Dame
+                        if (xd1 >= 0)
+                         if ( xd1 - xg1 <= maconf.largeurVDR / 2) output = "V";
+                         else output = "D";
+                      }
                     }
                     else if (nbl == 1 && tl[0] == 0){
                         if (xd - xg <= maconf.largeurVDR / 3) output = "V";
@@ -2394,13 +2384,14 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                 }
                 
                 if (printoption  && output.size() > 0)
-                    std::cout << "V1 " << output << " confiance " << confiance << " angle " << angle << std::endl;
+                    std::cout << "V1 ==> " << output << std::endl;
                 if (output == "V") return 11;
                 else if (output == "D") return 12;
                 else if (output == "R") return 13;
-                afficherImage("V1c", ima_car);
-                afficherImage("V1", ima_CARV);
-
+                if (printoption && !threadoption) {
+                    afficherImage("V1c", ima_car);
+                    afficherImage("V1", ima_CARV);
+                }
                 // cv::waitKey(0);
             }
             if (i == 0) { // analyse du caractère gauche
@@ -2427,6 +2418,11 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         return 0; // recherche infructueuse
     } // estunRDV
 
+
+
+    //////////////////////////////////////////////////////////////////
+    ///// traitement d'une petite carte   ///////////////////////////
+    /////////////////////////////////////////////////////////////////
     // ce n'est pas un habillé ( R D V)
     cv::Mat imac = imacarte.clone();
     // recalculer la valeur du blanc
@@ -2463,20 +2459,66 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         m = mean(lig); // GS haut centre
         if (printoption) {
             std::cout<<"m haut centre "<<m[0]<<" , blanc "<<mbl[0]<<std::endl;
-            if (!threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); // GS haut centre
+            if (printoption && !threadoption) 
+               tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); // GS haut centre
         }
         GS = lig;
-        r.y = (maconf.hauteurcarte - maconf.taillegros) / 2;
-        if (!threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(0,255,0)); // GS central
+        r.y = (maconf.hauteurcarte - maconf.taillegros) / 2;  // GS central 
+        if (printoption && !threadoption) 
+          tracerRectangle(r, imac, "carte", cv::Scalar(0,255,0)); // GS central
         lig = imacarte(r); // GS central
         if (m[0] > 9*mbl[0]/10) { // pas de GS haut centre --> 1
             m = cv::mean(lig); // GS central
             if (m[0] > 9*mbl[0]/10) { // pas de GS central
                 retcode =  0; // aucun GS haut gauche, haut centre, central --> erreur
             } else {
-                r.y -=2; r.height += 4;
-                if (!threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
-                GS = imacarte(r).clone(); // GS central élargi
+              // TODO : pour un As, le gros symbole peut être inversé
+              //        tester si la partie supérieure est plus claire que la partie invérieure
+              //        faire le calcul de couleur --> rouge ou noir
+              //        si c'est rouge : inverser si le bas est plus rouge que le haut
+              //              sans effet si carreau
+              //        si c'est noir ????
+              cv::Scalar m1, m2;
+              int box[4];
+              r.y -=4; r.height += 8;   // étendre largement
+              r.x -=4; r.width += 8;
+              GS = imacarte(r).clone();
+              calculerBox(GS, maconf.taillegros, maconf.largeurgros, m1, box, m2, maconf);
+              r.x += box[0]; r.y += box[2]; r.width = maconf.largeurgros; r.height = maconf.taillegros;
+              GS = imacarte(r).clone();
+              numcol = calculerCouleur(GS, maconf, mbl);
+              if (numcol == 1 || numcol == 2){
+                rr = r;
+                rr.height = r.height / 2; lig = imacarte(rr); m1 = cv::mean(lig);
+                rr.y += rr.height; lig = imacarte(rr); m2 = cv::mean(lig);
+                if (m1[0] > m2[0]) { // haut plus clair que le bas --> inversé
+                  // inverser
+                  cv::rotate(GS, GS,cv::ROTATE_180);
+                  numcol = calculerCouleur(GS, maconf, mbl);
+                }
+              } else { // couleur noire pique ou trefle
+                // tester la zone juste au dessus de la queue du symbole
+                //    ***        *****
+                //   *****        ***             <--- zone à tester 1
+                //  *******    *********
+                // *********    *******
+                //    ***        *****            <--- zone à tester 2
+                //   *****        ***
+                rr = r;
+                rr.x += maconf.largeurgros / 3; rr.width /= 3;
+                rr.y += (maconf.taillegros +4) / 8; rr.height = (maconf.taillegros +4) / 8;
+                lig = imacarte(rr); m1 = cv::mean(lig); // zone 1
+                rr.y = r.y + maconf.taillegros - maconf.taillegros /4; 
+                lig = imacarte(rr); m2 = cv::mean(lig);
+                if (m1[0] > m2[0]) {
+                  // inverser
+                  cv::rotate(GS, GS,cv::ROTATE_180);
+                  numcol = calculerCouleur(GS, maconf, mbl);
+                }  
+              }
+                //r.y -=2; r.height += 4;
+                //if (printoption && !threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
+                // GS = imacarte(r).clone(); // GS central élargi
                 retcode =  1; // on a trouvé
             }
         } else {
@@ -2485,7 +2527,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
             r.width += 4;
             r.y = maconf.deltagroshaut; // GS haut centre
             r.y -=2; r.height += 4;
-            if (!threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
+            if (printoption && !threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
             GS = imacarte(r).clone();
             m = cv::mean(lig); // GS central
             if (m[0] > 9*mbl[0]/10) { // pas de GS central --> 2
@@ -2498,7 +2540,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
     } else { // GS haut gauche présent
         // extraire 2 pixels de plus dessus et dessous
         r.y -= 2; r.height += 4;
-        if (!threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
+        if (printoption && !threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
         GS = imacarte(r).clone();
         // tracer les zones analysées sur une copie
 
@@ -2511,14 +2553,14 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         r.y = maconf.deltagroshaut + maconf.taillegros;
         r.width = (maconf.largeurcarte - maconf.largeurgros)/2 - r.x;
         r.height = (maconf.hauteurcarte - maconf.taillegros)/2 - r.y;
-        tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
+        if (printoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
         lig = imacarte(r);
         m = mean(lig);
         if (m[0] < 9*mbl[0]/10) nbGSg=2;  // GS symétrique en dessous
         else {
             r.y = (maconf.hauteurcarte - maconf.taillegros)/ 2;
             r.height = maconf.taillegros;
-            if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
+            if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
             lig = imacarte(r);
             m = mean(lig);
             if (m[0] < 9*mbl[0]/10) nbGSg=1;  // GS central
@@ -2529,7 +2571,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
             r.y = (maconf.hauteurcarte - maconf.taillegros) / 2;
             r.height = maconf.taillegros;
             r.width = maconf.largeurgros;
-            if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
+            if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
             lig = imacarte(r);
             m = cv::mean(lig);
             if (m[0] > 9*mbl[0]/10) { // pas de GS central --> 4
@@ -2557,7 +2599,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
             }
             r.height = maconf.taillegros;
             r.y = maconf.deltagroshaut + maconf.taillegros;
-            if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
+            if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
             lig = imacarte(r);
             m = cv::mean(lig);
             if (m[0] < 95*mbl[0]/100) { // GS sup présent
@@ -2565,7 +2607,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
             }
             // GS central inf ?
             r.y = maconf.hauteurcarte - maconf.deltagroshaut - maconf.taillegros - r.height;
-            if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
+            if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
             lig = imacarte(r);
             m = cv::mean(lig);
             if (m[0] < 95*mbl[0]/100) { // GS inf présent
@@ -2578,24 +2620,25 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
 
         } else { // 4 GS à gauche--> 8 9 ou 10 ( 8 pour certains modèles de cartes))
             // compter les GS de la colonne centrale
+            //TODO : limiter à gauche et à droite
             int nbGS = 0;
-            r.width = (maconf.largeurcarte - maconf.deltagros - maconf.largeurgros) / 2;
+            r.width = maconf.largeurcarte - 2* (maconf.deltagros + maconf.largeurgros);
             r.x = (maconf.largeurcarte - r.width) / 2;
             r.y = maconf.deltagroshaut + maconf.taillegros / 2;
             r.height = maconf.taillegros;
-            if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
+            if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
             lig = imacarte(r); // GS haut
             m = cv::mean(lig);
             if (m[0] < 9*mbl[0]/ 10) nbGS = 1;
             r.y = maconf.hauteurcarte - maconf.deltagroshaut - maconf.taillegros - r.height;
-            if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
+            if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(0,255,0));
             lig = imacarte(r); // GS bas
             m = cv::mean(lig);
             if (m[0] < 9*mbl[0]/ 10) nbGS++;
             if (nbGS == 2) retcode = 10; // 8 sur les cotés et 2 au centre
             else {
                 r.y = (maconf.hauteurcarte - maconf.taillegros) / 2;
-                if (!threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
+                if (printoption && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
                 lig = imacarte(r); // GS central
                 m = cv::mean(lig);
                 if (m[0] < 9*mbl[0]/ 10) nbGS++;
@@ -2613,6 +2656,10 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
     if (r.height > imacarte.rows - r.y) r.height = imacarte.rows - r.y;
     lig = imacarte(r);
     mbl = cv::mean(lig);
+    // TODO : si c'est un AS, le GS peut être inversé.
+    //       tester l'orientation : partie supérieure par rapport à la partie inférieure
+    //       efficace pour coeur ou pique , sans effet pour carreau, 
+    //       à tester pour trefle 
     numcol = calculerCouleur(GS, maconf, mbl);
     return retcode;
 }
