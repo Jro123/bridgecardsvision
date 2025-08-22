@@ -1998,6 +1998,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         r.x = maconf.deltagros + maconf.taillegros +1;
         r.width = imacarte.cols - 2*r.x;
     }
+    if (r.width <= 0) return 0; // carte (!) trop étroite
     // zone de la tête (***):
     r.y = maconf.deltacadre;
     rr = r;
