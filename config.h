@@ -50,6 +50,7 @@ public:
     int coinsoption; // 0: analyser uniquement les cartes,  1: analyser aussi les coins isolés
     int linesoption; // 1 : Canny et houghlines, 2 : ximgproc
     int fusionoption; // 0: pas de fusion, 1: fusionner les segments proches ayant même support
+    int calibrationoption; // 0: normal, 1: calibrer la vidéo
 
     int contratcouleur; // 0:Pique, 1:Coeur, 2:Carreau, 3:Trefle, -1:SA
     int contratvaleur; // 1 à 7
@@ -57,11 +58,27 @@ public:
     config() {}
 };
 
+class ligne;
 // carct�ristique d'un coin de carte
 class uncoin {
 public:
-    int (*pcoins)[12];     // tableau des coins 
-    int numcoin;     // num�ro de coin
+    bool         elimine;
+    // dans l'image :
+    ligne*       l1;
+    ligne*       l2;
+    cv::Point2i sommet;
+    cv::Point2i  H;      // extrémité sur la ligne l1 loin du sommet
+    cv::Point2i  K;      // extrémité sur la ligne l2
+    cv::Point2i  R;
+    cv::Point2i  S;  
+    cv::Point2i cadre;
+
+    // après extraction du coin dans l'image
+    int         numCarte;
+    int         couleur;
+    int         valeur;
+    int         (*pcoins)[12];     // tableau des coins 
+    int         numcoin;     // num�ro de coin
     cv::Point2i A;   // haut gauche du chiffre suppos� vertical
     cv::Point2i B;   // bas droit
     cv::Point2i AA;  // haut gauche du chiffre suppos� horizontal
@@ -79,8 +96,10 @@ public:
     char caractere;
     cv::Scalar moyblanc;  // couleur du "blanc"
     cv::Mat ima_coin;     // image du coin
-    uncoin() {}
-    uncoin(int (*tab)[12]) : pcoins(tab) {}  // constructeur d'initialisation
+    // constructeurs :
+    uncoin() {couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
+    uncoin(ligne& la, ligne& lb) {l1 = &la; l2 = &lb; couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
+    uncoin(int(*tab)[12]) {pcoins = tab;couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
 };
 
 class ligne{
@@ -95,6 +114,7 @@ public:
         a = b = c = 0;
         lg = 0;
     }
+    float dist(cv::Point2i Q) {return a*Q.x + b*Q.y + c;}
 };
 
 class Pli {
@@ -105,6 +125,45 @@ public:
   Pli() { joueur=-1; joueurgagnant = -1; for(int i=0; i<4; i++) {cartes[i][0] = -1; cartes[i][1]= 0;}}
 };
 
+class unpoint {
+public:
+  int x;
+  int y;
+
+  unpoint(int a, int b) {x=a; y=b;}
+  unpoint() {x=0;y=0;}
+  unpoint(cv::Point2i P) {x = P.x; y = P.y;}
+};
+
+class unvecteur {
+public:
+  float x;
+  float y;
+  unvecteur(unpoint A, unpoint B) { x = B.x - A.x; y = B.y - A.y;}
+  unvecteur(cv::Point2i A, cv::Point2i B) { x = B.x - A.x; y = B.y - A.y;}
+  unvecteur() {x=0;y=0;}
+  unvecteur(int a, int b) {x =a; y = b;}
+  unvecteur(float a, float b) {x =a; y = b;}
+  float lg() { return std::sqrt(x*x + y*y);}
+  unvecteur unitaire() { 
+    if ( x == 0 &&  y == 0) return unvecteur(0,0);
+    float l = this->lg();
+    return unvecteur(this->x /l, this->y / l);
+  }
+  unvecteur normale() { 
+    if ( x == 0 &&  y == 0) return unvecteur(0,0);
+    float l = this->lg();
+    return unvecteur(this->y /l, -this->x / l);
+  }
+      // Produit scalaire
+  int operator*(const unvecteur& autre) const {
+        return x * autre.x + y * autre.y;
+  }
+    // Produit vectoriel
+  int operator^(const unvecteur& autre) const {
+        return  x * autre.y - y * autre.x;
+    }
+};
 // une carte avec ses 4 sommets et sa valeur éventuelle
 class unecarte {
 public:
@@ -163,7 +222,7 @@ std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance= 0, doubl
 std::string execOCRVDR(cv::String nom, cv::Mat ima_ch, double *pconfiance = 0, double *pangle=0);
 //tescmd = "tesseract.exe " + nomcoin + "  stdout --psm 10 -l fra ffb ";
 
-void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string>& resultats, 
+void traiterCoin(int n, std::vector<uncoin>& Coins, cv::Mat image,  std::vector<std::string>& resultats, 
     cv::Mat result, const int *l1, const int *l2, const config& maconf);
 
 //void traiterCointhread(std::vector<std::thread> *pthreads,int n, int coins[500][10], cv::Mat image,  std::vector<std::string>& resultats, 

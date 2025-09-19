@@ -1922,7 +1922,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
 #endif
     cv::Mat carte = imacarte.clone();
     // afficher l'image extraite :
-    if (printoption && !threadoption) cv::imshow("imacarte", imacarte);
+    if (printoption) afficherImage("imacarte", imacarte);
     // 
     // l'image obtenue correspond aux 4 points:
     // A (0,0)
@@ -2041,6 +2041,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
 
     ////////////////// traitement d'un personnage ////////////////////////
     if (estunRDV){
+        std::string output;
         cv::Mat ima_CARG; // image pour OCR caractère gauche
         // positionner précisément en recherchant les cadres haut et gauche
 
@@ -2057,9 +2058,18 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         //                   ***        = DD|      (=) : zone à analyser
         //                   ***          DD|  
         //
-        // partir nettement sous la position attendue du cadre, (position sous le caractère)
+
+        // TODO : partir de la tête du personnage, sous la position maximalepossible du cadre
+        //        hauteur taille du caractère / 2, largeur 1 pixel
+        //        aller à droite tant qu'il y a un pixel foncé
+        //        --> position gauche
+        //        largeur : largeur caractère /2    maximum 3 pixels
+        //        hauteur 1 pixel
+        //        remonter jusqu'au cadre (ligne non blanche) 
+        //          
+        // partir sous la position attendue du cadre, (position sous le caractère)
         // chercher en remontantant une ligne foncée (mbl - 30): cadre 
-        int cadresup = maconf.deltacadre + maconf.tailleVDR; // position nettement blanche
+        int cadresup = maconf.deltacadre + maconf.tailleVDR / 2; // position nettement blanche
         r.width = maconf.largeurVDR / 2;
         r.x = imacarte.cols - maconf.deltacadre - maconf.deltaVDR - maconf.largeurVDR - 1 - r.width;
         r.height = 1;
@@ -2120,7 +2130,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                 break;
             }
         }
-        int xcaracterebas = r.x - maconf.largeurVDR;
+        int xcaracterebas = std::max(0, r.x - maconf.largeurVDR);
         int cadregauche = std::max(0,xcaracterebas - maconf.deltaVDR);
 
         // on a la position du cadre à gauche et en haut
@@ -2138,13 +2148,13 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
         // appel à l' OCR
         // tester le caractère en haut à gauche
         // puis, si on ne trouve pas, le caractère en haut à droite
-        std::string output;
         double confiance(0), angle(0);
         cv::Mat ima_car;
         cv::Mat ima_carW;
 
         cv::Mat ima_CARV;
         int largeurcar; // largeur du caractère gauche. à utiliser pour le caractère à droite
+        std::string outOCR1 = "";  // résultat OCR du caractère à droite
         for (int i = 0; i < 2; i++){
             if (i == 0){ // analyse du caractère à gauche
                 r.y = cadresup + 1;
@@ -2252,7 +2262,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                     cv::waitKey(0);
                 // else cv::waitKey(1);
             }
-            if (i == 1) { // on vient d'extraire le caractère de droite
+            if (i == 1) { // caractère haut gauche. on a déjà localisé le caractère de droite
                 //////////////////// analyse géométrique ////////////////
                 // on vient de tester le caractère à droite. image seuillée : "V1" ima_CARV
                 // 
@@ -2274,7 +2284,7 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                   }
 
                     //        (W) : 1 ou plusieurs caractères W
-                    //        [X] : 0 ou plusieurs caractères W
+                    //        [X] : 0 ou plusieurs caractères X
                     //         W  : un caractère W 
                     bool nontrouve = true;
                     bool ligne1noire = false;
@@ -2360,6 +2370,9 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                     // Valet  0       et bas pointu
                     if ( nbl >= 4 && tl[0] == 0 && tl[1] == 1 && tl[2] == 0 && tl[3] == 1) output = "R";
                     else if (nbl == 2 && tl[0] == 1 && tl[1] == 0) output = "V";
+                    else if (nbl == 3 && tl[0] == 1 && tl[1] == 0 && tl[2] == 1){ // R
+                      output = "R"; 
+                    }
                     else if (nbl == 3 && tl[0] == 0 && tl[1] == 1 && tl[2] == 0){ // D ou V
                       output = "D";
 
@@ -2384,32 +2397,54 @@ int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol) {
                     }
                 }
                 
-                if (printoption  && output.size() > 0)
-                    std::cout << "V1 ==> " << output << std::endl;
-                if (output == "V") return 11;
-                else if (output == "D") return 12;
-                else if (output == "R") return 13;
-                if (printoption && !threadoption) {
-                    afficherImage("V1c", ima_car);
-                    afficherImage("V1", ima_CARV);
-                }
-                // cv::waitKey(0);
             }
             if (i == 0) { // analyse du caractère gauche
                 // différer la recherche OCR
                 ima_CARG = ima_carW.clone();
                 continue;
             }
-            // l'analyse géométrique n'a rien donné sur le caractère à droite
-            // recherche par OCR :
-            if (maconf.tesOCR >= 1) output = tesOCR(ima_carW, true, &confiance, &angle);
-            else                    output = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+            //  compléter l'analyse géométrique du caractère à droite
+            // par la recherche par OCR :
+            if (output == "") {
+              std::string outOCR;
+              if (maconf.tesOCR >= 1) { 
+                outOCR = tesOCR(ima_carW, true, &confiance, &angle);
+                if (outOCR == "" && maconf.tesOCR == 1) {
+                  outOCR = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+                  if (outOCR == "0") outOCR = "D";
+                  if (outOCR == "1") outOCR = "V"; // parfois c'est D
+                }
+              }
+              else  outOCR = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+              if (outOCR == "?") outOCR = "";
+              if (outOCR != output){
+                // résultat OCR différent de l'analyse géométrique
+                std::cout<<"!!! résultat OCR "<<outOCR << " géométrie " << output << std::endl;
+                if (output == "") outOCR1 = outOCR;
+              }
+            }
+            if (printoption  && output.size() > 0)
+                std::cout << "V1 ==> " << output << std::endl;
+            if (output == "V") return 11;
+            else if (output == "D") return 12;
+            else if (output == "R") return 13;
+            if (printoption && !threadoption) {
+                afficherImage("V1c", ima_car);
+                afficherImage("V1", ima_CARV);
+            }
+            // cv::waitKey(0);
             if (output != "") break;
         } // caractère à gauche puis à droite
-        if (output == "") {
+
+        if (output == "") { // analyse géométrique infructueuse
             // analyse OCR du caractère gauche
-            if (maconf.tesOCR >= 1) output = tesOCR(ima_CARG, true, &confiance, &angle);
-            else                    output = execOCR("SERVEUR", ima_CARG, &confiance, &angle);
+            std::string outOCR;
+            if (maconf.tesOCR >= 1) outOCR = tesOCR(ima_CARG, true, &confiance, &angle);
+            else                    outOCR = execOCR("SERVEUR", ima_CARG, &confiance, &angle);
+            if (outOCR == "?") outOCR = "";
+            if (outOCR == "") {
+              if (outOCR1 != "") output = outOCR1;
+            } else output = outOCR;
         }
         if (printoption  && output.size() > 0)
             std::cout << "V1 " << output << " confiance " << confiance << " angle " << angle << std::endl;

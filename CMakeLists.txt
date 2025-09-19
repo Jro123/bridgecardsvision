@@ -6,6 +6,15 @@ set(CMAKE_PREFIX_PATH "/usr/local" ${CMAKE_PREFIX_PATH})
 # Rechercher tous les fichiers sources .cpp
 file(GLOB SOURCES "*.cpp")
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PQXX REQUIRED libpqxx)
+
+include_directories(${PQXX_INCLUDE_DIRS})
+link_directories(${PQXX_LIBRARY_DIRS})
+add_definitions(${PQXX_CFLAGS_OTHER})
+
+
+
 # Utiliser find_package pour trouver OpenCV
 find_package(OpenCV REQUIRED)
 
@@ -35,13 +44,13 @@ add_executable(sqltest sqltest.cpp)
 target_link_libraries(sqltest sqlite3)
 
 add_executable(affichePlis affichePlis.cpp)
-target_link_libraries(affichePlis sqlite3 opencv_core opencv_highgui opencv_videoio)
+target_link_libraries(affichePlis opencv_core opencv_highgui opencv_videoio ${PQXX_LIBRARIES} sqlite3)
 
 # Lier les bibliothèques d'OpenCV, curl et Python
 target_link_libraries(cv2c
 	CURL::libcurl 
 	Python::Python
-	sqlite3
+	pqxx sqlite3
 	${TESSERACT_LIBRARIES}
 	opencv_core opencv_imgproc opencv_highgui opencv_videoio opencv_ximgproc
 	freetype harfbuzz opencv_freetype

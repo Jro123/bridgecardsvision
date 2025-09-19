@@ -52,7 +52,7 @@ void retourcoin(int n){
 }
 
 
-void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string>& resultats, 
+void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector<std::string>& resultats, 
                         cv::Mat result, const int *l1, const int *l2, const config &maconf)
 {
 
@@ -63,8 +63,8 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     if(threadoption)
         if (printoption) std::cout << "+++Thread " << std::this_thread::get_id() << " demarre..." << std::endl;
     
-    int cecoin[12];
-    for (int i = 0; i<12; i++) cecoin[i] = coins[n][i];
+    //int cecoin[12];
+    //for (int i = 0; i<12; i++) cecoin[i] = coins[n][i];
     std::string nomOCR = "tesOCR";
     if (maconf.tesOCR == 0)
         nomOCR = "SERVEUR";
@@ -73,28 +73,19 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
 
     bool estunRDV = false;
     bool estunRDV0 = false; // ce qui a été déterminé par la comparaison des coins
-    int i = cecoin[0]; // indice de ligne
-    int j = cecoin[1];
-    if (i < 0 || j < 0)
+    //int i = cecoin[0]; // indice de ligne
+    //int j = cecoin[1];
+    if (Coins[n].elimine)
         {retourcoin(n); return;} // coin éliminé
-    if (cecoin[6])
-        estunRDV0 = cecoin[6];
+    estunRDV0 = Coins[n].estunRDV;
     estunRDV = false; // détection douteuse, désactivée
-    // cv::Vec4i l1 = lines[i];  // ligne AB
-    // cv::Vec4i l2 = lines[j];  // ligne CD
-    cv::Point2i P = cv::Point2i(cecoin[4], cecoin[5]); // intersection des deux lignes
+    cv::Point2i P = cv::Point2i(Coins[n].sommet); // intersection des deux lignes
     cv::Point2i Q;
     Q = P;              // initialiser un point valide
-    int k = cecoin[2];  // coin= A si 0  ou B (=2)
-    int kk = cecoin[3]; // coin = C ou D
     // déterminer le rectangle correspondant au coin selon les directions AB et CD, point diagonal Q
     //
-    cv::Point2i R; // AB --> PR  R = A ou B
-    cv::Point2i S; // CD --> PS  S = C ou D
-    R.x = l1[2 - k];
-    R.y = l1[3 - k];
-    S.x = l2[2 - kk];
-    S.y = l2[3 - kk];
+    cv::Point2i R(Coins[n].R); // AB --> PR  R = A ou B
+    cv::Point2i S(Coins[n].S); // CD --> PS  S = C ou D
 
     float lgPR = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
     float lgPS = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
@@ -343,6 +334,8 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             r.y = PP.y + std::max(1,maconf.deltacadre / 2);
         if(r.x < 0) r.x = 0;
         if (r.width > coinPetit.cols - r.x) r.width = coinPetit.cols - r.x;
+        if (r.y < 0 ) r.y = 0;
+        if (r.y > coinPetit.rows - r.height) r.y = coinPetit.rows - r.height;
         lig = coinPetit(r);
         mbl = cv::mean(lig); // valeur de référence du blanc
         mb3 = mbl[0] + mbl[1] + mbl[2];
@@ -397,7 +390,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             if (m0[0] - m1[0] > limr || m0[0] - mbl[0] > -limr)
             { // m1 est plus foncée ou m0 est claire
                 // rechercher une ligne foncée à l'intérieur
-                for (int j = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
                 {
                     lig = coinPetit(r); m1 = cv::mean(lig);
                     if (m1[0] - mbl[0] < -limr)
@@ -472,7 +465,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             if (m0[0] - m1[0] > limr || m0[0] - mbl[0] > -limr)
             { // m1 est plus foncée ou m0 est claire
                 // rechercher une ligne foncée à l'intérieur
-                for (int j = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
                 {
                     lig = coinPetit(r); m1 = cv::mean(lig);
                     if (m1[0] - mbl[0] < -limr)
@@ -676,7 +669,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             (ect1[0] < m1[0] / 10 && ect1[1] < m1[1] / 10 && ect1[2] < m1[2] / 10) )
         {
             if (printoption && !threadoption) {
-                cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 2, cv::Scalar(255, 0, 0), -1);
+                cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
                 afficherImage("result", result);
                 tracerRectangle(rr, extrait, "Artefact", cv::Scalar(255, 0, 0));
                 std::cout << " artefact caractere clair ou uniforme " << std::endl;
@@ -797,6 +790,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         else
             rr.y = PP.y - std::max(1, maconf.deltacadre / 2);
         if (rr.width <= 0) rr.width = 1;
+        if (rr.y > coinPetit.rows - rr.height) rr.y = coinPetit.rows - rr.height;
         lig = coinPetit(rr);
         cv::meanStdDev(lig, m1, ect1);
 
@@ -969,7 +963,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     int largeursymbole;
     if (estunRDV)
     {
-        if(coins[n][10] >= 0) { // on connait la couleur de la carte identifiée comme un personnage
+        if(Coins[n].couleur >= 0) { // on connait la couleur de la carte identifiée comme un personnage
             // calculer les coordonnées de QQ
             if (VE.y < PP.y) QQ.y = PP.y - maconf.deltacadre;
             else QQ.y = PP.y + maconf.deltacadre;
@@ -1146,6 +1140,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             if (r.x < 0) { r.width += r.x; r.x = 0; if(r.width <= 0) r.width = 1;}
         }
         r.height = 1;
+        if (r.y > coinPetit.rows - r.height) r.y = coinPetit.rows - r.height;
         lig = coinPetit(r);
         m0 = cv::mean(lig); // ligne blanche à coté du bord
         for (int i = 0; i < maconf.deltasymbole - 1; i++)
@@ -1179,7 +1174,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     BB.y = std::max(0, BB.y);
 
     // mémoriser les caractéristiques du coin qu'on vient de calculer
-    uncoin moncoin(coins);
+    uncoin moncoin= Coins[n];
     moncoin.A = A;
     moncoin.B = B;
     moncoin.AA = AA;
@@ -1245,7 +1240,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     {
         if (printoption)
             std::cout << "coin trop sombre " << m1[2] << std::endl;
-        cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 2, cv::Scalar(255, 0, 0), -1);
+        cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
         if (printoption && !threadoption)
             tracerRectangle(rz, extrait, "Artefact", cv::Scalar(255, 0, 0));
         {retourcoin(n); return;} 
@@ -1269,7 +1264,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     if (m1[2] < limsombre && m2[2] < limsombre)
     {
         if (!estunRDV)
-            cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 2, cv::Scalar(255, 0, 0), -1);
+            cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
         if (printoption && !threadoption) {
             std::cout << " coin artefact " << m1 << m2 << std::endl;
             tracerRectangle(rz, extrait, "Artefact", cv::Scalar(255, 0, 0));
@@ -1317,6 +1312,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     // le premier coté du coin est la droite PP-HH
     // si on a trouvé un coin adjacent, on sait si ce coté est la longueur ou largeur de la carte
     cv::Point2i HP (HH - PP);
+    /*********************** ADAPTER  
     if (coins[n][10] == -3 ) { // PP-HH est la longueur
         if (std::abs(HP.x) > std::abs(HP.y)){ // PP-HH horizontal longueur
             estDroit = false;
@@ -1334,6 +1330,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
             inverse = true;
         }
     }
+    *****************************/
     if (printoption > 1) {
         if (inverse)
             std::cout << "inverse ";
@@ -2767,7 +2764,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     //   sélectionner le meilleur candidat ( meilleur indice de confiance )
     // if (nonvu)
 
-    k = -1; // rechercher la meilleure détection
+    int k = -1; // rechercher la meilleure détection
     // 1er OCR vertical ou horizontal
     if (!inverse)
         if ((out[0] == "V" || out[0] == "D" || out[0] == "R") && confs[0] > 0.4)
@@ -2801,7 +2798,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         k = 0;
     if (out[4] == "R" && confs[4] > 0.4 && out[0] == "D")
         k = 4;
-    kk = k;
+    int kk = k;
     // les 6 autres OCR:
     for (int i = 1; i < 8; i++)
     {
@@ -2956,7 +2953,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     // artefact détecté près d'un bord, sauf chiffre 10 (près du bord)
     if (estArtefact && output != "10")
     {
-        cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 2, cv::Scalar(255, 0, 0), -1);
+        cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
         if (printoption)
             std::cout << "Artefact " << std::endl;
         // if (maconf.deltacadre > 10 || confiance < 0.8)  // ne pas laisser de fausse détection
@@ -3157,7 +3154,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     estDroit = !inverse;
     estRouge = moncoin.estRouge;
     estNoir = !estRouge;
-    if (!threadoption) {
+    if (printoption && !threadoption) {
         std::cout << "==>";
         if (inverse)
             std::cout << "inverse";
@@ -4511,7 +4508,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
                 } else {
                     if (printoption)
                         std::cout << "couleur noire indéterminable Trefle ?" << ecr << std::endl;
-                    cv::circle(result, cv::Point2i(cecoin[4], cecoin[5]), 4, cv::Scalar(0, 0, 255), -1);
+                    cv::circle(result, Coins[n].sommet, 4, cv::Scalar(0, 0, 255), -1);
                     {retourcoin(n); return;} 
                 }
             }
@@ -4584,7 +4581,7 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
     if (numcol == 1) { texte = "C"; if (printoption) std::cout << " Coeur ";}
     if (numcol == 2) { texte = "K"; if (printoption)  std::cout << " Carreau ";}
     if (numcol == 3) { texte = "T"; if (printoption)  std::cout << " trefle ";}
-    coins[n][10] = numcol;
+    Coins[n].couleur = numcol;
 
     if (!nonvu && outprec != "" && outprec != output)
         if (printoption) {
@@ -4593,11 +4590,11 @@ void traiterCoin(int n, int coins[][12], cv::Mat image,  std::vector<std::string
         }
     texte += output;
     char valcarte = output[0];
-    if (output == "10") coins[n][11] = 10;
-    else if(valcarte == 'V') coins[n][11] = 11;
-    else if(valcarte == 'D') coins[n][11] = 12;
-    else if(valcarte == 'R') coins[n][11] = 13;
-    else if (valcarte > '0' && valcarte <= '9' ) coins[n][11] = valcarte - '0';
+    if (output == "10") Coins[n].valeur = 10;
+    else if(valcarte == 'V') Coins[n].valeur = 11;
+    else if(valcarte == 'D') Coins[n].valeur = 12;
+    else if(valcarte == 'R') Coins[n].valeur = 13;
+    else if (valcarte > '0' && valcarte <= '9' ) Coins[n].valeur = valcarte - '0';
 
 
     if (printoption)

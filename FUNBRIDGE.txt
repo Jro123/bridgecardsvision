@@ -26,14 +26,15 @@ deltagrosRDV= 62  # ecart entre le cadre et le gros symbole
 deltagroshautRDV= 20  # ecart entre le cadre et le haut du gros symbole
 largeurgrosRDV= 115  #
 taillegrosRDV= 177  #
-waitoption=0  # 1:attendre après chaque frame, 2:attendre après chaque coin, 3:après chaque calcul
+waitoption=0  # 1:attendre après chaque pli ou frame, 2: chaque frame ou coin, 3: chaque calcul
 printoption=0  # 1:imprimer lignes, coins, OCR, 2: calculs divers
 threadoption=0 # 0: monotache, 1: autant que de coeurs, n: nombre de sous-taches
-tesOCR=1  # 1: utiliser tesseract et serveur, 2: tesseract sans serveur, 0: ne pas utiliser tesseract C++
+tesOCR=2  # 1: utiliser tesseract et serveur, 2: tesseract sans serveur, 0: ne pas utiliser tesseract C++
 ignorerGS=9 # n: uniquement si la taille du petit symbole est >= n
 coinsoption=0 # 0: analyser uniquement les cartes complètes, 1: analyser aussi les coins isolés
 linesoption=2 # 1: canny et hougthlines, 2: ximgproc
 fusionoption=0 # 0:pas de fusion, 1: fusion des segments proches ayant même support
+calibrationoption=0 # 0: normal, 1: appliquer l'étalonnage de la vidéo
 gradmin=50 # gradiant minimum pour edge
 gradmax=150 # gradiant supérieur pour edge
 nbvote=30 # nombre de votes pour détectionn de ligne houghlines

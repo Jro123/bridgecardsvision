@@ -1,5 +1,6 @@
 info= 0  # configuration pour les cartes de la marque COFALU, en millièmes de la taille de carte
-htcard= 120  # hauteur de carte en pixels, valeur par défaut
+htcard= 125  # hauteur de carte en pixels, valeur par défaut
+largeurcarte= 85 # largeur de la carte en pixels (2/3 de ht = 56)
 deltahaut= 36  # écart entre le bord supérieur ou inférieur de la carte et le chiffre
 deltacadre= 54   #écart entre le bord de carte et le cadre de Roi Dame Valet 
 deltacadrehaut= 46    # écart entre le bord de carte et le cadre de Roi Dame Valet 
@@ -30,11 +31,15 @@ printoption= 1  # 1:imprimer lignes, coins, OCR, 2: calculs divers
 threadoption= 0 # 0: monotache, 1: autant que de coeurs, n: nombre de sous-taches
 tesOCR=1  # 1: utiliser tesseract et serveur, 2: tesseract sans serveur, 0: ne pas utiliser tesseract C++
 ignorerGS=9 # n: uniquement si la taille du petit symbole est >= n
-coinsoption=0 # 0: analyser uniquement les cartes complètes, 1: analyser aussi les coins isolés
+coinsoption=1 # 0: analyser uniquement les cartes complètes, 1: analyser aussi les coins isolés
 linesoption=2 # 1: canny et hougthlines, 2: ximgproc
 fusionoption=0 # 0:pas de fusion, 1: fusion des segments proches ayant même support
+calibrationoption=0 # 0: normal, 1: appliquer l'étalonnage de la vidéo
 gradmin= 50 # gradiant minimum pour edge
 gradmax= 150 # gradiant supérieur pour edge
 nbvote=30 # nombre de votes pour détectionn de ligne houghlines
 nbpoints= 10 # nombre minimum de pixels d'une ligne
-ecartmax= 3 # écart maximal entre points d'une ligne 
+ecartmax= 3 # écart maximal entre points d'une ligne
+contratcouleur=-1 # SA
+contratvaleur=3 # 3SA
+declarant=2 # Sud  

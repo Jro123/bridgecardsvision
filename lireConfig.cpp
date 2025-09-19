@@ -72,6 +72,7 @@ int lireConfig(std::string nomfichier, config& maconf) {
     ASSIGN_OPTION(coinsoption)
     ASSIGN_OPTION(linesoption)
     ASSIGN_OPTION(fusionoption)
+    ASSIGN_OPTION(calibrationoption)
     ASSIGN_OPTION(gradmin)
     ASSIGN_OPTION(gradmax)
     ASSIGN_OPTION(nbvote)
