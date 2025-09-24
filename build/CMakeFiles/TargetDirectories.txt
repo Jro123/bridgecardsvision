@@ -1,6 +1,0 @@
-/home/jro/DEV/CV2C/build/CMakeFiles/cv2c.dir
-/home/jro/DEV/CV2C/build/CMakeFiles/creertables.dir
-/home/jro/DEV/CV2C/build/CMakeFiles/sqltest.dir
-/home/jro/DEV/CV2C/build/CMakeFiles/affichePlis.dir
-/home/jro/DEV/CV2C/build/CMakeFiles/edit_cache.dir
-/home/jro/DEV/CV2C/build/CMakeFiles/rebuild_cache.dir
