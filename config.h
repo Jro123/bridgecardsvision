@@ -52,6 +52,15 @@ public:
     int fusionoption; // 0: pas de fusion, 1: fusionner les segments proches ayant même support
     int calibrationoption; // 0: normal, 1: calibrer la vidéo
 
+    int xjeu;
+    int yjeu;
+    int wjeu;
+    int hjeu;
+    int xmort;
+    int ymort;
+    int wmort;
+    int hmort;
+
     int contratcouleur; // 0:Pique, 1:Coeur, 2:Carreau, 3:Trefle, -1:SA
     int contratvaleur; // 1 à 7
     int declarant; // numéro de joueur déclarant 0:nord, 1:Est, 2:Sud, 3:Ouest  
@@ -117,14 +126,6 @@ public:
     float dist(cv::Point2i Q) {return a*Q.x + b*Q.y + c;}
 };
 
-class Pli {
-public:
-  int joueur;  // numéro du joueur qui entame le pli. 0=Nord, 1=Est, 2=Sud, 3=Ouest
-  int cartes[4][2]; // Nord,est,sud,ouest    couleur et valeur
-  int joueurgagnant;  // numéro du joueur qui remporte ce pli 
-  Pli() { joueur=-1; joueurgagnant = -1; for(int i=0; i<4; i++) {cartes[i][0] = -1; cartes[i][1]= 0;}}
-};
-
 class unpoint {
 public:
   int x;
@@ -133,6 +134,25 @@ public:
   unpoint(int a, int b) {x=a; y=b;}
   unpoint() {x=0;y=0;}
   unpoint(cv::Point2i P) {x = P.x; y = P.y;}
+};
+
+
+// une carte avec ses 4 sommets et sa valeur éventuelle
+class unecarte {
+public:
+  int couleur;
+  int valeur;
+  unpoint sommet[4];
+};
+
+
+class Pli {
+public:
+  int joueur;  // numéro du joueur qui entame le pli. 0=Nord, 1=Est, 2=Sud, 3=Ouest
+  unecarte carte[4];
+  //int cartes[4][2]; // Nord,est,sud,ouest    couleur et valeur
+  int joueurgagnant;  // numéro du joueur qui remporte ce pli 
+  Pli() { joueur=-1; joueurgagnant = -1; for(int i=0; i<4; i++) {carte[i].couleur = -1; carte[i].valeur= 0;}}
 };
 
 class unvecteur {
@@ -164,14 +184,6 @@ public:
         return  x * autre.y - y * autre.x;
     }
 };
-// une carte avec ses 4 sommets et sa valeur éventuelle
-class unecarte {
-public:
-  int couleur;
-  int valeur;
-  int sommets[4][2];  
-};
-
 // un pli en cours avec les cartes déjà trouvées
 class unpli {
 public:

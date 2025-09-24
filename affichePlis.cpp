@@ -15,6 +15,8 @@ using namespace cv;
 const int CARD_WIDTH = 200;
 const int CARD_HEIGHT = 300;
 
+std::string joueurs[4] = {"Nord", "Est", "Sud", "Ouest"};
+
 #ifdef POSTGRESQL
     pqxx::connection openDatabase(string conninfo){
     try {
@@ -176,6 +178,9 @@ void AfficheurPli::afficher(std::vector<Pli> plis, Pli& pli) {
     }
     cartesAffichees = const_cast<vector<CarteModifiable>*>(&pli.cartes);
 
+    //for (int i = 0; i < 4; i++) {
+    //  CarteModifiable carte = pli.cartes[i];
+    int i=0;
     for (auto& carte : pli.cartes) {
         Mat card = extractCard(sprite, carte.code);
         if (card.empty()) continue;
@@ -185,6 +190,9 @@ void AfficheurPli::afficher(std::vector<Pli> plis, Pli& pli) {
             rectangle(canvas, carte.zone, Scalar(255, 0, 0), 3); // bleue
         else if (carte.modifiee)
             rectangle(canvas, carte.zone, Scalar(0, 0, 255), 3); // rouge
+        else if (pli.joueur == joueurs[i])
+            rectangle(canvas, carte.zone, Scalar(0, 255, 0), 2); // vert
+        i++;
     }        
     for (auto& carte : bandeauCartes) {
         Mat card = extractCard(sprite, carte.code);

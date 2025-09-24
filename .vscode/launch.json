@@ -8,7 +8,8 @@
             //"program": "/home/jro/DEV/CV2C/build/affichePlis",  // Remplacez par le chemin correct de votre exécutable
             //"args": ["test", "1"],  // Ajoutez vos paramètres ici
             "program": "/home/jro/DEV/CV2C/build/cv2c",  // Remplacez par le chemin correct de votre exécutable
-            "args": ["~/DEV/CV2C/FB3A.mp4", "~/DEV/CV2C/FUNBRIDGE.txt", "97"],  // Ajoutez vos paramètres ici
+            "args": ["~/Vidéos/FB4C.mp4", "~/DEV/CV2C/FUNBRIDGE.txt", "86"],  // Ajoutez vos paramètres ici
+            //"args": ["~/DEV/CV2C/FB3A.mp4", "~/DEV/CV2C/FUNBRIDGE.txt", "97"],  // Ajoutez vos paramètres ici
             //"args": ["~/DEV/CV2C/ybc.mkv", "~/DEV/CV2C/YOUTUBE.txt", "83"],  // Ajoutez vos paramètres ici
             //"args": ["~/DEV/CV2C/test.mp4", "~/DEV/CV2C/COFALU.txt", "125"],  // Ajoutez vos paramètres ici
             "stopAtEntry": false,

@@ -1,10 +1,10 @@
 info=0  # configuration pour les cartes de FUNBRIDGE, en millièmes de la taille de carte
-htcard= 97  # hauteur de carte en pixels, valeur par défaut
-largeurcarte= 63 # largeur de la carte en pixels (2/3 de ht = 56)
+htcard= 86  # hauteur de carte en pixels, valeur par défaut
+largeurcarte= 53 # largeur de la carte en pixels (2/3 de ht = 56)
 deltahaut= 31  # écart entre le bord supérieur ou inférieur de la carte et le chiffre
 deltacadre= 23   #écart entre le bord de carte et le cadre de Roi Dame Valet 
 deltacadrehaut= 23    # écart entre le bord de carte et le cadre de Roi Dame Valet 
-deltacoin= 63   #   150  rayon du bord arrondi de la carte. un peu plus 
+deltacoin= 120   #   150  rayon du bord arrondi de la carte. un peu plus 
 taillechiffre= 94  # hauteur du chiffre.  94 --> 106 pour 9 de carreau
 tailleVDR= 83  #hauteur du caractère V D ou R
 largeurchiffre= 62  # largeur du chiffre 10 (117 --> 137)
@@ -38,8 +38,17 @@ calibrationoption=0 # 0: normal, 1: appliquer l'étalonnage de la vidéo
 gradmin=50 # gradiant minimum pour edge
 gradmax=150 # gradiant supérieur pour edge
 nbvote=30 # nombre de votes pour détectionn de ligne houghlines
-nbpoints=10 # nombre minimum de pixels d'une ligne
-ecartmax=3 # écart maximal entre points d'une ligne
+nbpoints=20 # ! 10 nombre minimum de pixels d'une ligne
+ecartmax=1 # ! 3 écart maximal entre points d'une ligne
+xjeu=406
+yjeu=313
+wjeu=150
+hjeu=148 # éliminer la ligne du bas 
+xmort=350
+ymort=0
+wmort=260
+hmort=310
 contratcouleur=-1 # SA
 contratvaleur=3 # 3SA
-declarant=2 # Sud 
+declarant=2 # Sud
+ 

@@ -79,6 +79,15 @@ int lireConfig(std::string nomfichier, config& maconf) {
     ASSIGN_OPTION(nbpoints)
     ASSIGN_OPTION(ecartmax)
 
+    ASSIGN_OPTION(xjeu)
+    ASSIGN_OPTION(yjeu)
+    ASSIGN_OPTION(wjeu)
+    ASSIGN_OPTION(hjeu)
+    ASSIGN_OPTION(xmort)
+    ASSIGN_OPTION(ymort)
+    ASSIGN_OPTION(wmort)
+    ASSIGN_OPTION(hmort)
+
     ASSIGN_OPTION(contratcouleur)
     ASSIGN_OPTION(contratvaleur)
     ASSIGN_OPTION(declarant)
