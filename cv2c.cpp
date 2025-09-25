@@ -440,7 +440,7 @@ bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
 
 
 
-int processFrame(config &maconf, cv::Mat frame, bool estvideo, int *nbcoins,  int (&lescoins)[500][10], unpli &monpli);
+int processFrame(config &maconf, cv::Mat frame, bool estvideo,std::vector<uncoinPrec>& coinsPrec,  int *nbcoins,  int (&lescoins)[500][10], unpli &monpli);
 int processVideo(config &maconf, cv::String nomfichier)
 {
     cv::Size rectSize(500, 500); // Exemple : rectangle 3:2
@@ -452,6 +452,8 @@ int processVideo(config &maconf, cv::String nomfichier)
     int numeroframe = 0;
     unpli monpli;   // pli en cours de décodage
     monpli.nbcartes = 0;
+    std::vector<uncoinPrec> coinsPrec;
+
     int lescoins[500][10];   // très largement suffisant
     int nbcoins = 0;
     for(int h = 0; h < 500; h++)
@@ -460,7 +462,7 @@ int processVideo(config &maconf, cv::String nomfichier)
     cv::Mat img = cv::imread(nomfichier);
     if (!img.empty())
     {
-        processFrame(maconf, img, false, &nbcoins, lescoins, monpli);
+        processFrame(maconf, img, false, coinsPrec,  &nbcoins, lescoins, monpli);
         return 0;
     }
 
@@ -577,13 +579,8 @@ int processVideo(config &maconf, cv::String nomfichier)
           // extraire l'image modifiée
           cv::absdiff(framePrec, frameW, diff);
           cv::threshold(diff, diff, 30, 255, cv::THRESH_BINARY);
-          // nettoyer le tableau des coins
-          for (int n = 0; n <= nbcoins; n++){
-              if (lescoins[n][0] == 0) continue;
-              if (diff.at<uchar>(lescoins[n][2], lescoins[n][1]) >= 250){
-                  lescoins[n][0] = 0;
-              }
-          }
+          // nettoyer le vecteur coinsPrec
+          coinsPrec.clear();
           // déterminer le rectangle modifié
           int xmin(diff.cols) , xmax(0), ymin(diff.rows), ymax(0);
           for (int y = 0; y< diff.rows; y++){
@@ -604,8 +601,7 @@ int processVideo(config &maconf, cv::String nomfichier)
               if (waitoption) cv::waitKey(0);
           }
           // autre stratégie : on comparera les coins trouvés aux coins trouvés précédemment
-          // processFrame(maconf, image, true, &nbcoins, lescoins);
-          processFrame(maconf, frame, true, &nbcoins, lescoins);
+          processFrame(maconf, frame, true,coinsPrec, &nbcoins, lescoins);
           framePrec = frameW.clone();
           // Attendre 30 ms et quitter si 'q' est pressé
           if (cv::waitKey(30) == 'q')
@@ -624,28 +620,27 @@ int processVideo(config &maconf, cv::String nomfichier)
       //             pas de retrait de carte du pli en cours, mais signaler
       //             ajout d'une nouvelle carte uniquement si le pli n'est pas déjà complet
       //                  sinon, signaler le problème 
-      if (! frame.empty())  processFrame(maconf, frame, true, &nbcoins, lescoins, monpli);
+      if (! frame.empty())  processFrame(maconf, frame, true, coinsPrec,  &nbcoins, lescoins, monpli);
       // s'il n'y a aucune carte dans cette trame et si il y a 4 cartes dans le pli en cours:
       //        enregistrer le pli en tenant compte du joueur qui a entamé le pli
       //        déterminer le joueur (N E S O) qui remporte le pli en fonction du contrat
       //            --> joueur qui entame le pli suivant
       //        effacer le pli
-      //        pour chaque carte du tableau lescoins[] :
+      //        pour chaque carte du vecteur coinsPrec :
       ///           si elle n'est pas dans le pli en cours : l'ajouter au pli
       //            si c'est une autre nouvelle carte du pli : erreur
       //
       bool estvide = true; // aucune carte détectée
-      for (int h = 0; h < nbcoins; h++){
-        if (lescoins[h][0] == 0) continue; // slot vide
-        //estvide = false;  // la transition entre deux plis est une image vide, aucun coin détecté
-        cv::Point2i PT(lescoins[h][1], lescoins[h][2]);
-        if (lescoins[h][3] < 0) continue; // couleur non déterminée
-        if (lescoins[h][4] <= 0) continue; // valeur non déterminée
-        if (lescoins[h][4] > 13) continue; // valeur invalide
+
+      for (auto up : coinsPrec){
+        cv::Point2i PT(up.x, up.y);
+        int c = up.couleur;
+        int v = up.valeur;
+        if (c < 0) continue; // couleur non déterminée
+        if (v <= 0) continue; // valeur non déterminée
+        if (v > 13) continue; // valeur invalide
         estvide = false;
         // carte déjà dans le pli en cours (même couleur, même valeur) ?
-        int c = lescoins[h][3];
-        int v = lescoins[h][4];
         if (c == cepli.carte[0].couleur && v == cepli.carte[0].valeur ) continue;
         if (c == cepli.carte[1].couleur && v == cepli.carte[1].valeur ) continue;
         if (c == cepli.carte[2].couleur && v == cepli.carte[2].valeur ) continue;
@@ -673,6 +668,12 @@ int processVideo(config &maconf, cv::String nomfichier)
           }
         }
       }
+
+
+
+
+
+
       if ((estvide   || frame.empty()) && numpli < 13) {
         if (cepli.carte[0].couleur >= 0
         || cepli.carte[1].couleur >= 0
@@ -735,8 +736,9 @@ int processVideo(config &maconf, cv::String nomfichier)
             }
             enregistrerContratEtPli ("test", 1, "3SA", "nord", numpli, pliprec);
             // vider le tableau des coins :
-            for(int h = 0; h < 500; h++) for (int i = 0; i < 10; i++) lescoins[h][i] = 0;
-            nbcoins=0;
+            //for(int h = 0; h < 500; h++) for (int i = 0; i < 10; i++) lescoins[h][i] = 0;
+            //nbcoins=0;
+            coinsPrec.clear();
             // noter qu'il n'y a aucune carte dans le pli en cours
             nbcartes = 0;
             //std::cout<<" nouveau pli enregistre frame "<<numeroframe<<std::endl;
@@ -854,7 +856,7 @@ int main(int argc, char **argv)
 
 // analyser les cartes
 // 
-void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
+void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, std::vector<uncoinPrec>& coinsPrec,
    int *pnbcoins, int (&lescoins)[500][10], const std::vector<ligne>&  lignes, unpli& monpli) {
   if (printoption) std::cout<< std::endl<<"================== recherche des nouvelles cartes ======"<<std::endl;
   const std::string nomval[14] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
@@ -893,19 +895,20 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
     for(int  m= n; m< Coins.size(); m++ ){
       if (Coins[m].numCarte != nc) continue; // coin d'une autre carte
       cv::Point2i PT(Coins[m].sommet);
-      // rechercher dans lescoins mémorisés des frames précédentes
+      // rechercher dans le vecteur coinsPrecdes coins  mémorisés des frames précédentes
       bool trouve(false);
       h0 = -1;
-      dmin = 100; // distance minimale entre le coin PT de la carte et la frame précédente 
-      for (int h=0; h < *pnbcoins; h++){
-        if (lescoins[h][0] == 0) continue; // slot vide
-        cv::Point2i QT(lescoins[h][1],lescoins[h][2]);
+      dmin = 100; // distance minimale entre le coin PT de la carte et la frame précédente
+      
+      for (int h = 0; h < coinsPrec.size(); h++){
+        uncoinPrec up = coinsPrec[h];
+        cv::Point2i QT(up.x, up.y);
         if (std::abs(PT.x - QT.x) > epsilon ) continue;
         if (std::abs(PT.y - QT.y) > epsilon ) continue;
         if (h1 >= 0) { // on a trouvé un coin précédent proche de cette carte
           if (numcol >= 0 && valcarte > 0) {
-            if (numcol != lescoins[h][3]) continue; // couleur différente
-            if (valcarte != lescoins[h][4]) continue; // valeur différente
+            if (numcol != up.couleur) continue; // couleur différente
+            if (valcarte != up.valeur) continue; // valeur différente
           }
         }
         int d = std::max(std::abs(PT.x - QT.x), std::abs(PT.y - QT.y));
@@ -917,8 +920,8 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
       if (h0 >= 0){ // on a trouvé un coin précédent proche du coin PT de cette carte
         if (h1 < 0 || numcol < 0 || valcarte <= 0){ // pas encore trouvé un coin proche dans la frame précédente
           // mémoriser couleur et valeur du coin précédent
-          numcol = lescoins[h0][3];
-          valcarte = lescoins[h0][4];
+          numcol = coinsPrec[h0].couleur;
+          valcarte = coinsPrec[h0].valeur;
           h1 = h0;
         }
       }
@@ -942,8 +945,8 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
       else if (numcol == 1) nomcarte = "Coeur";
       else if (numcol == 2) nomcarte = "Carreau";
       else if (numcol == 3) nomcarte = "Trefle";
-      if (lescoins[h1][4] > 0 && lescoins[h1][4] < 14)
-        nomcarte += " " + nomval[lescoins[h1][4]];
+      if (coinsPrec[h1].valeur > 0 && coinsPrec[h1].valeur < 14)
+        nomcarte += " " + nomval[coinsPrec[h1].valeur];
       if(printoption)  std::cout<< " carte "<< nc << " ("<< nomcarte 
         << ") déjà dans la frame précédente." << std::endl;
       // noter qu'il est inutile d'analyser ce coin
@@ -1001,9 +1004,11 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
             numcol = monpli.cartes[j].couleur;
             numcol = monpli.cartes[j].valeur;
             for (int k = 0; k < 4; k++){ // chaque sommet
-              U = cv::Point2i(monpli.cartes[j].sommet[k].x, monpli.cartes[j].sommet[k].y);
+              //U = cv::Point2i(monpli.cartes[j].sommet[k].x, monpli.cartes[j].sommet[k].y);
+              U = monpli.cartes[j].sommet[k];
               for (int l=k+1; l < 4; l++) { // chaque autre sommet de la même carte du pli
-                V = cv::Point2i(monpli.cartes[j].sommet[l].x, monpli.cartes[j].sommet[l].y);
+                //V = cv::Point2i(monpli.cartes[j].sommet[l].x, monpli.cartes[j].sommet[l].y);
+                V = monpli.cartes[j].sommet[l];
                 // on a un bord UV
                 double dist = calculerDistance(P, U, V);
                 if (std::abs(dist) > maconf.deltacadre) continue;
@@ -1030,9 +1035,11 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
               numcol = monpli.cartes[j].couleur;
               numcol = monpli.cartes[j].valeur;
               for (int k = 0; k < 4; k++){ // chaque sommet
-                cv::Point2i U(monpli.cartes[j].sommet[k].x, monpli.cartes[j].sommet[k].y);
+                //cv::Point2i U(monpli.cartes[j].sommet[k].x, monpli.cartes[j].sommet[k].y);
+                cv::Point2i U(monpli.cartes[j].sommet[k]);
                 for (int l=k+1; l < 4; l++) { // chaque autre sommet de la même carte du pli
-                  cv::Point2i V(monpli.cartes[j].sommet[l].x, monpli.cartes[j].sommet[l].y);
+                  //cv::Point2i V(monpli.cartes[j].sommet[l].x, monpli.cartes[j].sommet[l].y);
+                  cv::Point2i V(monpli.cartes[j].sommet[l]);
                   // on a un bord UV
                   double dist = calculerDistance(P, U, V);
                   if (std::abs(dist) > maconf.deltacadre) continue;
@@ -1327,10 +1334,10 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
         // TODO : ignorer ce coin s'il n'était déjà dans la frame précédente
         if (estvideo) {
           bool trouve = false;
-          for (int h = 0; h < *pnbcoins; h++){
-            if (lescoins[h][0] == 0) continue; // slot vide
-            if (std::abs(P.x - lescoins[h][1]) <= 1 
-            && std::abs(P.y - lescoins[h][2]) <= 1 ) {
+          for (int h = 0; h < coinsPrec.size(); h++){
+            uncoinPrec up = coinsPrec[h];
+            if (std::abs(P.x - coinsPrec[h].x) <= 1 
+            && std::abs(P.y - coinsPrec[h].y) <= 1 ) {
               trouve = true;
               break;
             }
@@ -1479,7 +1486,6 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins,
       }
     }
   } // traitement carte nca
-  lescoins[0][9] = -1;  // test de passage d'argument par nom ou par valeur
 return;
 }
 
@@ -1491,7 +1497,7 @@ return;
 //    invalider les résultats de chaque coin sur une zone modifiée
 //    restreindre l'image à analyser à la partie modifiée  
 
-int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, int (&lescoins)[500][10], unpli &monpli)
+int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoinPrec>& coinsPrec, int *pnbcoins, int (&lescoins)[500][10], unpli &monpli)
 {
     std::chrono::duration<double> duree;
     activeThreads = 0;
@@ -2629,7 +2635,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
         "10", "V", "D", "R"};
 
     if (estvideo) {
-      traiterCartes(image, maconf, Coins,
+      traiterCartes(image, maconf, Coins, coinsPrec,
          pnbcoins, lescoins, lignes, monpli);
       }
 
@@ -2644,10 +2650,11 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
     if (estvideo){
       // éliminer les coins de la frame précédente qui ne sont pas dans celle-ci
       int dc = std::max(2, maconf.deltacadre);
-      for (int h = 0; h < *pnbcoins; h++){
-        if (lescoins[h][0] == 0) continue;
+      // TODO : éliminer les coins du vecteur coinsPrec qui ne sont pas dans cette frame
+      for (auto it=coinsPrec.begin() ; it != coinsPrec.end();  ) {
         bool trouve = false;
-        cv::Point2i Q(lescoins[h][1], lescoins[h][2]);
+        uncoinPrec up = *it;
+        cv::Point2i Q (up.x, up.y);
         for (int n = 0; n < Coins.size(); n++){
           if (Coins[n].elimine) continue; // coin éliminé
           cv::Point2i P (Coins[n].sommet);
@@ -2658,8 +2665,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
           }
         }
         if (!trouve) {
-          lescoins[h][0] = 0; // le coin n'est plus présent
-        }
+          it = coinsPrec.erase(it);
+        } else it++;
       }
     }
 
@@ -2717,16 +2724,15 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
           if (printoption) std::cout<<"coin "<< n << " identifié, couleur:"
                 <<Coins[n].couleur<<", valeur:"<<Coins[n].valeur<<std::endl;
           Coins[n].elimine = true;
-        } else  for (int h = 0; h < *pnbcoins; h++){
-          if (lescoins[h][0] == 0) continue; // slot vide
-          if (std::abs (P.x - lescoins[h][1]) <= maconf.deltacadre 
-          && std::abs (P.y - lescoins[h][2]) <= maconf.deltacadre ) {
+        } else for (auto up : coinsPrec){
+          if (std::abs (P.x - up.x) <= maconf.deltacadre 
+          && std::abs (P.y - up.y) <= maconf.deltacadre ) {
             // déjà trouvé dans la précédente frame
-            Coins[n].couleur = lescoins[h][3];
-            Coins[n].valeur = lescoins[h][4];
+            Coins[n].couleur = up.couleur;
+            Coins[n].valeur = up.valeur;
             Coins[n].elimine = true;
             if (printoption) std::cout<<"coin "<< n << " dans une frame précédente carte couleur:"
-              <<lescoins[h][3]<<", valeur:"<<lescoins[h][4]<<std::endl;
+              <<up.couleur<<", valeur:"<<up.valeur<<std::endl;
             break;
           }
         }
@@ -2878,21 +2884,18 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
     for (int i=0; i<4;i++){
       int x = monpli.cartes[nbcartes-1].sommet[i].x;
       int y = monpli.cartes[nbcartes-1].sommet[i].y;
-      // rechercher s'il est présent dans lescoins
+      // rechercher s'il est présent dans les coins précédents (de la frame précédente)
       bool trouve = false;
-      for (int h=0; h < *pnbcoins; h++ ){
-        if (lescoins[h][0] <= 0) continue;
-        if (x == lescoins[h][1] && y == lescoins[h][2]) { trouve = true; break;}
+      for (auto up : coinsPrec){
+        if (x == up.x && y == up.y) { trouve = true; break;}
       }
       if (!trouve) {
-        int h = 0; while(h <500 && lescoins[h][0] > 0) h++;
-        if (h >= 500) {std::cout<<"BUG!"<<std::endl; waitKey(0);}
-        lescoins[h][0] = 1;
-        lescoins[h][1] = x;
-        lescoins[h][2] = y;
-        lescoins[h][3] = monpli.cartes[nbcartes-1].couleur;
-        lescoins[h][4] = monpli.cartes[nbcartes-1].valeur;
-        if (h >= *pnbcoins) *pnbcoins = h + 1;
+        uncoinPrec up;
+        up.couleur = monpli.cartes[nbcartes-1].couleur;
+        up.valeur = monpli.cartes[nbcartes-1].valeur;
+        up.x = x;
+        up.y = y;
+        coinsPrec.push_back(up);
       }
     }
 
@@ -2932,30 +2935,28 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
             //
             // si on traite une vidéo, ajouter les coins détectés ou analysés
         } else { // on traite une video
-          // rechercher si le coin est déjà dans lescoins
+          // rechercher si le coin est déjà dans le vecteur coinsPrec
           bool trouve(false);
-          int hvide = -1;
-          for(int h = 0; h<*pnbcoins; h++){
-            if (hvide < 0 && lescoins[h][0] == 0) hvide = h;
-            if (std::abs(PT.x - lescoins[h][1]) <= 2 
-                && std::abs(PT.y - lescoins[h][2]) <= 2 ) {
-                  trouve = true;
-                  cc1 =lescoins[h][3];
-                  vc1 =lescoins[h][4];
-                  break;
+          
+          for (auto up:coinsPrec){
+            if (std::abs(PT.x - up.x) < 2 && std::abs(PT.y - up.y) < 2 ){
+              trouve = true;
+              cc1 = up.couleur;
+              vc1 = up.valeur;
+              break;
             }
           }
           if (!trouve) {
-            int i = *pnbcoins; *pnbcoins += 1;
-            lescoins[i][0] = 1; 
-            lescoins[i][1] = PT.x;
-            lescoins[i][2] = PT.y;
             int c = Coins[n].couleur;
             int v = Coins[n].valeur;
-            lescoins[i][3] = c; // couleur
-            lescoins[i][4] = v; // valeur 
             nouveaucoin = true;
             cc1 = c; vc1 = v;
+            uncoinPrec up;
+            up.couleur = c;
+            up.valeur = v;
+            up.x = PT.x;
+            up.y = PT.y;
+            coinsPrec.push_back(up);
           }
         }
       } // for(n) coins
@@ -2972,24 +2973,23 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
     if (!estvideo) { cv::imshow("result", result); cv::waitKey(1);}
 
     // si on traite une vidéo, les coins trouvés précédemment ou maintenant
-    //    sont dans le tableau lescoins[]
+    //    sont dans le vecteur coinsPrec
     // on affiche les valeurs trouvées
     // on reconstitue alors le tableau des cartes
     bool nouvellecarte = false;
     if (estvideo){
       nbcartes = 0;
-      for (int h = 0; h < *pnbcoins; h++){
-        if (lescoins[h][0] == 0) continue; // slot vide
-        cv::Point2i PT(lescoins[h][1], lescoins[h][2]);
-        if ((lescoins[h][3] < 0) // coin non identifié (couleur)
-        || (lescoins[h][4] < 1 || lescoins[h][4] > 13)){ // coin non identifié (valeur)
+      for (auto up : coinsPrec){
+        cv::Point2i PT(up.x, up.y);
+        if ((up.couleur < 0) // coin non identifié (couleur)
+        || (up.valeur < 1 || up.valeur > 13)){ // coin non identifié (valeur)
           cv::circle(result, PT, 2, cv::Scalar(255,0,0), -1);
           continue;
         }
-        int numcol = lescoins[h][3];
+        int numcol = up.couleur;
         char nomcol = '?';
         if (numcol >= 0 && numcol <= 3) nomcol = couleurcarte[numcol][0];
-        std::string val = valeurcarte[lescoins[h][4]];
+        std::string val = valeurcarte[up.valeur];
         std::string res = nomcol + val; 
         afficherResultat(result, PT, res);
         int i;
@@ -3002,21 +3002,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, int *pnbcoins, in
           nouvellecarte = true;
         }
       }
-      // réorganiser le tableau lescoins : tasser en éliminant les trous
-      int k = 0;
-      for (int h=0; h < *pnbcoins; h++) {
-        if (lescoins[h][0] == 0) continue; //slot vide
-        if (k < h) for (int i = 0; i < 10; i++) lescoins[k][i] = lescoins[h][i];
-        k++;
-      }
-      int nbc = *pnbcoins;
-      *pnbcoins = k;
-      // vider la fin du tableau lescoins
-      int h = *pnbcoins - 1;
-      while (h >= 0 && lescoins[h][0] == 0) h--;
-      *pnbcoins = h + 1;
-      // nettoyer la partie qui n'est plus utilisée
-      for (int kk = h+1; kk< nbc; kk++) for (int i = 0; i < 10; i++) lescoins[kk][i] = 0;
 
       cv::imshow("result", result); cv::waitKey(1);
     } // estvideo
