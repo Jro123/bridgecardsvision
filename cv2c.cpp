@@ -440,7 +440,7 @@ bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
 
 
 
-int processFrame(config &maconf, cv::Mat frame, bool estvideo,std::vector<uncoinPrec>& coinsPrec,  int *nbcoins,  int (&lescoins)[500][10], unpli &monpli);
+int processFrame(config &maconf, cv::Mat frame, bool estvideo,std::vector<uncoinPrec>& coinsPrec, unpli &monpli);
 int processVideo(config &maconf, cv::String nomfichier)
 {
     cv::Size rectSize(500, 500); // Exemple : rectangle 3:2
@@ -454,15 +454,10 @@ int processVideo(config &maconf, cv::String nomfichier)
     monpli.nbcartes = 0;
     std::vector<uncoinPrec> coinsPrec;
 
-    int lescoins[500][10];   // très largement suffisant
-    int nbcoins = 0;
-    for(int h = 0; h < 500; h++)
-     for (int i= 0; i<10; i++) lescoins[h][i] = 0;
-
     cv::Mat img = cv::imread(nomfichier);
     if (!img.empty())
     {
-        processFrame(maconf, img, false, coinsPrec,  &nbcoins, lescoins, monpli);
+        processFrame(maconf, img, false, coinsPrec, monpli);
         return 0;
     }
 
@@ -601,7 +596,7 @@ int processVideo(config &maconf, cv::String nomfichier)
               if (waitoption) cv::waitKey(0);
           }
           // autre stratégie : on comparera les coins trouvés aux coins trouvés précédemment
-          processFrame(maconf, frame, true,coinsPrec, &nbcoins, lescoins);
+          processFrame(maconf, frame, true,coinsPrec);
           framePrec = frameW.clone();
           // Attendre 30 ms et quitter si 'q' est pressé
           if (cv::waitKey(30) == 'q')
@@ -620,7 +615,7 @@ int processVideo(config &maconf, cv::String nomfichier)
       //             pas de retrait de carte du pli en cours, mais signaler
       //             ajout d'une nouvelle carte uniquement si le pli n'est pas déjà complet
       //                  sinon, signaler le problème 
-      if (! frame.empty())  processFrame(maconf, frame, true, coinsPrec,  &nbcoins, lescoins, monpli);
+      if (! frame.empty())  processFrame(maconf, frame, true, coinsPrec, monpli);
       // s'il n'y a aucune carte dans cette trame et si il y a 4 cartes dans le pli en cours:
       //        enregistrer le pli en tenant compte du joueur qui a entamé le pli
       //        déterminer le joueur (N E S O) qui remporte le pli en fonction du contrat
@@ -735,9 +730,7 @@ int processVideo(config &maconf, cv::String nomfichier)
               std::cout<<"      "<<s<<std::endl;
             }
             enregistrerContratEtPli ("test", 1, "3SA", "nord", numpli, pliprec);
-            // vider le tableau des coins :
-            //for(int h = 0; h < 500; h++) for (int i = 0; i < 10; i++) lescoins[h][i] = 0;
-            //nbcoins=0;
+            // vider le vecteur coinsPrec des coins de la frame précédente:
             coinsPrec.clear();
             // noter qu'il n'y a aucune carte dans le pli en cours
             nbcartes = 0;
@@ -772,10 +765,9 @@ int processVideo(config &maconf, cv::String nomfichier)
           //                         valider avec le calcul selon les règles du bridge
         }
         else {
-          if (nbcoins && printoption)
+          if (printoption)
            std::cout<<" frame vide, aucune carte jouée du pli en cours"<<std::endl;
         }
-        nbcoins = 0; // aucun coin pour la frame précédente
       } // frame vide, aucune carte trouvée
 
       if (frame.empty()) break;
@@ -857,7 +849,7 @@ int main(int argc, char **argv)
 // analyser les cartes
 // 
 void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, std::vector<uncoinPrec>& coinsPrec,
-   int *pnbcoins, int (&lescoins)[500][10], const std::vector<ligne>&  lignes, unpli& monpli) {
+   const std::vector<ligne>&  lignes, unpli& monpli) {
   if (printoption) std::cout<< std::endl<<"================== recherche des nouvelles cartes ======"<<std::endl;
   const std::string nomval[14] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
     "10", "V", "D", "R"};
@@ -1497,7 +1489,7 @@ return;
 //    invalider les résultats de chaque coin sur une zone modifiée
 //    restreindre l'image à analyser à la partie modifiée  
 
-int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoinPrec>& coinsPrec, int *pnbcoins, int (&lescoins)[500][10], unpli &monpli)
+int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoinPrec>& coinsPrec, unpli &monpli)
 {
     std::chrono::duration<double> duree;
     activeThreads = 0;
@@ -2636,7 +2628,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
     if (estvideo) {
       traiterCartes(image, maconf, Coins, coinsPrec,
-         pnbcoins, lescoins, lignes, monpli);
+         lignes, monpli);
       }
 
 
