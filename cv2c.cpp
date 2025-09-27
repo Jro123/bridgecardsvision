@@ -438,7 +438,156 @@ bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
 #endif
 }
 
+void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
+void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
 
+void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);
+void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
+// procéder de gauche à droite
+// extraire la couleur d'une colonne de 1 pixel à gauche (en x = 2)
+  cv::Rect r;
+  cv::Mat lig;
+  cv::Mat mortCopie = imaMort.clone();
+  cv::Scalar m0, m1, m2;
+  int xcol(0); // position de la colonne de cartes
+  int ybas = imaMort.rows - 1; // position du bas de la colonne de cartes
+  int xbas; // position du coin le plus bas de la carte
+  r.x = 0;
+  r.y = 0;
+  r.width = 1;
+  r.height = imaMort.rows;
+  lig = imaMort(r); m0 = cv::mean(lig); // couleur du fond
+
+  // rechercher une colonne plus claire (au moins en vert) -> première colonne de cartes (atout)
+  for (r.x = 1; r.x < maconf.largeurcarte; r.x++){
+    lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
+    if (m1[1] - m0[1] > 20) {xcol = r.x; break;}
+  }
+  // extraire un rectangle de largeur de moitié de largeur de carte
+  r.width = maconf.largeurcarte / 2;
+  lig = imaMort(r);
+  // trouver le bas de la dernière carte de la colonne. coin bas gauche ou droit
+  r.y = imaMort.rows - 1;
+  r.height = 1;
+  while (r.y > 0) {
+    lig = imaMort(r); m2 = cv::mean(lig);
+    if (m2[1] - m0[1] > 10) {ybas = r.y; break;}
+    r.y--;
+  }
+  // limiter au bas de la carte
+  r.height = maconf.hauteurcarte /5;
+  r.y = ybas - r.height;
+  // rechercher la position à gauche de la carte 
+  for (r.x = xcol; r.x < maconf.largeurcarte; r.x++){
+    lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
+    if (std::abs(m1[1] - m0[1]) > 20) {xcol = r.x; break;}
+  }
+
+  // on a : xcol=gauche du bas de la carte   ybas= bas de la carte
+  // extraire le bas de la carte un peu élargi à gauche et dessous
+  r.x = std::max(0,xcol -10); r.width = 10 + 12*maconf.largeurcarte/10;
+  r.height = maconf.hauteurcarte /2;
+  r.y = std::min(imaMort.rows - 1, ybas + 8) - r.height;
+  tracerRectangle(r, mortCopie, "imaMort", cv::Scalar(0,0,0));
+  cv::Mat imaCol = imaMort(r);
+  std::vector<ligne> lignes;
+  // rechercher les lignes  dans cette image
+  int save = maconf.nbpoints;
+  maconf.nbpoints = 5;
+  cv::Mat gray;
+  cv::cvtColor(imaCol, gray, cv::COLOR_BGR2GRAY);
+  trouverLignes(maconf, gray, lignes);
+  maconf.nbpoints = save;
+  // afficher les lignes;
+  for (auto ligne : lignes){
+    cv::Point2i A(ligne.ln[0], ligne.ln[1]);
+    cv::Point2i B(ligne.ln[2], ligne.ln[3]);
+    A.x += r.x; A.y += r.y;
+    B.x += r.x; B.y += r.y;
+    cv::line(mortCopie,A,B,cv::Scalar(255,0,0),1);
+  }
+
+  // chercher la ligne la plus longue = la ligne du bas = bord inférieur de carte
+  // ligne avec une des extrémités la plus basse et plutot horizontale
+  int lgmax = 0; int imax;
+  int ymax = 0;
+  for(int i = 0; i < lignes.size(); i++){
+    cv::Point2i A(lignes[i].ln[0], lignes[i].ln[1]);
+    cv::Point2i B(lignes[i].ln[2], lignes[i].ln[3]);
+    int lg = lignes[i].lg;
+    if (std::max(A.y, B.y) > ymax) {
+      if (std::abs(B.y - A.y) < std::abs(B.x - A.x)) { // ligne plutot horizontale
+        if (lg > maconf.largeurcarte / 2) {imax = i; ymax = std::max(A.y, B.y);}
+      }
+    }
+  }
+  cv::Point2i A(lignes[imax].ln[0], lignes[imax].ln[1]);
+  cv::Point2i B(lignes[imax].ln[2], lignes[imax].ln[3]);
+  cv::Point2i AA = A + cv::Point2i(r.x, r.y);
+  cv::Point2i BB = B + cv::Point2i(r.x, r.y);
+  cv::line(mortCopie,AA,BB,cv::Scalar(255,128,0),2);
+  afficherImage("imaMort", mortCopie); cv::waitKey(0);
+  ligne lbas = lignes[imax]; // ligne du bas
+
+  // calculs dans imaCol
+  // trouver les coins
+
+  // rechercher une autre ligne UV, orthogonale à la ligne AB,  dont U ou V est proche de A
+  int a(lbas.a), b(lbas.b), c(lbas.c);
+  for(int i = 0; i < lignes.size(); i++){
+    cv::Point2i U(lignes[i].ln[0], lignes[i].ln[1]);
+    cv::Point2i V(lignes[i].ln[2], lignes[i].ln[3]);
+    int ps = a*lignes[i].a + b*lignes[i].b;
+    if (std::abs(ps) > maconf.cosOrtho) continue;
+    if (std::abs(U.y - lbas.ln[1]) <= maconf.deltacadre && std::abs(U.x - lbas.ln[0]) <= maconf.deltacadre){
+      // U proche de A
+    }
+
+  }
+
+
+  // rechercher la ligne la plus longue, la plus basse = bord inférieur de carte 
+  // puis rechercher les lignes orthogonales au dessus
+  //     proches des extrémités de la ligne du bord inférieur de la carte
+
+
+  // le coin le plus bas de la carte est sur la ligne ybas
+  // rechercher la position du coin
+  
+
+
+// extraire une bande horizontale juste au dessus (hauteur de carte, largeur de carte + 1/4)
+// déterminer les lignes, trouver la ligne la plus basse (bord inférieur de carte
+// trouver les deux lignes orthogonales proches, donc les coins bas de la dernière carte
+// calculer les deux autres coins
+// extraire et redresser la carte
+// décoder la carte. on obtient la couleur de la colonne et valeur de la carte. donc une carte du mort
+// extraire la colonne de cartes (jusqu'en haut, largeur de cartes + 1/4)
+// remplacer les pixels de cette dernière carte dans la colonne par la couleur du fond
+// déterminer les lignes de la colonne de cartes
+// rechercher une ligne plutot horizontale, de largeur proche de largeur de carte, la plus basse
+// rechercher les lignes plutot verticales dont un sommet est proche de la ligne du bas
+//    on obtient les bords gauche et droit de la nouvelle carte 
+// rechercher une ligne plutot horizontale, de largeur proche de largeur de carte
+//    au dessus de la ligne du bas, la plus basse
+// on obtient le bord supérieur de la nouvelle carte
+// donc les deux coins supérieurs
+// compléter en calculant les deux coins inférieurs
+// extraire et redresser la carte
+// analyser le coin supérieur gauche
+// déterminer si c'est un personnage (présence d'un gros symbole)
+// si c'est un personnage, on connait la couleur, essayer de préciser V D ou R selon la tête
+//   (chapeau du valet, couronne, position de la tête)
+//   extraire le caractère, convertir en noir et blanc et effectuer son analyse géométrique 
+// extraire le caractère (personnage ou petite carte), le décoder (OCR)
+// on obtient la valeur de la nouvelle carte
+// remplacer les pixels sous le bord supérieur de la carte par la couleur de fond
+// on actualise la ligne du bas = bord supérieur de cette carte
+// on itère tant qu'on reste sous le haut de la colonne de cartes
+
+// itérer sur la recherche d'une petite colonne plus claire à droite
+
+}
 
 int processFrame(config &maconf, cv::Mat frame, bool estvideo,std::vector<uncoinPrec>& coinsPrec, unpli &monpli);
 int processVideo(config &maconf, cv::String nomfichier)
@@ -490,13 +639,6 @@ int processVideo(config &maconf, cv::String nomfichier)
     cv::Mat image;
     cv::Mat diff;
     bool bPremier = true;
-    // 0 : 1=valide, 0=non utilisé
-    // 1 : X du coin
-    // 2 : Y du coin
-    // 3 : couleur 0=Pique, 1=Coeur, 2=Carreau, 3=Trefle, -1=indéterminé ou artefact
-    // 4 : valeur  1=As, ... 9=9, 10=10, 11=Valet, 12=Dame, 13=Roi
-    // 5 : numéro de carte
-    // 6 à 9 : inutilisé
 
     // int distribution[4][13][2];  // reporté en variable globale
     // NSEO 13 cartes couleur et valeur
@@ -514,6 +656,7 @@ int processVideo(config &maconf, cv::String nomfichier)
     cepli.joueur = j1;
     int numpli = 0;
     int nbcartes = 0;  // nombre de cartes dans le pli en cours
+    bool mortAnalyse = false;
 
     while (true) {
       cap >> frame; // Capture une frame
@@ -663,11 +806,51 @@ int processVideo(config &maconf, cv::String nomfichier)
           }
         }
       }
-
-
-
-
-
+      // TODO : si c'est le premier pli, analyser la zone du mort
+      //        la frame à analyser ne comporte aucune carte jouée
+      //        la position de cette zone est indiquée dans la configuration (pour N E S et O)
+      //        extraire l'image correspondante, la redresser (rotation de 0 1 2 ou 3 angles droits)
+      //        composée de 1 à 4 colonnes 
+      //        chaque colonne est d'une seule couleur (P C K T)
+      //        il reste 12 cartes (le mort à joué le premier pli)
+      //        dans chaque colonne, seule la dernière carte (la plus petite) est complète
+      //          on y trouve un gros symbole, qui permet d'obtenir la couleur
+      //          les autres cartes ne sont visibles que pour 2 coins de largeur de carte
+      //        vérifier si on peut utiliser le code d'analyse des cartes jouées
+      //        sinon : développer une analyse spécifique
+      //        mémoriser les cartes du mort
+      //
+      // si c'est un autre pli : vérifier qu'une des 4 cartes a été jouée par le mort
+      //                         on en déduit le premier joueur (N E S O) du pli
+      //                         valider avec le calcul selon les règles du bridge
+      if (numpli == 0 && nbcartes == 1 && !mortAnalyse){
+        // extraire la zone du mort
+        // redresser de 90 180 ou 270 degrés si le déclarant est Ouest, Nord ou Est
+        // extraire les colonnes de carte (1 à 4) de chaque couleur
+        // traiter chaque colonne
+        //   déterminer la couleur sur la carte la plus basse (le coin ayant x maximal)
+        //   décoder cette carte
+        //   itérer sur les autres cartes :
+        //      extraire la zone qui ne contient pas (lehaut de) cette carte
+        //      déterminer les deux coins supérieurs de la carte
+        //      décoder la carte
+        std::cout << "traitement des cartes du mort"<<std::endl;
+        cv::Mat imaMort;
+        cv::Rect r;
+        r.x = maconf.xmort;
+        r.y = maconf.ymort;
+        r.width = maconf.wmort;
+        r.height = maconf.hmort;
+        imaMort = frameTotale(r);
+        unecarte carteMort[13]; // la main du mort
+        for (int i = 0; i<13; i++){
+          carteMort[i].couleur = -1;
+          carteMort[i].valeur = 0;
+        }
+        afficherImage("Mort", imaMort);
+        mortAnalyse = true;
+        traiterMort(maconf, imaMort, carteMort);
+      }
 
       if ((estvide   || frame.empty()) && numpli < 13) {
         if (cepli.carte[0].couleur >= 0
@@ -746,26 +929,9 @@ int processVideo(config &maconf, cv::String nomfichier)
             } 
             if (waitoption) cv::waitKey(0);          
           } // pli complet
-          // TODO : si c'est le premier pli, analyser la zone du mort
-          //        la frame à analyser ne comporte aucune carte jouée
-          //        la position de cette zone est indiquée dans la configuration (pour N E S et O)
-          //        extraire l'image correspondante, la redresser (rotation de 0 1 2 ou 3 angles droits)
-          //        composée de 1 à 4 colonnes 
-          //        chaque colonne est d'une seule couleur (P C K T)
-          //        il reste 12 cartes (le mort à joué le premier pli)
-          //        dans chaque colonne, seule la dernière carte (la plus petite) est complète
-          //          on y trouve un gros symbole, qui permet d'obtenir la couleur
-          //          les autres cartes ne sont visibles que pour 2 coins de largeur de carte
-          //        vérifier si on peut utiliser le code d'analyse des cartes jouées
-          //        sinon : développer une analyse spécifique
-          //        mémoriser les cartes du mort
-          //
-          // si c'est un autre pli : vérifier qu'une des 4 cartes a été jouée par le mort
-          //                         on en déduit le premier joueur (N E S O) du pli
-          //                         valider avec le calcul selon les règles du bridge
         }
         else {
-          if (printoption)
+          if (printoption && coinsPrec.size() > 0)
            std::cout<<" frame vide, aucune carte jouée du pli en cours"<<std::endl;
         }
       } // frame vide, aucune carte trouvée
@@ -1481,6 +1647,193 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
 return;
 }
 
+// trouver les lignes droites dans une image
+void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
+  std::vector<cv::Vec4i> lines; // segments détectés par opencv
+  int gmin = maconf.gradmin;
+  int gmax = maconf.gradmax;
+
+  cv::Mat edges;
+  int iwait = 1;
+  cv::Mat ima2;
+  int methode = 2; // 1 : canny et HoughLines,   2: ximgproc
+  methode = maconf.linesoption;
+  if (methode == 2)
+  {
+    // Appliquer le détecteur de segments de ligne LSD
+    //std::vector<cv::Vec4f> lines_f;
+
+    // Paramètres du FastLineDetector : longueur minimale, écart entre lignes, etc.
+    int length_threshold = maconf.nbpoints; // Longueur minimale d'une ligne
+    float distance_threshold = 1.41421356f; // Distance maximale entre deux points formant une ligne
+    // float distance_threshold = 1.5f; // Distance maximale entre deux points formant une ligne
+    double canny_th1 = gmin;     // Seuil bas pour Canny
+    double canny_th2 = gmax;     // Seuil haut pour Canny
+    int canny_aperture_size = 3; // Taille de l'ouverture pour Canny
+    bool do_merge = true;       //  Fusionner les lignes adjacentes ( // )
+
+    cv::Ptr<cv::ximgproc::FastLineDetector> lsd = cv::ximgproc::createFastLineDetector(
+        length_threshold, distance_threshold, canny_th1, canny_th2, canny_aperture_size, do_merge);
+
+    //lsd->detect(gray, lines_f);
+    lsd->detect(gray, lines);
+  } else  if (methode == 1) {
+    // Utiliser la détection de contours de Canny
+    // grossir l'image (désactivé)
+    // canny (image, gradiant mini, gradiant maxi, ouverture)
+    // gradient : variation d'intensité entre 2 pixels voisins
+    // gradient mini : si le gradient calculé est inférieur, ce n'est pas un bord
+    // gradiant maxi : si le gradient calculé est supérieur, c'est un bord
+
+    ///////////////// identifier les lignes de bord des cartes (grandes) /////////////////
+
+    // Utiliser la transformation de Hough pour détecter les segments de droite
+    // https://docs.opencv.org/3.4/d9/db0/tutorial_hough_lines.html
+
+    //
+    // résolution de la distance de la droite à l'origine. 1 pxel
+    // résolution angulaire de la normale à la droite
+    // nombre minimal de courbes qui déterminent la droite
+    // nombre minimal de points sur la droite
+    // écart maximal entre deux pixels sur la droite
+    double theta = CV_PI / 360;
+    int threshold = maconf.nbpoints;
+    double gap = maconf.ecartmax;
+    double minlg = maconf.nbpoints;
+    ima2 = gray.clone();
+    cv::Canny(ima2, edges, gmin, gmax, 3, false);
+    cv::HoughLinesP(edges, lines, 1, theta, threshold, minlg, gap);
+    if (printoption)
+        cv::imshow("bords", edges);
+    // cv::waitKey(0);
+  } // methode 1
+
+  // créer le lignes, avec équation carthésienne
+  for (size_t i = 0; i < lines.size(); i++)
+  {
+    ligne ln;
+    cv::Vec4i l(lines[i][0], lines[i][1], lines[i][2], lines[i][3]);
+    ln.ln = l;
+
+    cv::Point A(l[0], l[1]);
+    cv::Point B(l[2], l[3]);
+    // tracer la ligne sur l'image result
+    float lg = std::sqrt((l[2] - l[0])*(l[2] - l[0]) + (l[3] - l[1])*(l[3] - l[1]));
+    // vecteur normal (a,b) directeur (b, -a)  
+    float a = -(B.y - A.y) / lg;
+    float b = (B.x - A.x) / lg;
+    float c = -a*A.x - b*A.y; // ax + by + c = 0
+    ln.lg = lg;
+    ln.a = a;
+    ln.b = b;
+    ln.c = c;
+    lignes.push_back(ln);
+  }
+}
+
+
+void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins){
+  int nbcoins = 0;
+  int nbcartes = 0;
+  int il1;
+  // pour chaque ligne AB
+  for (int i = 0; i < lignes.size(); i++) {
+    ligne ln = lignes[i];
+    cv::Vec4i l1 = ln.ln;
+    if (l1[0] < 0)   continue; // ligne fusionnée ou effacée
+    cv::Point2i A(l1[0], l1[1]);
+    cv::Point2i B(l1[2], l1[3]);
+    float lg1 = ln.lg;
+    if (printoption > 1)
+      std::cout << i << " Ligne AB " << A << B << " Longueur: " << lg1 << std::endl;
+    il1 = i;
+    float a = ln.a; // vecteur normal de la droite AB
+    float b = ln.b;
+    //
+    // chercher, parmi les autres lignes la ligne orthogonale CD dont une extremité (C ou D)  est proche de A ou B
+    // TODO: ou proche de la ligne AB entre A et B. ou dont A ou B est proche de la ligne CD entre C et D
+    
+    // TODO : multithread 
+    // initialiser une sous-tache pour calculer les coins sur la ligne AB
+    // protéger l'ajout des coins
+    
+    
+    for (int j = i + 1; j < lignes.size(); j++) {
+      ligne ln2 = lignes[j];
+      float psX;
+      // ligne CD ortogonale à AB ?
+      // calculer le produit scalaire des vecteurs normés AB x CD 
+      cv::Vec4i l2 = ln2.ln;
+      if (l2[0] < 0) continue; // ligne trop courte ou fusionnée à une autre
+      cv::Point2i C(l2[0], l2[1]);
+      cv::Point2i D(l2[2], l2[3]);
+      float lg2 = ln2.lg;
+      psX = a*ln2.a + b*ln2.b; // cosinus (AB, CD) = cosinus des normales
+      if (std::abs(psX) > maconf.cosOrtho)  continue;  // lignes non approximativement orthogonales
+
+      bool bCoin = false;
+      cv::Point2i H, K; // H sur la jigne i, loin du sommet, K sur la ligne j
+      // A proche de C ?
+      if (std::abs(C.x - A.x) < maconf.deltacoin && std::abs(C.y - A.y) < maconf.deltacoin)
+      { // A proche de C
+        if (printoption)
+            std::cout << "  coin AC (" << A.x - C.x << "," << A.y - C.y << ") " << A << "," << C << std::endl;
+        bCoin = true;
+        H = B; K = D;
+      }
+      // A proche de D ?
+      else if (std::abs(A.x - D.x) < maconf.deltacoin && std::abs(A.y - D.y) < maconf.deltacoin)
+      { // A proche de D
+        if (printoption)
+            std::cout << "  coin AD (" << A.x - D.x << "," << A.y - D.y << ") " << A << "," << D << std::endl;
+        bCoin = true;
+        H = B; K = C;
+      }
+      // B proche de C ?
+      else if (std::abs(B.x - C.x) < maconf.deltacoin && std::abs(B.y - C.y) < maconf.deltacoin)
+      { // B proche de C
+        if (printoption)
+            std::cout << "  coin BC (" << B.x - C.x << "," << B.y - C.y << ") " << B << "," << C << std::endl;
+        bCoin = true;
+        H = A; K = D;
+      }
+      // B proche de D ?
+      else if (std::abs(B.x - D.x) < maconf.deltacoin && std::abs(B.y - D.y) < maconf.deltacoin)
+      { // B proche de D
+        if (printoption)
+            std::cout << "  coin BD (" << B.x - D.x << "," << B.y - D.y << ") " << B << "," << D << std::endl;
+        bCoin = true;
+        H = A; K = C;
+      }
+      if (bCoin)
+      {
+        // calculer l'angle du complément # sinus = cosinus des normales
+        double alfa = std::abs(psX) * 180.0 / 3.1416; // en degrés
+
+        if (printoption) std::cout << "  angle " << alfa << " degres" << std::endl;
+        //        mémoriser le coin : indices des deux droites et numéros des extrémités de chaque droite (0 ou 2)
+        cv::Point2i P = calculerInter(l1, l2);
+        float length = lignes[j].lg;  // longueur CD
+        if (printoption) {
+            std::cout << "    " << j << "  Ligne CD " << j << " " << C << "->" << D << " Longueur: " << length << std::endl;
+            std::cout << " ==> coin " << nbcoins << " en " << P << " " << i << " " << j << std::endl;
+        }
+        Coins.push_back(uncoin(lignes[i], lignes[j]));
+        int n = Coins.size() - 1;
+        //Coins[n].pcoins = coins;
+        Coins[n].numcoin = nbcoins;
+        Coins[n].sommet = P;
+        Coins[n].H = H;
+        Coins[n].K = K;
+        Coins[n].R = H;
+        Coins[n].S = K;
+        nbcoins++;
+      }
+    } // deuxième droite
+  } // première droite
+}
+
+
 // TODO : comparer l'image à l'image précédente, si on traite une vidéo
 //    après le traitement d'une frame, conserver le résultat du décodage
 //     qui se trouve dans le tableau des coins
@@ -1553,90 +1906,12 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         cv::imshow("grise", grise);
 
     std::vector<ligne> lignes;   // segments complétés par l'équation de droite
-    std::vector<cv::Vec4i> lines; // segments détectés par opencv
     int gmin = maconf.gradmin;
     int gmax = maconf.gradmax;
-
     cv::Mat edges;
-    int iwait = 1;
     cv::Mat ima2;
-    int methode = 2; // 1 : canny et HoughLines,   2: ximgproc
-    methode = maconf.linesoption;
-    if (methode == 2)
-    {
-        // Appliquer le détecteur de segments de ligne LSD
-        //std::vector<cv::Vec4f> lines_f;
-
-        // Paramètres du FastLineDetector : longueur minimale, écart entre lignes, etc.
-        int length_threshold = maconf.nbpoints; // Longueur minimale d'une ligne
-        float distance_threshold = 1.41421356f; // Distance maximale entre deux points formant une ligne
-        // float distance_threshold = 1.5f; // Distance maximale entre deux points formant une ligne
-        double canny_th1 = gmin;     // Seuil bas pour Canny
-        double canny_th2 = gmax;     // Seuil haut pour Canny
-        int canny_aperture_size = 3; // Taille de l'ouverture pour Canny
-        bool do_merge = true;       //  Fusionner les lignes adjacentes ( // )
-
-        cv::Ptr<cv::ximgproc::FastLineDetector> lsd = cv::ximgproc::createFastLineDetector(
-            length_threshold, distance_threshold, canny_th1, canny_th2, canny_aperture_size, do_merge);
-
-        //lsd->detect(gray, lines_f);
-        lsd->detect(gray, lines);
-    } else  if (methode == 1) {
-      // Utiliser la détection de contours de Canny
-      // grossir l'image (désactivé)
-      // canny (image, gradiant mini, gradiant maxi, ouverture)
-      // gradient : variation d'intensité entre 2 pixels voisins
-      // gradient mini : si le gradient calculé est inférieur, ce n'est pas un bord
-      // gradiant maxi : si le gradient calculé est supérieur, c'est un bord
-
-      ///////////////// identifier les lignes de bord des cartes (grandes) /////////////////
-
-      // Utiliser la transformation de Hough pour détecter les segments de droite
-      // https://docs.opencv.org/3.4/d9/db0/tutorial_hough_lines.html
-
-      //
-      // résolution de la distance de la droite à l'origine. 1 pxel
-      // résolution angulaire de la normale à la droite
-      // nombre minimal de courbes qui déterminent la droite
-      // nombre minimal de points sur la droite
-      // écart maximal entre deux pixels sur la droite
-      double theta = CV_PI / 360;
-      int threshold = maconf.nbpoints;
-      double gap = maconf.ecartmax;
-      double minlg = maconf.nbpoints;
-      ima2 = image.clone();
-      cv::Canny(ima2, edges, gmin, gmax, 3, false);
-      cv::HoughLinesP(edges, lines, 1, theta, threshold, minlg, gap);
-      if (printoption)
-          cv::imshow("bords", edges);
-      // cv::waitKey(0);
-    } // methode 1
-
-    // mémoriser les segments de ligne détectés avec l'équation de droite
-    cv::cvtColor(gray, result, cv::COLOR_GRAY2BGR);
-    // calculer la longueur et l'équation cartésienne
-
-    for (size_t i = 0; i < lines.size(); i++)
-    {
-        ligne ln;
-        cv::Vec4i l(lines[i][0], lines[i][1], lines[i][2], lines[i][3]);
-        ln.ln = l;
-
-        cv::Point A(l[0], l[1]);
-        cv::Point B(l[2], l[3]);
-        // tracer la ligne sur l'image result
-        float lg = std::sqrt((l[2] - l[0])*(l[2] - l[0]) + (l[3] - l[1])*(l[3] - l[1]));
-        // vecteur normal (a,b) directeur (b, -a)  
-        float a = -(B.y - A.y) / lg;
-        float b = (B.x - A.x) / lg;
-        float c = -a*A.x - b*A.y; // ax + by + c = 0
-        ln.lg = lg;
-        ln.a = a;
-        ln.b = b;
-        ln.c = c;
-        lignes.push_back(ln);
-    }
-
+    // obtenir les lignes droites dans l'image monochrome
+    trouverLignes(maconf, gray, lignes);
     auto t11 = std::chrono::high_resolution_clock::now();
     duree = t11 - t0;
     if(printoption)
@@ -1799,7 +2074,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
               if (printoption > 1){
                 std::cout<<" ligne "<< i << " "<<A<<B<<" --> "<<U<<V<<std::endl;
                 std::cout<<" ligne "<<j<<" supprimee"<<std::endl;
-                std::cout<<"verif "<<lines[i]<<std::endl;
+                std::cout<<"verif "<<lignes[i].ln<<std::endl;
               }
               A = U;
               B = V;
@@ -1815,7 +2090,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       } //k écart suivant
     }
     // prolonger les lignes
-    if (methode == 1)  {
+    if (maconf.linesoption == 1)  {
       // prolonger les lignes assez longues (au moins 1/6 de la hauteur de carte)
       // essayer de prolonger chaque ligne : regarder le pixel dans le prolongement de la ligne
       // ligne AB (B à droite de A) choisir une direction x ou y selon le maximum de |dx| et |dy|
@@ -1969,103 +2244,10 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     //
 
     std::vector<uncoin> Coins;
-    int nbcoins = 0;
     int nbcartes = 0;
-    // pour chaque ligne AB
-    for (int i = 0; i < nblignes; i++) {
-      ligne ln = lignes[i];
-      cv::Vec4i l1 = ln.ln;
-      if (l1[0] < 0)   continue; // ligne fusionnée ou effacée
-      cv::Point2i A(l1[0], l1[1]);
-      cv::Point2i B(l1[2], l1[3]);
-      float lg1 = ln.lg;
-      if (printoption > 1)
-        std::cout << i << " Ligne AB " << A << B << " Longueur: " << lg1 << std::endl;
-      il1 = i;
-      float a = ln.a; // vecteur normal de la droite AB
-      float b = ln.b;
-      //
-      // chercher, parmi les autres lignes la ligne orthogonale CD dont une extremité (C ou D)  est proche de A ou B
-      // TODO: ou proche de la ligne AB entre A et B. ou dont A ou B est proche de la ligne CD entre C et D
-      
-      // TODO : multithread 
-      // initialiser une sous-tache pour calculer les coins sur la ligne AB
-      // protéger l'ajout des coins
-      
-      
-      for (int j = i + 1; j < nblignes; j++) {
-        ligne ln2 = lignes[j];
-        float psX;
-        // ligne CD ortogonale à AB ?
-        // calculer le produit scalaire des vecteurs normés AB x CD 
-        cv::Vec4i l2 = ln2.ln;
-        if (l2[0] < 0) continue; // ligne trop courte ou fusionnée à une autre
-        cv::Point2i C(l2[0], l2[1]);
-        cv::Point2i D(l2[2], l2[3]);
-        float lg2 = ln2.lg;
-        psX = a*ln2.a + b*ln2.b; // cosinus (AB, CD) = cosinus des normales
-        if (std::abs(psX) > maconf.cosOrtho)  continue;  // lignes non approximativement orthogonales
-
-        bool bCoin = false;
-        cv::Point2i H, K; // H sur la jigne i, loin du sommet, K sur la ligne j
-        // A proche de C ?
-        if (std::abs(C.x - A.x) < maconf.deltacoin && std::abs(C.y - A.y) < maconf.deltacoin)
-        { // A proche de C
-          if (printoption)
-              std::cout << "  coin AC (" << A.x - C.x << "," << A.y - C.y << ") " << A << "," << C << std::endl;
-          bCoin = true;
-          H = B; K = D;
-        }
-        // A proche de D ?
-        else if (std::abs(A.x - D.x) < maconf.deltacoin && std::abs(A.y - D.y) < maconf.deltacoin)
-        { // A proche de D
-          if (printoption)
-              std::cout << "  coin AD (" << A.x - D.x << "," << A.y - D.y << ") " << A << "," << D << std::endl;
-          bCoin = true;
-          H = B; K = C;
-        }
-        // B proche de C ?
-        else if (std::abs(B.x - C.x) < maconf.deltacoin && std::abs(B.y - C.y) < maconf.deltacoin)
-        { // B proche de C
-          if (printoption)
-              std::cout << "  coin BC (" << B.x - C.x << "," << B.y - C.y << ") " << B << "," << C << std::endl;
-          bCoin = true;
-          H = A; K = D;
-        }
-        // B proche de D ?
-        else if (std::abs(B.x - D.x) < maconf.deltacoin && std::abs(B.y - D.y) < maconf.deltacoin)
-        { // B proche de D
-          if (printoption)
-              std::cout << "  coin BD (" << B.x - D.x << "," << B.y - D.y << ") " << B << "," << D << std::endl;
-          bCoin = true;
-          H = A; K = C;
-        }
-        if (bCoin)
-        {
-          // calculer l'angle du complément # sinus = cosinus des normales
-          double alfa = std::abs(psX) * 180.0 / 3.1416; // en degrés
-
-          if (printoption) std::cout << "  angle " << alfa << " degres" << std::endl;
-          //        mémoriser le coin : indices des deux droites et numéros des extrémités de chaque droite (0 ou 2)
-          cv::Point2i P = calculerInter(l1, l2);
-          float length = lignes[j].lg;  // longueur CD
-          if (printoption) {
-              std::cout << "    " << j << "  Ligne CD " << j << " " << C << "->" << D << " Longueur: " << length << std::endl;
-              std::cout << " ==> coin " << nbcoins << " en " << P << " " << i << " " << j << std::endl;
-          }
-          Coins.push_back(uncoin(lignes[i], lignes[j]));
-          int n = Coins.size() - 1;
-          //Coins[n].pcoins = coins;
-          Coins[n].numcoin = nbcoins;
-          Coins[n].sommet = P;
-          Coins[n].H = H;
-          Coins[n].K = K;
-          Coins[n].R = H;
-          Coins[n].S = K;
-          nbcoins++;
-        }
-      } // deuxième droite
-    } // première droite
+    int nbcoins = 0;
+    trouverCoins(maconf, lignes, Coins);
+    nbcoins = Coins.size();
 
     auto t33 = std::chrono::high_resolution_clock::now();
     duree = t33 - t22;
