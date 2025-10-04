@@ -111,6 +111,15 @@ public:
     uncoin(int(*tab)[12]) {pcoins = tab;couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
 };
 
+// un coin de la frame précédente
+class uncoinPrec{
+public:
+  int x;
+  int y;
+  int couleur;
+  int valeur;
+};
+
 class ligne{
 public:
     cv::Vec4i ln; // x1, y1, x2, y2
@@ -142,7 +151,7 @@ class unecarte {
 public:
   int couleur;
   int valeur;
-  unpoint sommet[4];
+  cv::Point2i sommet[4];
 };
 
 
@@ -150,7 +159,6 @@ class Pli {
 public:
   int joueur;  // numéro du joueur qui entame le pli. 0=Nord, 1=Est, 2=Sud, 3=Ouest
   unecarte carte[4];
-  //int cartes[4][2]; // Nord,est,sud,ouest    couleur et valeur
   int joueurgagnant;  // numéro du joueur qui remporte ce pli 
   Pli() { joueur=-1; joueurgagnant = -1; for(int i=0; i<4; i++) {carte[i].couleur = -1; carte[i].valeur= 0;}}
 };
@@ -196,7 +204,7 @@ int lireConfig(std::string nomfichier, config& maconf);
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur);
 
 void afficherImage(std::string nom, cv::Mat image);
-int calculerCouleur(cv::Mat GS, const config& maconf, cv::Scalar mbl);
+int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar mbl);
 
 void calculerOrientation(uncoin& moncoin, const config& maconf);
 void calculerBlanc(uncoin& moncoin, const config& maconf);  // d�terminer la composition du blanc
@@ -212,6 +220,8 @@ double calculerDistance(cv::Vec4i& l1, cv::Vec4i& l2);
 
 double calculerDistance(cv::Point2i& Q, cv::Point2i P, cv::Point2i R);
 double calculerSinus(cv::Vec4i& l1, cv::Vec4i& l2);
+cv::Mat extraireCarteIncomplete(cv::Mat& image, int pts[4][2], config& maconf);
+int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol);
 int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol);
 std::string ValiderOCR(std::string output, bool estserveur, bool inverse,
              uncoin& moncoin, const config& maconf);

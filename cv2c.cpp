@@ -53,6 +53,7 @@ using namespace cv;
 using namespace std;
 
 int distribution[4][13][2]; // les 4 mains en cours de décodage
+unecarte carteMort[13]; // la main du mort
 
 // pour calibration:
 static std::vector<Point2f> selectedPoints;
@@ -440,43 +441,128 @@ bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
 
 void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
 void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
-
 void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);
-void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
+
+void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMortW) {
 // procéder de gauche à droite
 // extraire la couleur d'une colonne de 1 pixel à gauche (en x = 2)
+  int icarteMort(1); // indice des 13 cartes du mort. première carte déjà jouée
+  cv::Scalar couleurFond;
   cv::Rect r;
   cv::Mat lig;
-  cv::Mat mortCopie = imaMort.clone();
   cv::Scalar m0, m1, m2;
-  int xcol(0); // position de la colonne de cartes
-  int ybas = imaMort.rows - 1; // position du bas de la colonne de cartes
+  int numcol(-1), valcarte;
+  int xcol(0), ycol(0); // position de la colonne de cartes
   int xbas; // position du coin le plus bas de la carte
   r.x = 0;
   r.y = 0;
   r.width = 1;
   r.height = imaMort.rows;
   lig = imaMort(r); m0 = cv::mean(lig); // couleur du fond
+  couleurFond = m0;
 
+  // spécifique pour mise au point avec une vidéo de FUNBRIDGE
+  // remplacer le morceau de plaquette contenant S et nom d'utilisateur funbridge
+  // à gauche d'une éventuelle carte
+  //   par la couleur du fond
+  // rechercher la présence d'une carte en bas de l'image (au dessus de la plaquette)
+  cv::Vec3b coul(couleurFond[0], couleurFond[1], couleurFond[2]);
+  int x= 0;
+  for (x = 0; x < imaMort.cols; x++){
+    m2 = imaMort.at<Vec3b>(imaMort.rows - 12,x);
+    if (m2[0] > 64) break;
+  }
+  if (x < imaMort.cols) { // il y a une carte en bas
+    // nettoyer à gauche de la carte
+    int xlim = x;
+    for (int y=imaMort.rows - 10; y < imaMort.rows; y++){
+      x = 0;
+      for (int x=0; x < xlim; x++){
+        imaMort.at<cv::Vec3b>(y,x) = coul;
+      }
+    }
+  }
+  // remplacer les deux dernières lignes par la couleur du fond
+  for (int y=imaMort.rows - 2; y < imaMort.rows; y++){
+    for (int x=0; x < imaMort.cols; x++){
+      imaMort.at<cv::Vec3b>(y,x) = coul;
+    }
+  }
+  // trouver la ligne noire en haut et à gauche de imaMort
+  // puis remplacer les pixels noirs par la couleur du fond
+  r.x = 0; r.width = 10;
+  r.height = 1;
+  for (r.y = 0; r.y < 10; r.y++){
+    lig = imaMort(r); m1 = cv::mean(lig);
+    if (m1[0] < 20 && m1[1] < 20 && m1[2] < 20) { // ligne noire
+      for (int x = 0; x < imaMort.cols; x ++) {
+        cv::Scalar pix = imaMort.at<cv::Vec3b>(r.y, x);
+        if (pix[0] < 20 && pix[1] < 20 && pix[2] < 20)
+            imaMort.at<cv::Vec3b>(r.y,x) = coul;
+      }
+      break;
+    }
+  }
+  // ajouter une bordure supérieure et inférieure de la couleur du fond
+  cv::Mat imaW;
+  cv::copyMakeBorder(imaMort, imaW, 5,5,0,0, cv::BORDER_CONSTANT, couleurFond);
+  imaMort = imaW.clone();
+
+  cv::Mat mortCopie = imaMort.clone();
+  int ybas = imaMort.rows - 1; // position du bas de la colonne de cartes
+
+  bool estPremier = true;
+  int pts[4][2];  // les 4 sommets d'une carte entière ou limitée à la partie supérieure
+  xcol = 1;
+  //
+  // analyser les cartes, en repérant le changement de colonne de cartes
+  // nettoyer à gauche de chaque nouvelle colonne
+  //
+while(true) {
+  if (estPremier) {
+    // nettoyer à gauche
+    cv::Rect rr;
+    rr.x = 0; rr.width = xcol; rr.y = 0; rr.height = imaMort.rows;
+    cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
+  }
+  r.y = 6; // à cause du trait supérieur de la vidéo FUNBRIDGE 
+  if (!estPremier) r.height = std::max(pts[2][1], pts[3][1]);
+  else r.height = imaMort.rows - r.y - 1;
   // rechercher une colonne plus claire (au moins en vert) -> première colonne de cartes (atout)
-  for (r.x = 1; r.x < maconf.largeurcarte; r.x++){
+  // puis colonnes suivantes
+  r.width = 1;
+  r.height = std::min(r.height, imaMort.rows - r.y - 1);
+  for (r.x = xcol; r.x < imaMort.cols - maconf.largeurcarte; r.x++){
     lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
-    if (m1[1] - m0[1] > 20) {xcol = r.x; break;}
+    if (m1[1] - m0[1] > 40) {xcol = r.x; break;}
   }
   // extraire un rectangle de largeur de moitié de largeur de carte
   r.width = maconf.largeurcarte / 2;
   lig = imaMort(r);
   // trouver le bas de la dernière carte de la colonne. coin bas gauche ou droit
   r.y = imaMort.rows - 1;
+  if (!estPremier) r.y = std::max(pts[2][1], pts[3][1]);
   r.height = 1;
   while (r.y > 0) {
     lig = imaMort(r); m2 = cv::mean(lig);
     if (m2[1] - m0[1] > 10) {ybas = r.y; break;}
     r.y--;
   }
+  if (r.y <= 6 + maconf.taillegros / 2) {  // 0 --> 6 à cause de la vidéo FUNBRIDGE
+    // on a trouvé toutes les cartes de cette colonne
+    //xcol += 5 + maconf.largeurcarte;
+    estPremier = true;
+    if (xcol > imaMort.cols - maconf.largeurcarte) break;
+    // nettoyer ce qui est à gauche
+    cv::Rect rr;
+    rr.x = 0; rr.width = xcol; rr.y = 0; rr.height = imaMort.rows;
+    cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
+    continue;
+  }
+
   // limiter au bas de la carte
-  r.height = maconf.hauteurcarte /5;
-  r.y = ybas - r.height;
+  r.height = std::min(ybas ,maconf.hauteurcarte /5);
+  r.y = std::max(3,ybas - r.height); // ignorer le trait blanc en haut de funbridge 
   // rechercher la position à gauche de la carte 
   for (r.x = xcol; r.x < maconf.largeurcarte; r.x++){
     lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
@@ -485,11 +571,13 @@ void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
 
   // on a : xcol=gauche du bas de la carte   ybas= bas de la carte
   // extraire le bas de la carte un peu élargi à gauche et dessous
-  r.x = std::max(0,xcol -10); r.width = 10 + 12*maconf.largeurcarte/10;
-  r.height = maconf.hauteurcarte /2;
+  r.x = std::max(0,xcol -8); r.width = 14 + maconf.largeurcarte;
+  r.height = std::min(ybas+8, maconf.hauteurcarte /2);
   r.y = std::min(imaMort.rows - 1, ybas + 8) - r.height;
-  tracerRectangle(r, mortCopie, "imaMort", cv::Scalar(0,0,0));
+  r.y = std::max(1, r.y);
+  tracerRectangle(r, mortCopie, "Mort", cv::Scalar(0,0,0));
   cv::Mat imaCol = imaMort(r);
+  xcol = r.x; ycol = r.y;
   std::vector<ligne> lignes;
   // rechercher les lignes  dans cette image
   int save = maconf.nbpoints;
@@ -502,38 +590,455 @@ void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
   for (auto ligne : lignes){
     cv::Point2i A(ligne.ln[0], ligne.ln[1]);
     cv::Point2i B(ligne.ln[2], ligne.ln[3]);
-    A.x += r.x; A.y += r.y;
-    B.x += r.x; B.y += r.y;
+    A.x += xcol; A.y += ycol;
+    B.x += xcol; B.y += ycol;
     cv::line(mortCopie,A,B,cv::Scalar(255,0,0),1);
   }
 
-  // chercher la ligne la plus longue = la ligne du bas = bord inférieur de carte
-  // ligne avec une des extrémités la plus basse et plutot horizontale
-  int lgmax = 0; int imax;
-  int ymax = 0;
-  for(int i = 0; i < lignes.size(); i++){
-    cv::Point2i A(lignes[i].ln[0], lignes[i].ln[1]);
-    cv::Point2i B(lignes[i].ln[2], lignes[i].ln[3]);
-    int lg = lignes[i].lg;
-    if (std::max(A.y, B.y) > ymax) {
-      if (std::abs(B.y - A.y) < std::abs(B.x - A.x)) { // ligne plutot horizontale
-        if (lg > maconf.largeurcarte / 2) {imax = i; ymax = std::max(A.y, B.y);}
+  // trouver les coins
+  std::vector<uncoin> Coins;
+  trouverCoins(maconf, lignes, Coins);
+  // afficher les coins
+  if (maconf.printoption) {
+    for(auto moncoin : Coins ){
+      cv::Point2i P(moncoin.sommet.x,moncoin.sommet.y);
+      P.x += xcol; P.y += ycol;
+      cv::circle(mortCopie, P, 2, cv::Scalar(0,0,255),-1);
+    }
+    afficherImage("Mort", mortCopie);
+  }
+  // rechercher la ligne longue plutot horizontale la plus basse
+  // puis rechercher lescoins gauche et droit sur (proche de)  cette ligne
+  ligne ligneBas;
+  int yLigneBas(0);
+  for (auto ligne:lignes){
+    if (ligne.lg < maconf.largeurcarte /2) continue; // trop courte
+    if (std::abs(ligne.a) > 0.5) continue; // pas assez horizontale
+    if (ligne.ln[1] > yLigneBas) {yLigneBas = ligne.ln[1]; ligneBas = ligne;}
+    if (ligne.ln[3] > yLigneBas) {yLigneBas = ligne.ln[3]; ligneBas = ligne;}
+  }
+  // rechercher le coin le plus bas à gauche,
+  //  si ce n'est pas la première carte en bas  de la colonne rechercher les deux coins supérieurs
+  //    situés sur la ligne longue (au moins la moitié de largeur de carte) la plus basse
+  //     mais au dessus du haut de la carte précédente (min de pts[*][1])
+
+  int xg(12345), yg(0);
+  uncoin coinGauche, coinDroit;
+  cv::Point2i P(0,0), PG(0,0), PD(0,0);
+  for(auto moncoin : Coins ){
+    P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+    if (yLigneBas > 0) {
+      float dist = P.x * ligneBas.a + P.y * ligneBas.b + ligneBas.c;
+      if (std::abs(dist) > maconf.deltacadre) continue; // pas sur la ligne du bas
+    }
+    if (P.x < maconf.largeurcarte / 2){
+      if (P.y > yg) {yg = P.y; coinGauche = moncoin; }
+      if (P.y == yg && P.x < xg) {xg = P.x; coinGauche = moncoin; PG = P;}
+    }
+  }
+  cv::Point2i PGG = PG;
+  PG.x += xcol; PG.y += ycol;
+  cv::circle(mortCopie, PG, 4, cv::Scalar(255,255,0),1);
+  afficherImage("Mort", mortCopie);
+
+  // rechercher le coin le plus bas à droite
+  int xd(0), yd(0), ecart(12345);
+  for(auto moncoin : Coins ){
+    P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+    if (yLigneBas > 0) {
+      float dist = P.x * ligneBas.a + P.y * ligneBas.b + ligneBas.c;
+      if (std::abs(dist) > maconf.deltacadre) continue; // pas sur la ligne du bas
+    }
+    if (P.x < maconf.largeurcarte / 2) continue;
+    if (P.y > yd) {yd = P.y; coinDroit = moncoin; }
+    if (P.y == yd) {
+      int lg = std::sqrt((P.x - PGG.x)*(P.x - PGG.x) + (P.y - PGG.y)*(P.y - PGG.y));
+      if (ecart > std::abs(lg - maconf.largeurcarte)) {
+        ecart = std::abs(lg - maconf.largeurcarte);
+        if (ecart < maconf.deltacoin) {
+          PD = P;
+          coinDroit = moncoin;
+        }
       }
     }
   }
-  cv::Point2i A(lignes[imax].ln[0], lignes[imax].ln[1]);
-  cv::Point2i B(lignes[imax].ln[2], lignes[imax].ln[3]);
-  cv::Point2i AA = A + cv::Point2i(r.x, r.y);
-  cv::Point2i BB = B + cv::Point2i(r.x, r.y);
-  cv::line(mortCopie,AA,BB,cv::Scalar(255,128,0),2);
-  afficherImage("imaMort", mortCopie); cv::waitKey(0);
-  ligne lbas = lignes[imax]; // ligne du bas
+  cv::Point2i PDD = PD;
+  PD.x += xcol; PD.y += ycol;
+  cv::circle(mortCopie, PD, 4, cv::Scalar(255,255,0),1);
+  afficherImage("Mort", mortCopie);
+  // si on a un seul coin (PGG ou PDD nul), on peut calculer l'autre 
+  if (PDD.x == 0 && PDD.y == 0) {
+    float a, b;
+    if (PGG.x > 0 || PGG.y > 0 ){
+      // calculer à partir du coin gauche
+      int lg  = coinGauche.l1->lg;
+      if (lg < coinGauche.l2->lg) {
+        a = std::abs(coinGauche.l2->a);
+        b = std::abs(coinGauche.l2->b);
+      } else {
+        a = std::abs(coinGauche.l1->a);
+        b = std::abs(coinGauche.l1->b);
+      }
+      if (b > a) {int w = a; a = b; b = w;}
+      PDD.x = PGG.x + a*maconf.largeurcarte;
+      PDD.y = PGG.y + b*maconf.largeurcarte;
+      PD.x = PDD.x + xcol; PD.y = PDD.y + ycol;
+      cv::circle(mortCopie, PD, 4, cv::Scalar(255,255,0),1);
+      afficherImage("Mort", mortCopie);
+    }
+  } else if (PGG.x == 0 && PGG.y == 0 ) {
+      // calculer à partir du coin droit
+      float a, b;
+      int lg  = coinDroit.l1->lg;
+      if (lg < coinDroit.l2->lg) {
+        a = std::abs(coinDroit.l2->a);
+        b = std::abs(coinDroit.l2->b);
+      } else {
+        a = std::abs(coinDroit.l1->a);
+        b = std::abs(coinDroit.l1->b);
+      }
+      if (b > a) {int w = a; a = b; b = w;}
+      PGG.x = PDD.x - a*maconf.largeurcarte;
+      PGG.y = PDD.y - b*maconf.largeurcarte;
+      PG.x = PGG.x + xcol; PG.y = PGG.y + ycol;
+      cv::circle(mortCopie, PG, 4, cv::Scalar(255,255,0),1);
+      afficherImage("Mort", mortCopie);
+  }
+  cv::waitKey(0);
+
+  // on a les deux coins inférieurs coinGauche et CoinDroit   PG et PD
+  // on peut reconstituer les 2 autres coins de la carte
+  //   (uniquement pour la carte du bas de la colonne )
+
+  if (!estPremier) {  // ce n'est pas la première carte de la colonne
+    // rechercher la ligne longue #Horizontale la plus basse 
+    //      au dessus des coins bas gauche et droit  qu'on vient de déterminer
+    // coin haut gauche (droit): intersection entre l'arête #verticale du coin bas gauche (droit)
+    //      et la ligne longue
+    //
+    cv::Point2i HG(0,0), HD(0,0); // coin haut gauche et droit
+    int ymin(12345);
+    int ylim = imaCol.rows - maconf.taillechiffre; // pas trop bas
+    if (PGG.x > 0) ylim = PGG.y - maconf.taillechiffre;
+    if (PDD.x > 0) ylim = std::min(ymin, PGG.y - maconf.taillechiffre);
+    ligne maligne; 
+    for (auto ligne : lignes) {
+      if (ligne.lg < maconf.largeurcarte / 5) continue; // ligne trop courte
+      if (std::abs(ligne.a) > 0.5) continue; // ligne pas assez horizontale
+      if (ligne.ln[1] > ylim) continue; // ligne trop basse 
+      if (ligne.ln[3] > ylim) continue; // ligne trop basse
+      if (ligne.ln[1] < ymin) {ymin = ligne.ln[1]; maligne = ligne;}
+    }
+    if (ymin < imaCol.rows){ // on a trouvé la ligne horizontale bord supérieur de la carte
+      // calculer l'intersection avec l'arête verticale du coin bas gauche puis droit
+      cv::Point2i A(maligne.ln[0], maligne.ln[1]); 
+      cv::Point2i B(maligne.ln[2], maligne.ln[3]);
+      if (PGG.x > 0 ) { // coin bas gauche trouvé ou calculé
+        float dist = PGG.x * maligne.a + PGG.y * maligne.b + maligne.c;
+        HG.x = PGG.x - dist*maligne.a;
+        HG.y = PGG.y - dist*maligne.b;
+      }
+      if (PDD.x > 0) { // coin bas droit trouvé ou calculé
+        float dist = PDD.x * maligne.a + PDD.y * maligne.b + maligne.c;
+        HD.x = PDD.x - dist*maligne.a;
+        HD.y = PDD.y - dist*maligne.b;
+      }
+      float a, b;
+      a = maligne.b; b = -maligne.a;
+      if (a < 0) {a = -a; b = -b;} 
+      if (HD.x == 0 && HG.x > 0) { // calculer le coin haut droit à partir du gauche
+        HD.x = HG.x + a * maconf.largeurcarte;
+        HD.y = HG.y + b * maconf.largeurcarte;
+      }
+      else if (HG.x == 0 && HD.x > 0) { // calculer le coin haut gauche à partir du droit
+        HG.x = HD.x - a * maconf.largeurcarte;
+        HG.y = HD.y - b * maconf.largeurcarte;
+      }
+    }
+    // rechercher le coin bien orienté le plus bas, plutot à gauche
+    // dont l'arête plutot horizontale est longue (au moins 3/4 de largeurcarte)
+    // c'est alors le coin supérieur gauche de la carte
+    // sinon, rechercher le coin droit ...
+    //                                             _____________
+    //                                      _________
+    //      _____                     ______
+    //     /      ______              \
+    //    /             _____          \
+    //   /                              \
+    //   coins bien orientés
+    float a, b, aa, bb; // vecteurs directeurs de l'arête horizontale et verticale
+    int ymaxi = 0;
+    //uncoin coinGauche(0,0);
+    for(auto moncoin : Coins ){
+      P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+      // vérifier que P est proche de l'arête verticale du coin bas gauche (s'il existe)
+      if (PGG.x > 0 ) {
+        float dist = coinGauche.l1->a * P.x + coinGauche.l1->b * P.y + coinGauche.l1->c;
+        if (std::abs(dist) > maconf.deltacadre){
+          dist = coinGauche.l1->a * P.x + coinGauche.l1->b * P.y + coinGauche.l1->c;
+          if (std::abs(dist) > maconf.deltacadre) continue;
+        }
+      }
+      if (P.x > maconf.largeurcarte / 2) continue;
+      // utiliser le plus haut de H et K  (H.y ou K.y minimum)
+      cv::Point2i M, N;
+      if (moncoin.H.y < ycol + moncoin.K.y) {M = moncoin.H; N=moncoin.K;}
+      else {M = moncoin.K; N=moncoin.H;}
+
+      if (M.x < P.x) continue; // coin droit
+      if (N.y < P.y) continue; // coin bas
+      // donc coin haut gauche
+      int dx = M.x - P.x;
+      if (dx < maconf.largeurcarte / 4) continue; // pas sur le bord supérieur (largeur) de carte
+      // bon candidat, choisir le plus bas
+      if (P.y > ymaxi){ ymaxi = P.y; coinGauche  = moncoin; }
+    }
+
+    if (ymaxi == 0){ // on n'a pas trouvé de coin gauche sur une arête longue
+      // chercher le coin haut droit de la carte
+      for(auto moncoin : Coins ){
+        P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+        // vérifier que P est proche de l'arête verticale du coin bas droit (s'il existe)
+        if (PDD.x > 0 && yd > 0) {
+          float dist = coinDroit.l1->a * P.x + coinDroit.l1->b * P.y + coinDroit.l1->c;
+          if (std::abs(dist) > maconf.deltacadre){
+            dist = coinDroit.l1->a * P.x + coinDroit.l1->b * P.y + coinDroit.l1->c;
+            if (std::abs(dist) > maconf.deltacadre) continue;
+          }
+        }
+        if (P.x < maconf.largeurcarte / 2) continue; // trop à gauche
+        // utiliser le plus haut de H et K  (H.y ou K.y minimum)
+        cv::Point2i M, N;
+        if (moncoin.H.y < ycol + moncoin.K.y) {M = moncoin.H; N=moncoin.K;}
+        else {M = moncoin.K; N=moncoin.H;}
+
+        if (M.x > P.x) continue; // coin gauche
+        if (N.y < P.y) continue; // coin bas
+        // donc coin haut droit
+        int dx = P.x - M.x;
+        if (dx < maconf.largeurcarte / 4) continue; // pas sur le bord supérieur (largeur) de carte
+        // bon candidat, choisir le plus bas
+        if (P.y > ymaxi){ ymaxi = P.y; coinDroit  = moncoin; }
+      }
+      if (ymaxi == 0) { // pas trouvé de coin haut gauche ni droit
+        // utiliser les coins calculés à partir du bord supérieur et des coins bas
+
+        if (HG.x > 0 && HD.x > 0) {
+          cv::circle(mortCopie, cv::Point2i(xcol+HG.x, ycol+HG.y), 4, cv::Scalar(0,255,255),1);
+          cv::circle(mortCopie, cv::Point2i(xcol+HD.x, ycol+HD.y), 4, cv::Scalar(0,255,255),1);
+          afficherImage("Mort", mortCopie);
+          pts[0][0] = xcol + HG.x; // haut gauche
+          pts[0][1] = ycol + HG.y;
+          pts[1][0] = xcol + HD.x; // haut droit
+          pts[1][1] = ycol + HD.y;
+          pts[2][0] = PD.x; // bas droit
+          pts[2][1] = PD.y;
+          pts[3][0] = PG.x; // bas gauche
+          pts[3][1] = PG.y;
+          /*******************************
+          // calculer les coins bas de la carte :
+          float dx = PGG.x - HG.x;
+          float dy = PGG.y - HG.y;
+          float lg = std::sqrt(dx*dx + dy*dy);
+          pts[3][0] = xcol + HG.x + maconf.hauteurcarte * dx / lg;
+          pts[3][1] = ycol + HG.y + maconf.hauteurcarte * dy / lg;
+
+          dx = PGG.x - HG.x;
+          dy = PGG.y - HG.y;
+          lg = std::sqrt(dx*dx + dy*dy);
+          pts[2][0] = xcol + HD.x + maconf.hauteurcarte * dx / lg;
+          pts[2][1] = ycol + HD.y + maconf.hauteurcarte * dy / lg;
+          *********************************************/
+          //pts[2][0] = xcol + PDD.x; // bas droit
+          //pts[2][1] = ycol + PDD.y; 
+          //pts[3][0] = xcol + PGG.x; // bas gauche
+          //pts[3][1] = ycol + PGG.y; 
+        } else {
+          // impossible de trouver les deux angles supérieurs de la carte
+          std::cout<< "!!!! impossible de trouver le bord supérieur de la carte"<<std::endl;
+        }
+        cv::waitKey(0);
+      }
+      else { // coin haut droit trouvé. pas le gauche
+        // calculer le coin gauche le long de l'arête plutot horizontale
+        cv::Point2i Phd(coinDroit.sommet + cv::Point2i(xcol, ycol));
+        cv::circle(mortCopie, Phd, 4, cv::Scalar(255,255,0),1);
+        // on a le coin haut droit, donc ses deux arêtes
+        // calculer les 3 autres sommets à partir des normales (et donc vecteurs directeurs) des arêtes
+        //pts[1][0] = xcol + coinDroit.sommet.x; pts[1][1] = ycol + coinDroit.sommet.y;
+        pts[1][0] = Phd.x; pts[1][1] = Phd.y;
+        // arête vers la gauche, celle dont la normale est plutot verticale
+        if (std::abs(coinDroit.l1->b) > std::abs(coinDroit.l1->a) ) { // arête horizontale ?
+          a = coinDroit.l1->b; b = -coinDroit.l1->a;
+          aa = coinDroit.l2->b; bb = -coinDroit.l2->a;
+        } else {
+          a = coinDroit.l2->b; b = -coinDroit.l2->a;
+          aa = coinDroit.l1->b; bb = -coinDroit.l1->a;
+        }
+        if (a < 0) { a = -a; b = - b;}
+        if (bb < 0 ) {aa = -aa; bb = -bb;}
+        // utiliser la normale de l'arête horizontale plutot que le vecteur directeur de la petite arête vericale
+        aa = -b; bb = a; 
+        // premier point en bas à gauche suivant en bas à droite
+        //pts[0] est en haut à gauche!
+        // créer les autres points en laissant pts[0] en haut à gauche
+        pts[0][0] = pts[1][0] - a*maconf.largeurcarte; // coin haut gauche
+        pts[0][1] = pts[1][1] - b*maconf.largeurcarte;
+
+        pts[2][0] = pts[1][0] + aa*maconf.hauteurcarte;
+        pts[2][1] = pts[1][1] + bb*maconf.hauteurcarte;
+        pts[3][0] = pts[0][0] + aa*maconf.hauteurcarte;
+        pts[3][1] = pts[0][1] + bb*maconf.hauteurcarte;
+        // les coins bas ont été calculés : PG et PD
+        if (PDD.x > 0) pts[2][0] = PD.x; pts[2][1] = PD.y;
+        if (PGG.x > 0) pts[3][0] = PG.x; pts[3][1] = PG.y;
+      }
+    }
+    else { // on a trouvé le coin supérieur gauche
+      cv::Point2i Phg(coinGauche.sommet + cv::Point2i(xcol, ycol));
+      cv::circle(mortCopie, Phg, 4, cv::Scalar(255,255,0),1);
+    
+      // on a le coin haut gauche, donc ses deux arêtes
+      // calculer les 3 autres sommets à partir des normales (et donc vecteurs directeurs) des arêtes
+      pts[0][0] = xcol + coinGauche.sommet.x; pts[0][1] = ycol + coinGauche.sommet.y;
+      pts[0][0] = Phg.x; pts[0][1] = Phg.y;
+      // arête vers la droite, celle dont la normale est plutot verticale
+      if (std::abs(coinGauche.l1->b) > std::abs(coinGauche.l1->a) ) { // arête horizontale ?
+        a = coinGauche.l1->b; b = -coinGauche.l1->a;
+        aa = coinGauche.l2->b; bb = -coinGauche.l2->a;
+      } else {
+        a = coinGauche.l2->b; b = -coinGauche.l2->a;
+        aa = coinGauche.l1->b; bb = -coinGauche.l1->a;
+      }
+      if (a < 0) { a = -a; b = - b;}
+      if (bb < 0 ) {aa = -aa; bb = -bb;}
+      // utiliser la normale de l'arête horizontale plutot que le vecteur directeur de la petite arête vericale
+      aa = -b; bb = a; 
+      // premier point en bas à gauche suivant en bas à droite
+      //pts[0] est en haut à gauche!
+      // créer les autres points en laissant pts[0] en haut à gauche
+      pts[1][0] = pts[0][0] + a*maconf.largeurcarte;
+      pts[1][1] = pts[0][1] + b*maconf.largeurcarte;
+
+      pts[2][0] = pts[1][0] + aa*maconf.hauteurcarte;
+      pts[2][1] = pts[1][1] + bb*maconf.hauteurcarte;
+      pts[3][0] = pts[0][0] + aa*maconf.hauteurcarte;
+      pts[3][1] = pts[0][1] + bb*maconf.hauteurcarte;
+      // les coins bas ont été calculés : PG et PD
+      if (PDD.x > 0) pts[2][0] = PD.x; pts[2][1] = PD.y;
+      if (PGG.x > 0) pts[3][0] = PG.x; pts[3][1] = PG.y;
+  }
+    afficherImage("Mort", mortCopie);
+
+    // on a les 4 sommets de la carte, dans l'image imaMort
+    // seul le haut de la carte est présent
+    // décoder la carte :
+    int numcolW(-1);
+    cv::Mat imacarte = extraireCarteIncomplete(imaMort, pts, maconf);
+
+    valcarte = decoderLaCarte(imacarte, maconf, numcolW);
+    if (printoption) std::cout<<"==> carte du mort couleur :"<< numcol<<" valeur "<< valcarte<<std::endl;
+    // s'assurer que pts[2] et pts[3] sont les coins hauts
+    int xx = pts[3][0]; int yy = pts[3][1];
+    pts[3][0] = pts[0][0]; pts[3][1] = pts[0][1]; // coin haut gauche de la carte
+    pts[0][0] = xx; pts[0][1] = yy;
+    xx = pts[1][0]; yy = pts[1][1];
+    pts[1][0] = pts[2][0]; pts[1][1] = pts[2][1];
+    pts[2][0] = xx; pts[2][1] = yy;
+
+
+  }
+  else { // on traite la première carte en bas, donc complète
+    // chercher la ligne la plus longue = la ligne du bas = bord inférieur de carte
+    // ligne avec une des extrémités la plus basse et plutot horizontale
+    int lgmax = 0; int imax;
+    int ymax = 0;
+    for(int i = 0; i < lignes.size(); i++){
+      cv::Point2i A(lignes[i].ln[0], lignes[i].ln[1]);
+      cv::Point2i B(lignes[i].ln[2], lignes[i].ln[3]);
+      int lg = lignes[i].lg;
+      if (std::max(A.y, B.y) > ymax) {
+        if (std::abs(B.y - A.y) < std::abs(B.x - A.x)) { // ligne plutot horizontale
+          if (lg > maconf.largeurcarte / 2) {imax = i; ymax = std::max(A.y, B.y);}
+        }
+      }
+    }
+    cv::Point2i A(lignes[imax].ln[0], lignes[imax].ln[1]);
+    cv::Point2i B(lignes[imax].ln[2], lignes[imax].ln[3]);
+    cv::Point2i AA = A + cv::Point2i(xcol, ycol);
+    cv::Point2i BB = B + cv::Point2i(xcol, ycol);
+    cv::line(mortCopie,AA,BB,cv::Scalar(255,128,0),2);
+    afficherImage("Mort", mortCopie); cv::waitKey(0);
+    ligne lbas = lignes[imax]; // ligne du bas
+
+    pts[0][0] = PG.x; pts[0][1] = PG.y;
+    pts[1][0] = PD.x; pts[1][1] = PD.y;
+    int aa = lbas.a; int bb = lbas.b; 
+    if (bb > 0) {aa = -aa; bb = -bb;}
+    pts[2][0] = pts[1][0] + aa*maconf.hauteurcarte;
+    pts[2][1] = pts[1][1] + bb*maconf.hauteurcarte;
+    pts[3][0] = pts[0][0] + aa*maconf.hauteurcarte;
+    pts[3][1] = pts[0][1] + bb*maconf.hauteurcarte;
+
+    // décoder la carte :
+    numcol = -1; valcarte = 0;
+    valcarte = decoderCarte(imaMort, pts, maconf, numcol);
+    if (printoption) std::cout<<"==> carte du mort couleur :"<< numcol<<" valeur "<< valcarte<<std::endl;
+    //cv::waitKey(0);
+  }
+  // TODO : mémoriser la carte dans la main du mort
+  //carteMort->couleur = numcol;
+  //carteMort->valeur = valcarte;
+  //carteMort++;
+  carteMort[icarteMort].couleur = numcol;
+  carteMort[icarteMort].valeur = valcarte;
+  icarteMort++;
+  //
+  // si la carte est en haut de la colonne, nettoyer l'image en incluant cette colonne
+  if (pts[3][1] < 6 + maconf.taillechiffre) {
+    cv::Rect rr;
+    rr.x = 0; rr.width = pts[2][0]; rr.y = 0; rr.height = imaMort.rows;
+    cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
+    if (pts[2][0] > imaMort.cols - maconf.largeurcarte) break; // dernière colonne
+  } else {
+    //
+    // remplir la zone de la carte (élargie) avec la couleur du fond
+    // Définir les 4 points du rectangle incliné
+    // 0: bas gauche   1: bas droit  2: haut droit    3: haut gauche
+    // si la carte est en haut de imaMort, nettoyer à partir du haut de imaMort
+    if (pts[3][1] < maconf.taillegros) pts[3][1] = pts[2][1] = 2;
+    cv::Point points[1][4];
+    points[0][0] = Point(pts[0][0] -2, pts[0][1] +1);
+    points[0][1] = Point(pts[1][0] +2, pts[1][1] +1);
+    points[0][2] = Point(pts[2][0] +2, pts[2][1]-2);
+    points[0][3] = Point(pts[3][0] -2, pts[3][1]-2);
+
+
+    // Convertir en structure compatible
+    const cv::Point* ppt[1] = { points[0] };
+    int npt[] = { 4 };
+    // Remplir le polygone
+    cv::fillPoly(imaMort, ppt, npt, 1, couleurFond);
+    //cv::fillPoly(mortCopie, ppt, npt, 1, couleurFond);
+    // ajouter une ligne noire sur le bord supérieur de la carte qu'on vient de décoder
+    cv::line(imaMort, cv::Point2i(pts[3][0], pts[3][1]-1),
+      cv::Point2i(pts[2][0], pts[2][1] - 1), cv::Scalar(255,255,255), 1);
+  }
+
+  mortCopie = imaMort.clone();
+  afficherImage("Mort", mortCopie); cv::waitKey(0);
+
+  // traiter les autres cartes, limitées à la partie supérieure, de la colonne
+  // rappel : haut gauche de la colonne : xcol, ycol
+  // le bas de la colonne est le plus bas de pts[2][1]  et pts[3][1]
 
   // calculs dans imaCol
   // trouver les coins
 
   // rechercher une autre ligne UV, orthogonale à la ligne AB,  dont U ou V est proche de A
-  int a(lbas.a), b(lbas.b), c(lbas.c);
+  // inutile ?
+  /************************************
+  float a(lbas.a), b(lbas.b), c(lbas.c);
   for(int i = 0; i < lignes.size(); i++){
     cv::Point2i U(lignes[i].ln[0], lignes[i].ln[1]);
     cv::Point2i V(lignes[i].ln[2], lignes[i].ln[3]);
@@ -542,50 +1047,10 @@ void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
     if (std::abs(U.y - lbas.ln[1]) <= maconf.deltacadre && std::abs(U.x - lbas.ln[0]) <= maconf.deltacadre){
       // U proche de A
     }
-
   }
-
-
-  // rechercher la ligne la plus longue, la plus basse = bord inférieur de carte 
-  // puis rechercher les lignes orthogonales au dessus
-  //     proches des extrémités de la ligne du bord inférieur de la carte
-
-
-  // le coin le plus bas de la carte est sur la ligne ybas
-  // rechercher la position du coin
-  
-
-
-// extraire une bande horizontale juste au dessus (hauteur de carte, largeur de carte + 1/4)
-// déterminer les lignes, trouver la ligne la plus basse (bord inférieur de carte
-// trouver les deux lignes orthogonales proches, donc les coins bas de la dernière carte
-// calculer les deux autres coins
-// extraire et redresser la carte
-// décoder la carte. on obtient la couleur de la colonne et valeur de la carte. donc une carte du mort
-// extraire la colonne de cartes (jusqu'en haut, largeur de cartes + 1/4)
-// remplacer les pixels de cette dernière carte dans la colonne par la couleur du fond
-// déterminer les lignes de la colonne de cartes
-// rechercher une ligne plutot horizontale, de largeur proche de largeur de carte, la plus basse
-// rechercher les lignes plutot verticales dont un sommet est proche de la ligne du bas
-//    on obtient les bords gauche et droit de la nouvelle carte 
-// rechercher une ligne plutot horizontale, de largeur proche de largeur de carte
-//    au dessus de la ligne du bas, la plus basse
-// on obtient le bord supérieur de la nouvelle carte
-// donc les deux coins supérieurs
-// compléter en calculant les deux coins inférieurs
-// extraire et redresser la carte
-// analyser le coin supérieur gauche
-// déterminer si c'est un personnage (présence d'un gros symbole)
-// si c'est un personnage, on connait la couleur, essayer de préciser V D ou R selon la tête
-//   (chapeau du valet, couronne, position de la tête)
-//   extraire le caractère, convertir en noir et blanc et effectuer son analyse géométrique 
-// extraire le caractère (personnage ou petite carte), le décoder (OCR)
-// on obtient la valeur de la nouvelle carte
-// remplacer les pixels sous le bord supérieur de la carte par la couleur de fond
-// on actualise la ligne du bas = bord supérieur de cette carte
-// on itère tant qu'on reste sous le haut de la colonne de cartes
-
-// itérer sur la recherche d'une petite colonne plus claire à droite
+  **************************/
+  estPremier = false;
+} // while(true)
 
 }
 
@@ -823,7 +1288,7 @@ int processVideo(config &maconf, cv::String nomfichier)
       // si c'est un autre pli : vérifier qu'une des 4 cartes a été jouée par le mort
       //                         on en déduit le premier joueur (N E S O) du pli
       //                         valider avec le calcul selon les règles du bridge
-      if (numpli == 0 && nbcartes == 1 && !mortAnalyse){
+      if (numpli == 0 && nbcartes == 3 && !mortAnalyse){
         // extraire la zone du mort
         // redresser de 90 180 ou 270 degrés si le déclarant est Ouest, Nord ou Est
         // extraire les colonnes de carte (1 à 4) de chaque couleur
@@ -841,15 +1306,16 @@ int processVideo(config &maconf, cv::String nomfichier)
         r.y = maconf.ymort;
         r.width = maconf.wmort;
         r.height = maconf.hmort;
-        imaMort = frameTotale(r);
-        unecarte carteMort[13]; // la main du mort
+        imaMort = frameTotale(r).clone();
         for (int i = 0; i<13; i++){
           carteMort[i].couleur = -1;
           carteMort[i].valeur = 0;
         }
+        carteMort[0].couleur = cepli.carte[0].couleur;
+        carteMort[0].valeur = cepli.carte[0].valeur;
         afficherImage("Mort", imaMort);
-        mortAnalyse = true;
         traiterMort(maconf, imaMort, carteMort);
+        mortAnalyse = true;
       }
 
       if ((estvide   || frame.empty()) && numpli < 13) {
@@ -1733,6 +2199,7 @@ void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
 
 
 void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins){
+  int printoption = maconf.printoption;
   int nbcoins = 0;
   int nbcartes = 0;
   int il1;

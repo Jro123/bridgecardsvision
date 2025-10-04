@@ -3654,7 +3654,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     int yBH;
     int hBH;
 
-    if (estgrossymb) numcol = calculerCouleur(roi_image, maconf, moncoin.moyblanc);
+    if (estgrossymb) numcol = calculerCouleur(roi_image, estunRDV, maconf, moncoin.moyblanc);
     if (numcol < 0) {  // pas trouvé (improbable sauf pour un As)
        
         // roi_image : petit ou gros symbole
