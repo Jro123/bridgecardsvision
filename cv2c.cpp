@@ -704,7 +704,7 @@ while(true) {
       cv::circle(mortCopie, PG, 4, cv::Scalar(255,255,0),1);
       afficherImage("Mort", mortCopie);
   }
-  cv::waitKey(0);
+  //cv::waitKey(0);
 
   // on a les deux coins inférieurs coinGauche et CoinDroit   PG et PD
   // on peut reconstituer les 2 autres coins de la carte
@@ -857,7 +857,7 @@ while(true) {
           // impossible de trouver les deux angles supérieurs de la carte
           std::cout<< "!!!! impossible de trouver le bord supérieur de la carte"<<std::endl;
         }
-        cv::waitKey(0);
+        //cv::waitKey(0);
       }
       else { // coin haut droit trouvé. pas le gauche
         // calculer le coin gauche le long de l'arête plutot horizontale
@@ -968,7 +968,7 @@ while(true) {
     cv::Point2i AA = A + cv::Point2i(xcol, ycol);
     cv::Point2i BB = B + cv::Point2i(xcol, ycol);
     cv::line(mortCopie,AA,BB,cv::Scalar(255,128,0),2);
-    afficherImage("Mort", mortCopie); cv::waitKey(0);
+    afficherImage("Mort", mortCopie); //cv::waitKey(0);
     ligne lbas = lignes[imax]; // ligne du bas
 
     pts[0][0] = PG.x; pts[0][1] = PG.y;
@@ -1026,7 +1026,7 @@ while(true) {
   }
 
   mortCopie = imaMort.clone();
-  afficherImage("Mort", mortCopie); cv::waitKey(0);
+  afficherImage("Mort", mortCopie); //cv::waitKey(0);
 
   // traiter les autres cartes, limitées à la partie supérieure, de la colonne
   // rappel : haut gauche de la colonne : xcol, ycol
@@ -1066,6 +1066,10 @@ int processVideo(config &maconf, cv::String nomfichier)
     int numeroframe = 0;
     unpli monpli;   // pli en cours de décodage
     monpli.nbcartes = 0;
+    for (int i = 0; i<4; i++){
+      monpli.cartes[i].couleur = -1;
+      monpli.cartes[i].valeur = 0;
+    }
     std::vector<uncoinPrec> coinsPrec;
 
     cv::Mat img = cv::imread(nomfichier);
@@ -1288,7 +1292,7 @@ int processVideo(config &maconf, cv::String nomfichier)
       // si c'est un autre pli : vérifier qu'une des 4 cartes a été jouée par le mort
       //                         on en déduit le premier joueur (N E S O) du pli
       //                         valider avec le calcul selon les règles du bridge
-      if (numpli == 0 && nbcartes == 3 && !mortAnalyse){
+      if (numpli == 0 && monpli.nbcartes == 3 && !mortAnalyse){
         // extraire la zone du mort
         // redresser de 90 180 ou 270 degrés si le déclarant est Ouest, Nord ou Est
         // extraire les colonnes de carte (1 à 4) de chaque couleur
@@ -1359,23 +1363,46 @@ int processVideo(config &maconf, cv::String nomfichier)
             std::cout<<" pli incomplet"<<std::endl;
           } else {
             // mémoriser les 4 cartes dans la distribution
-            int joueur = cepli.joueur;
+            int joueur = cepli.joueur; joueur = joueur%4;
             for (int k = 0; k < 4; k++){
-              distribution[joueur][numpli-1][0] = cepli.carte[k].couleur; // couleur
-              distribution[joueur][numpli-1][1] = cepli.carte[k].valeur; // valeur
+              int c = cepli.carte[k].couleur;
+              int v = cepli.carte[k].valeur;
+              distribution[k][numpli][0] = c; // couleur
+              distribution[k][numpli][1] = v; // valeur
+              // vérifier que la carte jouée par le mort est dans les cartes du mort
+              // et que la carte jouée par un autre n'est pas dans les cartes du mort
+              if (numpli > 0){
+                int i;
+                if (k == 0){ // carte du mort
+                  for (i = 0; i < 13; i++){
+                    if (c == carteMort[i].couleur && v == carteMort[i].valeur) break;
+                  }
+                  if (i == 13) std::cout<<"!!! carte couleur "<<c<< " valeur "<<v
+                  <<" n'est pas dans le jeu du mort"<<std::endl;
+                } else {
+                  for (i = 0; i < 13; i++){
+                    if (c == carteMort[i].couleur && v == carteMort[i].valeur){
+                      std::cout<<"!!! carte couleur "<<c<< " valeur "<<v
+                        <<" est dans le jeu du mort"<<std::endl;
+                    }
+                  }
+                }
+              }
               joueur++; if (joueur > 3) joueur -= 4;
-            }
-            const std::string NSEO[4] = {"Nord", "Est", "Sud", "Ouest"};
+            } // for k
+            const std::string NESO[4] = {"Nord", "Est", "Sud", "Ouest"};
             cepli.joueurgagnant = j;
             pliprec = cepli;
             cepli = Pli(); cepli.joueur = j;
             // enregistrer le pli complet 
             numpli++;
-            std::cout<<"==> pli "<<numpli<< " joueur " << NSEO[pliprec.joueur] << "  frame "<< numeroframe <<std::endl;
+            std::cout<<"==> pli "<<numpli<< " joueur " << NESO[pliprec.joueur] << "  frame "<< numeroframe <<std::endl;
             for(int i=0; i< 4; i++){
               std::string s = carteToString(pliprec.carte[i].couleur, pliprec.carte[i].valeur);
-              if (pliprec.joueur == i) s = "*" +s; else s = " " + s;
-              if (pliprec.joueurgagnant == i) s += "*";
+              if (pliprec.joueur == i) s = "-->" +s; else s = "   " + s;
+              if (pliprec.joueurgagnant == i) s += "-->";
+              if (i == 0 || i == 2) s = "    " + s;
+              if (i == 1) s = "        " + s;
               std::cout<<"      "<<s<<std::endl;
             }
             enregistrerContratEtPli ("test", 1, "3SA", "nord", numpli, pliprec);
@@ -1401,7 +1428,7 @@ int processVideo(config &maconf, cv::String nomfichier)
            std::cout<<" frame vide, aucune carte jouée du pli en cours"<<std::endl;
         }
       } // frame vide, aucune carte trouvée
-
+      if (numpli >= 13) break; // on a décodé les 13 plis
       if (frame.empty()) break;
 
       numeroframe++;
@@ -2044,7 +2071,7 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
             for (int j = 0; j < 13; j++) {
               if ( numcol == distribution[i][j][0] && valcarte == distribution[i][j][1]) {
                 std::cout<<" cette carte ("<<numcol<<","<<valcarte<<")"<<" est deja dans le pli "
-                  <<j<<" du joueur "<<i<<std::endl;
+                  <<j+1<<" du joueur "<<i<<std::endl;
                 duplique = true;
               }
             }

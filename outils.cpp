@@ -2396,11 +2396,11 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           }
           //r.x = cadregauche; r.width = maconf.largeurcarte /20;
           // à droite de la couronne de la reine 
-          r.y = maconf.tailleVDR / 2;
-          r.x = maconf.largeurcarte* 30/64; r.width = maconf.largeurcarte * 10/64;
+          r.height = maconf.tailleVDR / 2;
+          r.x = maconf.largeurcarte* 34/64; r.width = maconf.largeurcarte * 6/64;
           if (printoption && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,0,0));
           lig = imacarte(r); m = cv::mean(lig);
-          if (m[0] >  mbl[0] - 40   &&  m[1] >  mbl[1] - 40  ){ // clair : pas de couronne du Roi
+          if (m[0] >  mbl[0] - 60   &&  m[1] >  mbl[1] - 60  ){ // clair : pas de couronne du Roi
             valcarte = 12;
             return 12;
           } else
@@ -2758,7 +2758,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         } else {
           r.x = maconf.deltachiffre - 1; 
         }
-        tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); cv::waitKey(0);
+        tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); //cv::waitKey(0);
         cv::Mat ima_carW;
         cv::Mat ima_car = imacarte(r);
         cv::cvtColor(ima_car, ima_carW, cv::COLOR_BGR2GRAY);
@@ -2770,7 +2770,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
             tb = 1;
         cv::copyMakeBorder(ima_carW, image_bordee, tb, tb, tb, tb, cv::BORDER_CONSTANT, cv::Scalar(255));
         ima_carW = image_bordee;
-        afficherImage("CAR", ima_carW); afficherImage("CAR3", ima_car); cv::waitKey(0);
+        afficherImage("CAR", ima_carW); afficherImage("CAR3", ima_car); //cv::waitKey(0);
         std::string output;
         std::string nomOCR = "SERVEUR";
         if (maconf.tesOCR != 0)
