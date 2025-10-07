@@ -131,7 +131,7 @@ public:
         ln = {0,0,0,0};
         a = b = c = 0;
         lg = 0;
-    }
+    };
     float dist(cv::Point2i Q) {return a*Q.x + b*Q.y + c;}
 };
 

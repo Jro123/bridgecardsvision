@@ -1882,7 +1882,7 @@ cv::Mat extraireCarteIncomplete(cv::Mat& image, int pts[4][2], config& maconf) {
   int lg = lgBC;
   cv::Rect rW(0, 0, std::min(la, imacarte.cols), std::min(lg, imacarte.rows) );
   imacarte = imacarte(rW);
-  //cv::imshow("imrot2", imacarte); if (attendre) cv::waitKey(0);
+  if (maconf.waitoption >0){ cv::imshow("imrot2", imacarte); cv::waitKey(0);}
   return imacarte;
 }
 
@@ -1895,7 +1895,7 @@ cv::Mat extraireCarte(cv::Mat& image, int pts[4][2], config& maconf) {
   bool estunRDV = false;
   cv::Mat imacarte;
 
-  // TODO : considérer les deux premiers points A et B de longueur lgAB
+  // considérer les deux premiers points A et B de longueur lgAB
   //   on sait que c'est un bord de carte soit la hauteur soit la largeur
   // si c'est la hauteur
   //  si les autres points sont à droite de AB (BA^BC > 0 )
@@ -1920,18 +1920,16 @@ cv::Mat extraireCarte(cv::Mat& image, int pts[4][2], config& maconf) {
   float lgBC = cv::norm(BC);
   float angle, angle2;
     cv::Mat rot, A_mat;
-    // TODO : tourner autour du coté le plus long et ajuster l'angle de 90 degrés
+    // tourner autour du coté le plus long et ajuster l'angle de 90 degrés
   if (lgAB > lgBC) {
     angle2 = std::atan2(AB.y, AB.x);
     if (pv > 0) {
       // tourner autour de A selon BC
-      //angle = std::atan2(BC.y, BC.x);
       angle = angle2 - CV_PI / 2;
       WW = AA;
     }
     else {
       // tourner autour de B selon BC
-      //angle = std::atan2(BC.y, BC.x);
       angle = angle2 + CV_PI / 2;
       WW = BB;
     }
@@ -1940,12 +1938,10 @@ cv::Mat extraireCarte(cv::Mat& image, int pts[4][2], config& maconf) {
     angle2 = std::atan2(BC.y, BC.x);
     if (pv > 0 ) {
       // tourner autour de B selon BA
-      //angle = std::atan2(-AB.y, -AB.x);
       angle = angle2 - CV_PI / 2;
       WW = BB;
     } else {
       // tourner autour de A selon AB
-      //angle = std::atan2(AB.y, AB.x);
       angle = angle2 - CV_PI / 2; 
       WW = AA;
     }
@@ -2272,7 +2268,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         r.width = maconf.largeurgrosRDV;
         GS = imacarte(r).clone();
         if (printoption && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
-        numcol = calculerCouleur(GS, true,  maconf, mbl);
+        if (numcol < 0) numcol = calculerCouleur(GS, true,  maconf, mbl);
         int xGS = r.x;
         int yGS = r.y + box[3]; // bas du Gros Symbole
 
@@ -2302,16 +2298,24 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         //   V sinon (le chapeu est bleu, mais comme pour la Dame)
         //
         if (numcol == 3) { // Trefle
-          // chapeau du Valet
+          // chapeau du Valet. bleu ou rouge selon le jeu de cartes
           r.y = cadresup + 1;
           r.height = maconf.tailleVDR / 2;
           r.x = maconf.largeurcarte/3; // gauche du chapeau
           r.width = maconf.largeurcarte/3; // largeur du chapeau
           if (printoption && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
           lig = imacarte(r); m = cv::mean(lig);
+          // tester chapeau rouge 
           if (m[1] < mbl[1] - 80){
-            valcarte = 11; // on a trouvé le chapeau du Valet (bleu ou rouge)
-            return 11;
+            if (m[2] - m[1] > 30) {
+              valcarte = 11; // on a trouvé le chapeau du Valet (rouge)
+              return 11;
+            }
+          }
+          // tester chapeau bleu
+          if (m[0] - m[2] > 30) {
+              valcarte = 11; // on a trouvé le chapeau du Valet (bleu) 
+              return 11;
           }
           
           // Roi ou Dame ? tester la  droite de la couronne
@@ -2320,7 +2324,11 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           r.x = maconf.largeurcarte*7/12; // partie droite de la couronne
           r.width = maconf.largeurcarte/12; // largeur de ...
           lig = imacarte(r); m = cv::mean(lig);
-          if (m[0] > mbl[0] - 10){ // zone claire, pas de couronne
+          if (maconf.waitoption) {
+            tracerRectangle(r, imacarte, "carte", cv::Scalar(255,0,0));
+            cv::waitKey(0);
+          }
+          if (m[0] > mbl[0] - 20){ // zone claire, pas de couronne
             valcarte = 12; // 
             return 12; // c'est donc la Dame
           }
@@ -2741,15 +2749,30 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
     // ce n'est pas un habillé ( R D V)
   int decoderCarte1a10 (cv::Mat imacarte, config& maconf, int& numcol){
     cv::Rect r, rr;
+    cv::Mat lig, GS;
+    cv::Scalar m, mbl, mbl2;
     int printoption = maconf.printoption;
     int waitoption = maconf.waitoption;
     cv::Mat imac = imacarte.clone();
 
     // si la carte est incomlète, décoder en utilisant l'OCR sur le chiffre de gauche
+    //  puis sur le chiffre de droite si on ne trouve pas
     // localiser le chiffre, l'extraire
     if (imacarte.rows < maconf.hauteurcarte / 2) { // carte très incomplète
+      // déterminer la valeur du blanc : en haut de la carte à droite du chiffre, une petite ligne
+      // déterminer la présence d'un gros symbole en haut à gauche
+      rr.x = maconf.largeurchiffre + maconf.deltachiffre + 2;
+      rr.width = maconf.largeurchiffre;
+      rr.y = 2; rr.height=1;
+      lig = imacarte(rr); mbl = cv::mean(lig);
+      bool estGS = false;
+      rr.x = maconf.deltagros; rr.width = maconf.largeurgros;
+      rr.y = maconf.deltagroshaut; rr.height = maconf.taillegros;
+      if (rr.height > imacarte.rows - rr.y) rr.height = imacarte.rows - rr.y;
+      lig = imacarte(rr); m=cv::mean(lig);
+      if (mbl[0] - m[0] > 10) estGS = true;
       
-      for (int i = 0; i<2; i++){
+      for (int i = 0; i<2; i++){ // chiffre de gauche puis de droite
         r.width = maconf.largeurchiffre + 3;
         r.y = maconf.deltahaut - 1;
         r.height = maconf.taillechiffre +1;
@@ -2758,7 +2781,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         } else {
           r.x = maconf.deltachiffre - 1; 
         }
-        tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); //cv::waitKey(0);
+        if (printoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); //cv::waitKey(0);
         cv::Mat ima_carW;
         cv::Mat ima_car = imacarte(r);
         cv::cvtColor(ima_car, ima_carW, cv::COLOR_BGR2GRAY);
@@ -2770,14 +2793,22 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
             tb = 1;
         cv::copyMakeBorder(ima_carW, image_bordee, tb, tb, tb, tb, cv::BORDER_CONSTANT, cv::Scalar(255));
         ima_carW = image_bordee;
-        afficherImage("CAR", ima_carW); afficherImage("CAR3", ima_car); //cv::waitKey(0);
+        if(printoption) {
+          afficherImage("CAR", ima_carW); 
+          afficherImage("CAR3", ima_car);
+        }
         std::string output;
         std::string nomOCR = "SERVEUR";
         if (maconf.tesOCR != 0)
             nomOCR = "tesOCR";
         double confiance, angle;
-        if (maconf.tesOCR >= 1) output = tesOCR(ima_carW, false, &confiance, &angle);
-        else                    output = execOCR(nomOCR, ima_carW, &confiance, &angle);
+        if (maconf.tesOCR >= 1){
+            output = tesOCR(ima_carW, false, &confiance, &angle);
+                if (output == "" && maconf.tesOCR == 1) {
+                  output = execOCR("SERVEUR", ima_carW, &confiance, &angle);
+          }
+        }
+        else  output = execOCR(nomOCR, ima_carW, &confiance, &angle);
         if (printoption  && output.size() > 0)
             std::cout << " caractere : " << output << " confiance " << confiance << " angle " << angle << std::endl;
         if (output == "10") return 10;
@@ -2785,15 +2816,20 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           char c = output[0];
           if (c > '0' && c <= '9') {
             int val = c - '0';
+            // valider selon la présence d'un gros symbole en haut à gauche
+            if (estGS) {
+              if (val  < 4) continue;
+            } else {
+              if (val  >= 4) continue;
+            }
             return val;
           }
         }
       } 
+      if(maconf.waitoption) cv::waitKey(0);
       return -1; // décodage impossible
     } // carte incomplète
 
-    cv::Mat lig, GS;
-    cv::Scalar m, mbl, mbl2;
     int exclure = maconf. deltachiffre + maconf.taillechiffre + maconf.taillesymbole
      + maconf.deltachsymb + 2;
     // recalculer la valeur du blanc
