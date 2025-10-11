@@ -2326,7 +2326,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           lig = imacarte(r); m = cv::mean(lig);
           if (maconf.waitoption) {
             tracerRectangle(r, imacarte, "carte", cv::Scalar(255,0,0));
-            cv::waitKey(0);
+            if (maconf.waitoption) cv::waitKey(0);
           }
           if (m[0] > mbl[0] - 20){ // zone claire, pas de couronne
             valcarte = 12; // 
@@ -2757,7 +2757,6 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
 
     // si la carte est incomlète, décoder en utilisant l'OCR sur le chiffre de gauche
     //  puis sur le chiffre de droite si on ne trouve pas
-    // localiser le chiffre, l'extraire
     if (imacarte.rows < maconf.hauteurcarte / 2) { // carte très incomplète
       // déterminer la valeur du blanc : en haut de la carte à droite du chiffre, une petite ligne
       // déterminer la présence d'un gros symbole en haut à gauche
@@ -2773,6 +2772,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       if (mbl[0] - m[0] > 10) estGS = true;
       
       for (int i = 0; i<2; i++){ // chiffre de gauche puis de droite
+        // localiser le chiffre, l'extraire
         r.width = maconf.largeurchiffre + 3;
         r.y = maconf.deltahaut - 1;
         r.height = maconf.taillechiffre +1;
@@ -2825,10 +2825,10 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
             return val;
           }
         }
-      } 
+      } // chiffre à gauche puis à droite
       if(maconf.waitoption) cv::waitKey(0);
       return -1; // décodage impossible
-    } // carte incomplète
+    } // carte très incomplète
 
     int exclure = maconf. deltachiffre + maconf.taillechiffre + maconf.taillesymbole
      + maconf.deltachsymb + 2;

@@ -46,8 +46,22 @@
   #include <atomic> // pour std::atomic
   std::atomic<bool> is_window_open(true);
 #endif
+// constantes 
+const char* NESO[4]=  {"Nord", "Est", "Sud", "Ouest"};
+//const char* couleurs[] = {"P", "C", "K", "T"}; // ♠, ♥, ♦, ♣
+const char* nomval[14] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9","10", "V", "D", "R"};
+const char* valeurcarte[14]  = {" ", "1","2", "3", "4", "5", "6", "7", "8", "9", "10", "V", "D", "R"};
+const char* nomcouleur[4]  = {"Pique", "Coeur", "Carreau", "Trefle"}; 
+const char* couleurcarte[4]  = {"P", "C", "K", "T"}; 
+#define NBCOULEURS 10
+cv::Scalar couleurs[10]; // initialisées dans processvideo()
 
+// déclarations de fonctions locales
 void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res);
+void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
+void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
+void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);
+int processFrame(config &maconf, cv::Mat frame, bool estvideo,std::vector<uncoinPrec>& coinsPrec, unpli &monpli);
 
 using namespace cv;
 using namespace std;
@@ -59,8 +73,8 @@ unecarte carteMort[13]; // la main du mort
 static std::vector<Point2f> selectedPoints;
 
 int waitoption = 1;   // 0 : pas d'attente après affichages
-                      // 1 : attendre après le traitement d'une frame
-                      // 2 : attendre après le traitement de chaque coin
+                      // 1 : attendre après le traitement d'une frame ou d'un pli
+                      // 2 : attendre après le traitement de chaque coin ou frame
                       // 3 :attendre après affichage du symbole et du chiffre
 int printoption = 2;  // 0 : ne pas imprimer
                       // 1 : imprimer les lignes, coins détectés, OCR
@@ -246,7 +260,6 @@ int activeThreads = 0;                                 // Nombre de sous-tâches
 
 // Convertit couleur/valeur en chaîne lisible
 std::string carteToString(int couleur, int valeur) {
-  const char* couleurs[] = {"P", "C", "K", "T"}; // ♠, ♥, ♦, ♣
   if (couleur < 0 || couleur > 3 || valeur < 1 || valeur > 13) return "??";
   std::string val;
   if (valeur == 1)  val = "A";
@@ -255,17 +268,17 @@ std::string carteToString(int couleur, int valeur) {
   else if (valeur == 12) val = "D";
   else if (valeur == 13) val = "R";
   
-  return std::string(couleurs[couleur]) + val;
+  return std::string(couleurcarte[couleur]) + val;
 }
 
 // Convertit numéro joueur en texte
 std::string joueurToString(int j) {
-  const char* noms[] = {"Nord", "Est", "Sud", "Ouest"};
-  return (j >= 0 && j < 4) ? noms[j] : "Inconnu";
+  //const char* noms[] = {"Nord", "Est", "Sud", "Ouest"};
+  return (j >= 0 && j < 4) ? NESO[j] : "Inconnu";
 }
 
 bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
-    const std::string& contratTexte, const std::string& joueurContrat,
+    const std::string& contratTexte, const char* joueurContrat,
     int numpli, const Pli& cepli) {
 
 #ifdef POSTGRESQL
@@ -439,10 +452,7 @@ bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
 #endif
 }
 
-void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
-void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
-void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);
-
+// décoder les cartes du mort et enregistrer sa main
 void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMortW) {
   int printoption = maconf.printoption;
 // procéder de gauche à droite
@@ -1154,7 +1164,6 @@ while(true) {
 
 }
 
-int processFrame(config &maconf, cv::Mat frame, bool estvideo,std::vector<uncoinPrec>& coinsPrec, unpli &monpli);
 int processVideo(config &maconf, cv::String nomfichier)
 {
     cv::Size rectSize(500, 500); // Exemple : rectangle 3:2
@@ -1165,12 +1174,18 @@ int processVideo(config &maconf, cv::String nomfichier)
     std::chrono::duration<double> duree;
     int numeroframe = 0;
     unpli monpli;   // pli en cours de décodage
-    monpli.nbcartes = 0;
-    for (int i = 0; i<4; i++){
-      monpli.cartes[i].couleur = -1;
-      monpli.cartes[i].valeur = 0;
-    }
     std::vector<uncoinPrec> coinsPrec;
+
+    couleurs[0] = cv::Scalar(255, 128, 128); // bleu clair
+    couleurs[1] = cv::Scalar(128, 255, 128); // vert clair
+    couleurs[2] = cv::Scalar(128, 128, 255); // rouge vif
+    couleurs[3] = cv::Scalar(255, 255, 128); // turquoise
+    couleurs[4] = cv::Scalar(255, 128, 255); // violet
+    couleurs[5] = cv::Scalar(128, 255, 255); // jaune
+    couleurs[6] = cv::Scalar(0, 128, 128); // marron
+    couleurs[7] = cv::Scalar(255,0,0); // bleu foncé
+    couleurs[8] = cv::Scalar(0,255,0); // vert foncé
+    couleurs[9] = cv::Scalar(0,0,255); // rouge foncé
 
     cv::Mat img = cv::imread(nomfichier);
     if (!img.empty())
@@ -1220,12 +1235,14 @@ int processVideo(config &maconf, cv::String nomfichier)
     unpli monpliprec; // pli précédent
     Pli cepli;  // pli en cours
     Pli pliprec; // pli précédent
-    int j1 = maconf.declarant + 1;
-    if (j1 > 3) j1 -= 3; 
+    int j1 = maconf.declarant + 1; // entame par le joueur qui suit le déclarant et précède le mort
+    if (j1 >= 4) j1 -= 4; 
     cepli.joueur = j1;
     int numpli = 0;
     int nbcartes = 0;  // nombre de cartes dans le pli en cours
     bool mortAnalyse = false;
+    int joueurMort = 0; // numéro de joueur du mort (0=Nord, 1=Est, 2=Sud, 3=Ouest). calculé plus tard
+    //std::string lettrecouleur[4] = {"P", "C", "K", "T"};
 
     while (true) {
       cap >> frame; // Capture une frame
@@ -1272,6 +1289,7 @@ int processVideo(config &maconf, cv::String nomfichier)
         frame = frameTotale(r);
       }
 
+#ifdef ACTIVER
       // comparer à la frame précédente
       // extraire la partie modifiée (la première fois : tout)
       // conserver le tableau des coins identifiés
@@ -1279,7 +1297,6 @@ int processVideo(config &maconf, cv::String nomfichier)
       // invalider les coins sur une zone modifiée
       // extraire l'image modifiée
       // traiter cette image en ajoutant les nouvaux coins
-#ifdef ACTIVER
       cv::cvtColor(frame, frameW, cv::COLOR_BGR2GRAY);
       if (bPremier) { bPremier = false; image = frame.clone();}
       else {
@@ -1317,7 +1334,6 @@ int processVideo(config &maconf, cv::String nomfichier)
           }
       }
 #endif 
-      // TODO :
       //        définir un tableau des cartes jouées par chacun des 4 joueurs
       //        définir un tableau de 4 cartes jouées à chaque pli
       //        après le traitement de chaque frame
@@ -1332,7 +1348,7 @@ int processVideo(config &maconf, cv::String nomfichier)
       //        enregistrer le pli en tenant compte du joueur qui a entamé le pli
       //        déterminer le joueur (N E S O) qui remporte le pli en fonction du contrat
       //            --> joueur qui entame le pli suivant
-      //        effacer le pli
+      //        initialiser le pli
       //        pour chaque carte du vecteur coinsPrec :
       ///           si elle n'est pas dans le pli en cours : l'ajouter au pli
       //            si c'est une autre nouvelle carte du pli : erreur
@@ -1346,48 +1362,26 @@ int processVideo(config &maconf, cv::String nomfichier)
         if (c < 0) continue; // couleur non déterminée
         if (v <= 0) continue; // valeur non déterminée
         if (v > 13) continue; // valeur invalide
-        estvide = false;
-        // carte déjà dans le pli en cours (même couleur, même valeur) ?
-        if (c == cepli.carte[0].couleur && v == cepli.carte[0].valeur ) continue;
-        if (c == cepli.carte[1].couleur && v == cepli.carte[1].valeur ) continue;
-        if (c == cepli.carte[2].couleur && v == cepli.carte[2].valeur ) continue;
-        if (c == cepli.carte[3].couleur && v == cepli.carte[3].valeur ) continue;
-        // nouvelle carte
-        int n = cepli.joueur;
-        if (cepli.carte[n].couleur  == -1) {
-          cepli.carte[n].couleur= c; cepli.carte[n].valeur= v;
-          if (printoption) std::cout<<"nouvelle carte joueur "<<n<< " couleur "<< c
-              << " valeur "<< v<<std::endl;
-          nbcartes++;
-        }
-        else {
-          n++;
-          if (n == 4) n = 0;
-          while (n != cepli.joueur) {
-            if (cepli.carte[n].couleur == -1) {
-              cepli.carte[n].couleur= c; cepli.carte[n].valeur= v;
-              if (printoption) std::cout<<"nouvelle carte joueur "<<n<< " couleur "<< c
-                  << " valeur "<< v<<std::endl;
-              nbcartes++;
-              break;
-            }
-            n++; if (n == 4) n = 0;
-          }
-        }
+        estvide = false; break;
       }
-      // TODO : si c'est le premier pli, analyser la zone du mort
+     nbcartes = monpli.nbcartes;
+
+
+      //  si c'est le premier pli et la troisième carte jouée, analyser la zone du mort
       //        la frame à analyser ne comporte aucune carte jouée
       //        la position de cette zone est indiquée dans la configuration (pour N E S et O)
       //        extraire l'image correspondante, la redresser (rotation de 0 1 2 ou 3 angles droits)
-      //        composée de 1 à 4 colonnes 
+      //        composée de 1 à 4 colonnes de cartes
       //        chaque colonne est d'une seule couleur (P C K T)
       //        il reste 12 cartes (le mort à joué le premier pli)
       //        dans chaque colonne, seule la dernière carte (la plus petite) est complète
       //          on y trouve un gros symbole, qui permet d'obtenir la couleur
-      //          les autres cartes ne sont visibles que pour 2 coins de largeur de carte
-      //        vérifier si on peut utiliser le code d'analyse des cartes jouées
-      //        sinon : développer une analyse spécifique
+      //          les autres cartes ne sont visibles que pour les 2 coins du haut de carte
       //        mémoriser les cartes du mort
+      //
+      //        déterminer qui est le mort (N S E O) en fonction de la zone contenant des cartes
+      //        extraire et redresser l'image de cette zone
+      //        
       //
       // si c'est un autre pli : vérifier qu'une des 4 cartes a été jouée par le mort
       //                         on en déduit le premier joueur (N E S O) du pli
@@ -1395,6 +1389,96 @@ int processVideo(config &maconf, cv::String nomfichier)
       if (numpli == 0 && monpli.nbcartes == 3 && !mortAnalyse){
         // extraire la zone du mort
         // redresser de 90 180 ou 270 degrés si le déclarant est Ouest, Nord ou Est
+        cv::Mat imaMort;
+        cv::Rect r;
+        cv::Mat lig;
+        cv::Scalar m, m0, m1, m2, m3; // couleur moyenne des 4 zones
+        int d0, d1, d2, d3; // écarts de couleur entre les deux moitiés
+        // zone Nord :
+        r.x = maconf.xmort;
+        r.y = maconf.ymort;
+        r.width = maconf.wmort /2;
+        r.height = maconf.hmort;
+        lig = frameTotale(r); m0 = cv::mean(lig); // moitié gauche
+        r.x += r.width;
+        lig = frameTotale(r); m = cv::mean(lig); // moitié droite
+        d0 = std::abs(m0[0] - m[0]) + std::abs(m0[1] - m[1]) +std::abs(m0[2] - m[2]);
+
+        // zone Est
+        r.width = maconf.hmort;
+        r.x = frameTotale.cols - r.width;
+        r.y = maconf.xmort;
+        r.height = maconf.wmort / 2; // moitié haute
+        lig = frameTotale(r); m1 = cv::mean(lig); // moitié gauche
+        r.y += r.height;
+        lig = frameTotale(r); m = cv::mean(lig); // moitié droite
+        d1 = std::abs(m1[0] - m[0]) + std::abs(m1[1] - m[1]) +std::abs(m1[2] - m[2]);
+
+        // zone Sud
+        r.x = maconf.xmort;
+        r.width = maconf.wmort /2; // moitié gauche
+        r.height = maconf.hmort;
+        r.y = frameTotale.rows - r.height;
+        lig = frameTotale(r); m2 = cv::mean(lig); // moitié gauche
+        r.x += r.width;
+        lig = frameTotale(r); m = cv::mean(lig); // moitié droite
+        d2 = std::abs(m2[0] - m[0]) + std::abs(m2[1] - m[1]) +std::abs(m2[2] - m[2]);
+
+        // zone Ouest
+        r.width = maconf.hmort;
+        r.x = 0;
+        r.y = maconf.xmort;
+        r.height = maconf.wmort / 2; // moitié 
+        lig = frameTotale(r); m3 = cv::mean(lig); // moitié haute
+        r.y += r.height;
+        lig = frameTotale(r); m = cv::mean(lig); // moitié basse
+        d3 = std::abs(m3[0] - m[0]) + std::abs(m3[1] - m[1]) +std::abs(m3[2] - m[2]);
+
+        // choisir la zone où l'écart entre les deux moitiés est maximal
+        cv::Mat rotated;
+        if (d0 > d1 && d0 > d2 && d0 > d3) {
+          // extraire la zone Nord
+          r.x = maconf.xmort;
+          r.y = maconf.ymort;
+          r.width = maconf.wmort;
+          r.height = maconf.hmort;
+          imaMort = frameTotale(r).clone();
+          joueurMort = 0;
+        }
+        else if (d1> d0 && d1 > d2 && d1 > d3){
+          // extraire la zone Est et tourner de 90 degrés 
+          r.width = maconf.hmort;
+          r.x = frameTotale.cols - r.width;
+          r.y = maconf.xmort;
+          r.height = maconf.wmort;
+          imaMort = frameTotale(r).clone();
+          cv::rotate(imaMort, rotated, cv::ROTATE_90_COUNTERCLOCKWISE);
+          imaMort = rotated;
+          joueurMort = 1;
+        }
+        else if (d2> d0 && d2 > d1 && d2 > d3){
+          // extraire la zone Sud et tourner de 180 degrés
+          r.x = maconf.xmort;
+          r.width = maconf.wmort;
+          r.height = maconf.hmort;
+          r.y = frameTotale.rows - r.height;
+          imaMort = frameTotale(r).clone();
+          cv::rotate(imaMort, rotated, cv::ROTATE_180);
+          imaMort = rotated;
+          joueurMort = 2;
+        }
+        else if (d3> d0 && d3 > d1 && d3 > d2){
+          // extraire la zone Ouest et tourner de -90 degrés 
+          r.width = maconf.hmort;
+          r.x = 0;
+          r.y = maconf.xmort;
+          r.height = maconf.wmort; 
+          imaMort = frameTotale(r).clone();
+          cv::rotate(imaMort, rotated, cv::ROTATE_90_CLOCKWISE);
+          imaMort = rotated;
+          joueurMort = 3;
+        }
+
         // extraire les colonnes de carte (1 à 4) de chaque couleur
         // traiter chaque colonne
         //   déterminer la couleur sur la carte la plus basse (le coin ayant x maximal)
@@ -1404,33 +1488,69 @@ int processVideo(config &maconf, cv::String nomfichier)
         //      déterminer les deux coins supérieurs de la carte
         //      décoder la carte
         std::cout << "traitement des cartes du mort"<<std::endl;
-        cv::Mat imaMort;
-        cv::Rect r;
-        r.x = maconf.xmort;
-        r.y = maconf.ymort;
-        r.width = maconf.wmort;
-        r.height = maconf.hmort;
-        imaMort = frameTotale(r).clone();
         for (int i = 0; i<13; i++){
           carteMort[i].couleur = -1;
           carteMort[i].valeur = 0;
         }
-        carteMort[0].couleur = cepli.carte[0].couleur;
-        carteMort[0].valeur = cepli.carte[0].valeur;
+        carteMort[0].couleur = cepli.carte[joueurMort].couleur;
+        carteMort[0].valeur = cepli.carte[joueurMort].valeur;
         afficherImage("Mort", imaMort);
         traiterMort(maconf, imaMort, carteMort);
         mortAnalyse = true;
       }
 
       if ((estvide   || frame.empty()) && numpli < 13) {
-        if (cepli.carte[0].couleur >= 0
-        || cepli.carte[1].couleur >= 0
-        || cepli.carte[2].couleur >= 0
-        || cepli.carte[3].couleur >= 0) { // un pli en cours (au moins une carte jouée)
+        if (monpli.nbcartes > 0)
+        { // un pli en cours (au moins une carte jouée)
           // vérifier que le pli est complet et déterminer le gagnant
+          // on complète le pli avec le 2 de Trefle (ou carreau si trefle est atout)
+          //
+          int couldef = 3;
+          if (maconf.contratcouleur == 3) couldef = 2;
+          for (int i = monpli.nbcartes; i < 4; i++){
+            monpli.cartes[i].couleur = couldef;
+            monpli.cartes[i].valeur = 2;
+            std::cout<<" pli incomplet"<<std::endl;
+          }
+          monpli.nbcartes = 4; // le pli est complet ou vient d'être complété
           bool estincomplet = false;
+          
+          // dans le pli en cours (monpli), on a les 4 cartes jouées (dans l'ordre du jeu)
+          // déterminer les joueurs à partir de la position des 4 cartes
+          // vérifier que c'est compatible avec cepli.joueur de la première carte
+          // trouver la carte jouée par Nord : la plus haute (y minimal)
+          // TODO : vérifier que la carte jouée par Est est la plus à droite
+          //        que la carte jouée par Sud est la plus basse
+          //        que la carte jouée par Ouest  est la plus à gauche
+          int indiceNord = 0; // indice de la carte jouée par Nord dans ce pli 
+          int yNord = 12345; 
+          for (int i = 0; i< 4; i++){ // les 4 cartes du pli
+              int ymin = monpli.cartes[i].sommet[0].y;
+              ymin = std::min(ymin, monpli.cartes[i].sommet[1].y);
+              ymin = std::min(ymin, monpli.cartes[i].sommet[2].y);
+              ymin = std::min(ymin, monpli.cartes[i].sommet[3].y);
+              if (ymin < yNord) {
+                yNord = ymin;
+                indiceNord = i;
+              }
+          }
+          int joueur1 = 4 - indiceNord; if (joueur1 == 4) joueur1 = 0;
+          // vérifier la compatibilité avec le joueur qui a entamé ce pli
+          if (joueur1 != cepli.joueur) {
+            std::cout<<"!!! la position des cartes est incompatible avec le premier joueur du pli"<<std::endl;
+          }
+          // on a la carte jouée par Nord : monpli.cartes[indiceNord]
+          // cepli.carte[0] : carte jouée par Nord
+          // monpli.carte[0] : premiére carte jouée, celle jouée par cepli.joueur
+          int ij = indiceNord;  // choix selon la géométrie
+          ij = 4 - cepli.joueur; if (ij == 4) ij = 0; // choix selon le contrat et les règles du bridge
+          for (int k=0; k<4; k++){
+            cepli.carte[k] = monpli.cartes[ij];
+            ij++; if(ij >= 4) ij -=4;
+          }
+
           int j1 = cepli.joueur;
-          int j = j1; // a priori le même joueur emporte le pli
+          int jgagnant = j1; // a priori le même joueur emporte le pli
           int coul = cepli.carte[j1].couleur;
           int val = cepli.carte[j1].valeur; if (val == 1) val = 14; // As > R
           int n = 0;
@@ -1438,9 +1558,9 @@ int processVideo(config &maconf, cv::String nomfichier)
             int c = cepli.carte[n].couleur;
             if (c < 0) {
               std::cout<<" pli incomplet"<<std::endl;
-              // estincomplet = true; break;
               c = 3;
-              cepli.carte[n].couleur = 3; // compléter avec le 2 de trefle
+              if (maconf.contratcouleur == 3) c = 2;
+              cepli.carte[n].couleur = c; // compléter avec le 2 de trefle (ou carreau si trfle est atout)
             }
             if (cepli.carte[n].valeur <= 0) cepli.carte[n].valeur = 2;
 
@@ -1448,80 +1568,68 @@ int processVideo(config &maconf, cv::String nomfichier)
             if (c == maconf.contratcouleur && coul != maconf.contratcouleur) {
               coul = maconf.contratcouleur;
               val = cepli.carte[n].valeur;
-              j = n;
+              jgagnant = n;
             } else {
               int v = cepli.carte[n].valeur; if (v == 1) v = 14;
               if (v >= val){
-                val = v; j = n;
+                val = v; jgagnant = n;
               }
             }
           }
-          if (estincomplet) {
-            // TODO : signaler l'anomalie
-            //       compléter le pli avec des cartes inconnues (afficher un dos de carte)
-            //       enregistrer
-            std::cout<<" pli incomplet"<<std::endl;
-          } else {
-            // mémoriser les 4 cartes dans la distribution
-            //int joueur = cepli.joueur; joueur = joueur%4;
-            for (int k = 0; k < 4; k++){
-              int c = cepli.carte[k].couleur;
-              int v = cepli.carte[k].valeur;
-              distribution[k][numpli][0] = c; // couleur
-              distribution[k][numpli][1] = v; // valeur
-              // vérifier que la carte jouée par le mort est dans les cartes du mort
-              // et que la carte jouée par un autre n'est pas dans les cartes du mort
-              if (numpli > 0){
-                int i;
-                if (k == 0){ // carte du mort
-                  for (i = 0; i < 13; i++){
-                    if (c == carteMort[i].couleur && v == carteMort[i].valeur) break;
-                  }
-                  if (i == 13) std::cout<<"!!! carte couleur "<<c<< " valeur "<<v
-                  <<" n'est pas dans le jeu du mort"<<std::endl;
-                } else {
-                  for (i = 0; i < 13; i++){
-                    if (c == carteMort[i].couleur && v == carteMort[i].valeur){
-                      std::cout<<"!!! carte couleur "<<c<< " valeur "<<v
-                        <<" est dans le jeu du mort"<<std::endl;
-                    }
+          
+          // mémoriser les 4 cartes dans la distribution
+          for (int k = 0; k < 4; k++){  // N E S O
+            int c = cepli.carte[k].couleur;
+            int v = cepli.carte[k].valeur;
+            distribution[k][numpli][0] = c; // couleur
+            distribution[k][numpli][1] = v; // valeur
+            // vérifier que la carte jouée par le mort est dans les cartes du mort
+            // et que la carte jouée par un autre n'est pas dans les cartes du mort
+            if (numpli > 0){
+              int i;
+              if (k == joueurMort){ // carte du mort
+                for (i = 0; i < 13; i++){
+                  if (c == carteMort[i].couleur && v == carteMort[i].valeur) break;
+                }
+                if (i == 13) std::cout<<"!!! carte couleur "<<c<< " valeur "<<v
+                <<" n'est pas dans le jeu du mort"<<std::endl;
+              } else {
+                for (i = 0; i < 13; i++){
+                  if (c == carteMort[i].couleur && v == carteMort[i].valeur){
+                    std::cout<<"!!! carte couleur "<<c<< " valeur "<<v
+                      <<" est dans le jeu du mort"<<std::endl;
                   }
                 }
               }
-              //joueur++; if (joueur > 3) joueur -= 4;
-            } // for k
-            const std::string NESO[4] = {"Nord", "Est", "Sud", "Ouest"};
-            cepli.joueurgagnant = j;
-            pliprec = cepli;
-            cepli = Pli(); cepli.joueur = j;
-            // enregistrer le pli complet 
-            numpli++;
-            std::cout<<"==> pli "<<numpli<< " joueur " << NESO[pliprec.joueur] << "  frame "<< numeroframe <<std::endl;
-            for(int i=0; i< 4; i++){
-              std::string s = carteToString(pliprec.carte[i].couleur, pliprec.carte[i].valeur);
-              if (pliprec.joueur == i) s = "-->" +s; else s = "   " + s;
-              if (pliprec.joueurgagnant == i) s += "-->";
-              if (i == 0 || i == 2) s = "    " + s;
-              if (i == 1) s = "        " + s;
-              std::cout<<"      "<<s<<std::endl;
             }
-            enregistrerContratEtPli ("test", 1, "3SA", "nord", numpli, pliprec);
-            // vider le vecteur coinsPrec des coins de la frame précédente:
-            coinsPrec.clear();
-            // noter qu'il n'y a aucune carte dans le pli en cours
-            nbcartes = 0;
-            //std::cout<<" nouveau pli enregistre frame "<<numeroframe<<std::endl;
-            monpli.nbcartes=0;
-            for (int i= 0; i<4; i++) {
-              monpli.cartes[i].couleur = -1; 
-              monpli.cartes[i].valeur = 0;
-              for (int j = 0; j < 4; j++) {
-                monpli.cartes[i].sommet[j].x = 0;
-                monpli.cartes[i].sommet[j].y = 0;
-              }
-            } 
-            if (waitoption) cv::waitKey(0);          
-          } // pli complet
+            //joueur++; if (joueur > 3) joueur -= 4;
+          } // for k
+          cepli.joueurgagnant = jgagnant;
+          pliprec = cepli;
+          cepli = Pli(); cepli.joueur = jgagnant;
+          // enregistrer le pli complet 
+          numpli++;
+          std::cout<<"==> pli "<<numpli<< " joueur " << NESO[pliprec.joueur] << "  frame "<< numeroframe <<std::endl;
+          for(int i=0; i< 4; i++){
+            std::string s = carteToString(pliprec.carte[i].couleur, pliprec.carte[i].valeur);
+            if (pliprec.joueur == i) s = "-->" +s; else s = "   " + s;
+            if (pliprec.joueurgagnant == i) s += "-->";
+            s = "        " + s;
+            std::cout<<"      "<<s<<std::endl;
+          }
+          std::string contrat;
+          contrat = maconf.contratvaleur;
+          if (maconf.contratcouleur < 0) contrat += "SA";
+          //else contrat += lettrecouleur[maconf.contratcouleur];
+          else contrat += couleurcarte[maconf.contratcouleur];
+          enregistrerContratEtPli ("test", maconf.numeroDonne, contrat, NESO[maconf.declarant] , numpli, pliprec);
+          // vider le vecteur coinsPrec des coins de la frame précédente:
+          coinsPrec.clear();
+          // noter qu'il n'y a aucune carte dans le pli en cours
+          nbcartes = 0;
+          //std::cout<<" nouveau pli enregistre frame "<<numeroframe<<std::endl;
+          monpli = unpli(); // nouveau pli vide, initialisé
+          if (waitoption) cv::waitKey(0);          
         }
         else {
           if (printoption && coinsPrec.size() > 0)
@@ -1612,8 +1720,6 @@ int main(int argc, char **argv)
 void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, std::vector<uncoinPrec>& coinsPrec,
    const std::vector<ligne>&  lignes, unpli& monpli) {
   if (printoption) std::cout<< std::endl<<"================== recherche des nouvelles cartes ======"<<std::endl;
-  const std::string nomval[14] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    "10", "V", "D", "R"};
   bool estvideo = true;
   int epsilon = std::max(4,2*maconf.deltacadre);
   int nca = 0; // numéro de carte complète à analyser
@@ -1627,7 +1733,6 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
   // TODO : la distance entre un sommet de la carte et un point de la frame précédente
   //         doit être commune à tous les sommets de la carte
   // un des coins de cette carte était-il déjà dans la frame précédente
-  //for (int n = 0; n < nbcoins; n++){
   for (int n = 0; n < Coins.size(); n++){
     // nouvelle carte
     if (Coins[n].numCarte <= nc) continue; // coin d'une carte déjà recherchée
@@ -1694,12 +1799,12 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
       if (numcol < 0 || valcarte <= 0) dmax = 100;
     }
     if (h1 >= 0 && dmax < maconf.hauteurcarte / 10) { // carte proche d'une carte de la frame précédente
-      if (numcol == 0) nomcarte = "Pique";
-      else if (numcol == 1) nomcarte = "Coeur";
-      else if (numcol == 2) nomcarte = "Carreau";
-      else if (numcol == 3) nomcarte = "Trefle";
-      if (coinsPrec[h1].valeur > 0 && coinsPrec[h1].valeur < 14)
-        nomcarte += " " + nomval[coinsPrec[h1].valeur];
+      nomcarte = "";
+      if (numcol >= 0 && numcol <= 3) nomcarte = nomcouleur[numcol];
+      if (coinsPrec[h1].valeur > 0 && coinsPrec[h1].valeur < 14){
+        nomcarte += " ";
+        nomcarte += nomval[coinsPrec[h1].valeur];
+      }
       if(printoption)  std::cout<< " carte "<< nc << " ("<< nomcarte 
         << ") déjà dans la frame précédente." << std::endl;
       // noter qu'il est inutile d'analyser ce coin
@@ -2172,7 +2277,7 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
           for (int i = 0; i < 4; i++)
             for (int j = 0; j < 13; j++) {
               if ( numcol == distribution[i][j][0] && valcarte == distribution[i][j][1]) {
-                std::cout<<" cette carte ("<<numcol<<","<<valcarte<<")"<<" est deja dans le pli "
+                std::cout<<" cette carte ("<<couleurcarte[numcol]<<" "<<valcarte<<")"<<" est deja dans le pli "
                   <<j+1<<" du joueur "<<i<<std::endl;
                 duplique = true;
               }
@@ -2180,7 +2285,10 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
         }
           ajouteraupli = true;
           if (printoption) {
-              std::cout<<"==> valeur carte "<<valcarte<<" couleur "<<numcol<<std::endl;
+            if (numcol >= 0 && valcarte > 0 && valcarte <= 13)  // on a trouvé
+              std::cout<<"==> carte : "<<couleurcarte[numcol]<<" "<<valcarte<<std::endl;
+            else
+              std::cout<<"==> carte valeur "<<valcarte<<" couleur "<<numcol<<std::endl;
           }
         }
         // mémoriser la valeur obtenue sur tous les coins de la carte
@@ -2303,11 +2411,10 @@ void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
     // cv::waitKey(0);
   } // methode 1
 
-  // créer le lignes, avec équation carthésienne
-  for (size_t i = 0; i < lines.size(); i++)
+  // créer les lignes, avec équation carthésienne
+  for (auto l:lines)
   {
     ligne ln;
-    cv::Vec4i l(lines[i][0], lines[i][1], lines[i][2], lines[i][3]);
     ln.ln = l;
 
     cv::Point A(l[0], l[1]);
@@ -2331,7 +2438,6 @@ void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin
   int printoption = maconf.printoption;
   int nbcoins = 0;
   int nbcartes = 0;
-  int il1;
   // pour chaque ligne AB
   for (int i = 0; i < lignes.size(); i++) {
     ligne ln = lignes[i];
@@ -2342,17 +2448,11 @@ void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin
     float lg1 = ln.lg;
     if (printoption > 1)
       std::cout << i << " Ligne AB " << A << B << " Longueur: " << lg1 << std::endl;
-    il1 = i;
     float a = ln.a; // vecteur normal de la droite AB
     float b = ln.b;
     //
     // chercher, parmi les autres lignes la ligne orthogonale CD dont une extremité (C ou D)  est proche de A ou B
     // TODO: ou proche de la ligne AB entre A et B. ou dont A ou B est proche de la ligne CD entre C et D
-    
-    // TODO : multithread 
-    // initialiser une sous-tache pour calculer les coins sur la ligne AB
-    // protéger l'ajout des coins
-    
     
     for (int j = i + 1; j < lignes.size(); j++) {
       ligne ln2 = lignes[j];
@@ -2368,7 +2468,7 @@ void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin
       if (std::abs(psX) > maconf.cosOrtho)  continue;  // lignes non approximativement orthogonales
 
       bool bCoin = false;
-      cv::Point2i H, K; // H sur la jigne i, loin du sommet, K sur la ligne j
+      cv::Point2i H, K; // H sur la ligne i, loin du sommet, K sur la ligne j
       // A proche de C ?
       if (std::abs(C.x - A.x) < maconf.deltacoin && std::abs(C.y - A.y) < maconf.deltacoin)
       { // A proche de C
@@ -2416,7 +2516,6 @@ void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin
         }
         Coins.push_back(uncoin(lignes[i], lignes[j]));
         int n = Coins.size() - 1;
-        //Coins[n].pcoins = coins;
         Coins[n].numcoin = nbcoins;
         Coins[n].sommet = P;
         Coins[n].H = H;
@@ -2449,19 +2548,9 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     std::vector<std::string> resultats; // vecteur des résultats
     std::vector<std::thread> threads;
 
-#define NBCOULEURS 10
-    cv::Scalar couleurs[10];
-    couleurs[0] = cv::Scalar(255, 128, 128); // bleu clair
-    couleurs[1] = cv::Scalar(128, 255, 128); // vert clair
-    couleurs[2] = cv::Scalar(128, 128, 255); // rouge vif
-    couleurs[3] = cv::Scalar(255, 255, 128); // turquoise
-    couleurs[4] = cv::Scalar(255, 128, 255); // violet
-    couleurs[5] = cv::Scalar(128, 255, 255); // jaune
-    couleurs[6] = cv::Scalar(0, 128, 128); // marron
-    couleurs[7] = cv::Scalar(255,0,0); // bleu foncé
-    couleurs[8] = cv::Scalar(0,255,0); // vert foncé
-    couleurs[9] = cv::Scalar(0,0,255); // rouge foncé
     int c = 0;
+    std::vector<ligne> lignes;   // segments complétés par l'équation de droite
+    std::vector<uncoin> Coins;   // coins entre lignes orthogonales
 
     if (image.empty())
     {
@@ -2469,111 +2558,73 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         return -1;
     }
     cv::Mat result = image.clone();
-    // auto start = std::chrono::high_resolution_clock::now();
-
-    // afficher l'image en couleurs
-    if (printoption)
-        cv::imshow("couleur", image);
-    /*****************************
-    // Séparer les canaux Bleu, Vert, Rouge
-    std::vector<cv::Mat> bgrChannels(3);
-    cv::split(image, bgrChannels);
-    // Utiliser seulement le canal Vert (par exemple)
-    cv::Mat greenChannel = bgrChannels[1];
-    // cv::imshow("vert", greenChannel);
-    cv::Mat blueChannel = bgrChannels[0];
-    // cv::imshow("bleu", blueChannel);
-    cv::Mat redChannel = bgrChannels[2];
-    // cv::imshow("rouge", redChannel);
-    **********************/
-    // Convertir en niveaux de gris
+    if (printoption)  cv::imshow("couleur", image); // afficher l'image en couleurs
     cv::Mat gray;
-    cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY); // Convertir en niveaux de gris
+    // obtenir les lignes droites dans l'image monochrome
+    trouverLignes(maconf, gray, lignes);
 
     // Appliquer le flou gaussien pour réduire le bruit
     //cv::Mat blurred;
     //cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 0);
     // cv::imshow("blur", blurred);
 
-    ////////////////// utiliser une des images monochromatiques /////////////////
     cv::Mat grise;
-    cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR);
-    if (printoption)
-        cv::imshow("grise", grise);
+    cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR); // pour affichage en rouge les lignes
+    if (printoption) cv::imshow("grise", grise);
 
-    std::vector<ligne> lignes;   // segments complétés par l'équation de droite
     int gmin = maconf.gradmin;
     int gmax = maconf.gradmax;
     cv::Mat edges;
     cv::Mat ima2;
-    // obtenir les lignes droites dans l'image monochrome
-    trouverLignes(maconf, gray, lignes);
     auto t11 = std::chrono::high_resolution_clock::now();
     duree = t11 - t0;
+    Durees[0] += duree.count();
     if(printoption)
       std::cout << "Duree de detection des lignes : " << duree.count() << " secondes" << std::endl;
-      Durees[0] += duree.count();
-    if (waitoption > 1)
-        cv::waitKey(0);
+    if (waitoption > 1) cv::waitKey(0);
     
     // Dessiner les segments de ligne détectés
     cv::cvtColor(gray, result, cv::COLOR_GRAY2BGR);
-    // lsd->drawSegments(result, lines_f); // plus loin pour plusieurs couleurs
-    // Convertir les coordonnées des lignes en entiers
-    // calculer la longueur et l'équation cartésienne
-
     if (printoption){
       int ic = 0;
-      for (size_t i = 0; i < lignes.size() ; i++)
-      {
+      for (auto ln:lignes) {
           ic++; if (ic >= NBCOULEURS) ic = 0;
-          ligne ln = lignes[i];
           cv::Vec4i l = ln.ln;
-
           cv::Point A(l[0], l[1]);
           cv::Point B(l[2], l[3]);
-          // tracer la ligne sur l'image result
           cv::line(result, A, B, couleurs[ic], 1);
       }
-      // Afficher l'image avec les lignes détectées
       cv::imshow("ximgproc", result);
     }
 
-    auto t22 = std::chrono::high_resolution_clock::now();
+    //auto t22 = std::chrono::high_resolution_clock::now();
+    auto t22 = t11;
     ima2 = grise.clone();
     cv::Canny(ima2, edges, gmin, gmax, 3, false);
-    if (printoption)
-        cv::imshow("bords", edges);
-    int il1 = 0;
     int nblignes = lignes.size();
     if (printoption) {
+        cv::imshow("bords", edges);
       // Dessiner les segments de droite et afficher leurs longueurs et extrémités
       //********************** fond noir pour ne voir que les lignes des coins
       for (int y = 0; y < ima2.rows; y++)
           for (int x = 0; x < ima2.cols; x++) ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
-      /***************/
 
       c = 0; // indice de couleur
-      double maxlg = 0;
-      for (int i = 0; i < nblignes; i++)
+      float maxlg = 0;
+      for (auto ligne:lignes)
       {
-          cv::Vec4i l = lignes[i].ln;
-
+          cv::Vec4i l = ligne.ln;
           cv::Point A(l[0], l[1]);
           cv::Point B(l[2], l[3]);
           cv::line(ima2, A, B, couleurs[c], 1);
           c++;
           if (c >= NBCOULEURS) c = 0;
-          //double lg = lneq[i][3];
-          float lg = lignes[i].lg;
-          std::cout << "Ligne " << i <<" "<< A << "->" << B << " Longueur: " << lg << std::endl;
-          if (lg > maxlg) {
-              maxlg = lg;
-              il1 = i; // indice de la ligne la plus longue
-          }
+          float lg = ligne.lg;
+          std::cout << "Ligne " << A << "->" << B << " Longueur: " << lg << std::endl;
+          maxlg = std::max(maxlg, lg);
       }
-      // Afficher l'image avec les segments de droite
-      cv::imshow("Lignes toutes", ima2);
+      cv::imshow("Lignes toutes", ima2); // Afficher l'image avec les segments de droite
     }
 
     int lgmax = maconf.taillechiffre;
@@ -2787,33 +2838,29 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     lgmax = maconf.taillechiffre + maconf.taillesymbole; // limite inférieure
     // lgmax = maconf.hauteurcarte / 6;   // test à valider
     int lgmin = maconf.hauteurcarte + maconf.deltacadre;
-    for (int i = 0; i < lignes.size(); i++)
+    for (auto ln:lignes)
     {
-      ligne ln = lignes[i];
       cv::Vec4i l = ln.ln;
-      if (l[0] < 0)
-          continue; // ligne invalidée
+      if (l[0] < 0)  continue; // ligne invalidée
       cv::Point2i A(l[0], l[1]);
       cv::Point2i B(l[2], l[3]);
-      double lg1 = ln.lg;
-      if ((lg1 < lgmax) /*/ ||  (lg1 > lgmin) */)
+      float lg1 = ln.lg;
+      if ((lg1 < lgmax) /* ||  (lg1 > lgmin) */)
       {
-        lignes[i].ln[0] = -1; // invalider la ligne
+        ln.ln[0] = -1; // invalider la ligne
         if (printoption > 1)
-            std::cout << "supprime la ligne " << i << " " << A << "-" << B << " longueur " << lg1 << std::endl;
+            std::cout << "supprime la ligne " << A << "-" << B << " longueur " << lg1 << std::endl;
       }
     }
 
-    double maxlg = 0;
+    float maxlg = 0;
     // afficher les lignes qui restent
     if (printoption) {
       for (int y = 0; y < ima2.rows; y++) for (int x = 0; x < ima2.cols; x++)
           ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
       c = 0;
-      il1 = 0;
-      for (int i = 0; i < lignes.size(); i++)
+      for (auto ln:lignes)
       {
-        ligne ln = lignes[i];
         cv::Vec4i l = ln.ln;
         if (l[0] < 0)  continue; // ligne fusionnée ou ignorée car trop courte
         cv::Point A(l[0], l[1]);
@@ -2823,12 +2870,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         if (c >= NBCOULEURS)  c = 0;
         float length = ln.lg;
         if (printoption > 1)
-        std::cout << "Ligne " << i <<" "<< A << "->" << B << " Longueur: " << length << std::endl;
-        if (length > maxlg)
-        {
-            maxlg = length;
-            il1 = i;
-        }
+        std::cout << "Ligne " << A << "->" << B << " Longueur: " << length << std::endl;
+        if (length > maxlg) maxlg = length;
       }
       // Afficher l'image avec les segments de droite
       std::cout << "longueur maximale " << maxlg << std::endl;
@@ -2839,11 +2882,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     //////////////////////////////// rechercher les coins des cartes ///////////////////
     //
 
-    std::vector<uncoin> Coins;
     int nbcartes = 0;
-    int nbcoins = 0;
     trouverCoins(maconf, lignes, Coins);
-    nbcoins = Coins.size();
 
     auto t33 = std::chrono::high_resolution_clock::now();
     duree = t33 - t22;
@@ -2870,7 +2910,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     int ecartHt = maconf.hauteurcarte;
     int ecartLa = maconf.hauteurcarte;
     cv::Point2i P1, P2;
-    //for (int n = 0; n < nbcoins; n++)
     for (int n = 0; n < Coins.size(); n++)
     {
       if (Coins[n].elimine) continue;
@@ -2896,38 +2935,40 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         // AB semble alors etre un bord de carte
         //
         bool estoppose = false;
-        float epsilon = maconf.deltacadre / 2;
+        float epsilon = std::max(1,maconf.deltacadre / 2);
         // première ligne du coin n contient le sommet B du coin m ?
-        //float dist = B.x * lignes[i].a + B.y + lignes[i].b + lignes[i].c;
         float dist = B.x * Coins[n].l1->a + B.y + Coins[n].l1->b + Coins[n].l1->c;
         if (std::abs(dist) < epsilon) {
           // B proche de la première ligne du coin A
-          // ligne de B // i ? produit vectoriel des normales
+          // ligne de B // l1 ? produit vectoriel des normales
           float pv = Coins[n].l1->a * Coins[m].l1->b  - Coins[n].l1->b * Coins[m].l1->a;
           if (std::abs(pv) < maconf.deltaradian ) {
-            // i et ii confondus
+            // l1(n) et l1(m) parallèles
             // de sens opposé ? produit scalaire AH.BHH
             float ps = (H.x - A.x)*(HH.x - B.x) + (H.y - A.y)*(HH.y - B.y);
             if (ps < 0) { // A et B opposés
-              // vérifier que K et KK sont du même coté de la droite i = ii
-              float d1 = Coins[n].l1->a * K.x + Coins[n].l1->b * K.y + Coins[n].l1->c;
-              float d2 = Coins[n].l1->a * KK.x + Coins[n].l1->b * KK.y + Coins[n].l1->c;
+              // vérifier que K et KK sont du même coté de la droite l1
+              //float d1 = Coins[n].l1->a * K.x + Coins[n].l1->b * K.y + Coins[n].l1->c;
+              //float d2 = Coins[n].l1->a * KK.x + Coins[n].l1->b * KK.y + Coins[n].l1->c;
+              float d1 = Coins[n].l1->dist(K);
+              float d2 = Coins[n].l1->dist(KK);
               if (d1*d2 > 0){ //cotés non communs de même orientation
                   estoppose = true;
               } 
             }
-          } else { // i et ii non //
-            // i et jj confondus ?
-            //float pv = lignes[i].a * lignes[jj].b  - lignes[i].b * lignes[jj].a;
+          } else { // l1(n) et l1(m) non //
+            // l1(n) et l2(m) confondus ?
             float pv = Coins[n].l1->a * Coins[m].l2->b  - Coins[n].l1->b * Coins[m].l2->a;
             if (std::abs(pv) < maconf.deltaradian ) {
-              // i et jj confondus
+              // l1 et l2 confondus
               // de sens opposé ? produit scalaire AH.BKK
               float ps = (H.x - A.x)*(KK.x - B.x) + (H.y - A.y)*(KK.y - B.y);
               if (ps < 0) { // A et B opposés
-                // vérifier que K et HH sont du même coté de la droite i = jj
-                float d1 = Coins[n].l1->a * K.x + Coins[n].l1->b * K.y + Coins[n].l1->c;
-                float d2 = Coins[n].l1->a * HH.x + Coins[n].l1->b * HH.y + Coins[n].l1->c;
+                // vérifier que K et HH sont du même coté de la droite l1 (= l2 de m)
+                //float d1 = Coins[n].l1->a * K.x + Coins[n].l1->b * K.y + Coins[n].l1->c;
+                //float d2 = Coins[n].l1->a * HH.x + Coins[n].l1->b * HH.y + Coins[n].l1->c;
+                float d1 = Coins[n].l1->dist(K);
+                float d2 = Coins[n].l1->dist(HH);
                 if (d1*d2 > 0){ //cotés non communs de même orientation
                     estoppose = true;
                 } 
@@ -2935,34 +2976,36 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
             }
           }
         } else // B pas proche de la ligne i. proche de la ligne j ?
-        // if (std::abs(B.x * lignes[j].a + B.y + lignes[j].b + lignes[j].c < epsilon)) { 
         if (std::abs(B.x * Coins[n].l2->a + B.y + Coins[n].l2->b + Coins[n].l2->c < epsilon)) { 
-         // B proche de la droite j
-          // ligne ii ou jj // j ? produit vectoriel des normales
+         // B proche de la droite l2
+          // ligne l1 ou l2 (m) // l2 (n) ? produit vectoriel des normales
           float pv = Coins[n].l2->a * Coins[m].l1->b  - Coins[n].l2->b * Coins[m].l1->a;
           if (std::abs(pv) < maconf.deltaradian ) {
-            // j et ii confondus
+            // l2(n) et l1(m) confondus
             // de sens opposé ? produit scalaire AK.BHH
             float ps = (K.x - A.x)*(HH.x - B.x) + (K.y - A.y)*(HH.y - B.y);
             if (ps < 0) { // A et B opposés
               // vérifier que H et KK sont du même coté de la droite j = ii
-              float d1 = Coins[n].l2->a*H.x + Coins[n].l2->b*H.y + Coins[n].l2->c;
-              float d2 = Coins[n].l2->a*KK.x + Coins[n].l2->b*KK.y + Coins[n].l2->c;
+              //float d1 = Coins[n].l2->a*H.x + Coins[n].l2->b*H.y + Coins[n].l2->c;
+              //float d2 = Coins[n].l2->a*KK.x + Coins[n].l2->b*KK.y + Coins[n].l2->c;
+              float d1 = Coins[n].l2->dist(H);
+              float d2 = Coins[n].l2->dist(KK);
               if (d1*d2 > 0){ //cotés non communs de même orientation
                 estoppose = true;
               } 
             }
-          } else { // j et ii non //
-            // j et jj confondus ?
+          } else { // l2(n) et l1(m) non //
+            // l2(n) et l2(m) confondus ?
             float pv = Coins[n].l2->a * Coins[m].l2->a  - Coins[n].l2->b * Coins[m].l2->b;
             if (std::abs(pv) < maconf.deltaradian ) {
-              // j et jj confondus
               // de sens opposé ? produit scalaire AH.BH
               float ps = (H.x - A.x)*(HH.x - B.x) + (H.y - A.y)*(HH.y - B.y);
               if (ps < 0) { // A et B opposés
                 // vérifier que H et HH sont du même coté de la droite j = jj
-                float d1 = Coins[n].l2->a*H.x + Coins[n].l2->b*H.y + Coins[n].l2->c;
-                float d2 = Coins[n].l2->a*HH.x + Coins[n].l2->b*HH.y + Coins[n].l2->c;
+                //float d1 = Coins[n].l2->a*H.x + Coins[n].l2->b*H.y + Coins[n].l2->c;
+                //float d2 = Coins[n].l2->a*HH.x + Coins[n].l2->b*HH.y + Coins[n].l2->c;
+                float d1 = Coins[n].l2->dist(H);
+                float d2 = Coins[n].l2->dist(HH);
                 if (d1*d2 > 0){ //cotés non communs de même orientation
                     estoppose = true;
                 } 
@@ -2971,7 +3014,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
           }
         }
         // déterminer précisément la hauteur de carte, proche de la valeur dans la configuration
-        if (estoppose) {
+        if (estoppose) { // coins n et m sur un bord de carte (probablement)
           float lg = (B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y);
           lg = std::sqrt(lg);
           // AB proche de la hauteur de carte ?
@@ -2994,7 +3037,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
               }
             }
           }
-          continue;
+          continue; // inutile
         }
       } // for m
       // if (htmax < 8 * maconf.hauteurcarte / 10) htmax = maconf.hauteurcarte;
@@ -3023,8 +3066,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     //        créer les coins adjacents des lignes, même si une des deux est courte, correspondent
 
     ////////////////////////// éliminer les artefacts /////////////////////////////
-
-    //
 
     // faire le tri parmi les coins détectés
     // pour chaque couple de coins P (n) et Q (m)
@@ -3078,7 +3119,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         cv::Vec4i l11 = Coins[m].l1->ln;
         cv::Vec4i l22 = Coins[m].l2->ln;
 
-
         cv::Point2i U = Coins[m].H;
         cv::Point2i V = Coins[m].K;
 
@@ -3092,7 +3132,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         //
         double pv;
         bool estl22 = false;
-        //if (i == ii)
         if (Coins[n].l1 == Coins[m].l1)
             pv = 0;
         else
@@ -3104,19 +3143,16 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
               pv = 0;
           else
               pv = Coins[n].l1->a * Coins[m].l2->b - Coins[n].l1->b * Coins[m].l2->a;
-          if (std::abs(pv) > maconf.deltaradian)
-              continue;  //  AB  non // C'D'
-          estl22 = true; // AB // C'D'   et donc  CD // A'B'
+          if (std::abs(pv) > maconf.deltaradian)  continue;  //  AB  non // C'D'
+          estl22 = true; // AB // C'D'   et donc  CD // A'B' (orthogonaux)
         }
         //       déterminer si Q est proche d'une des lignes l1 (AB) ou l2 (CD)
         //       puis calculer la distance de Q à l'autre ligne
-        //        hauteur ou largeur de carte ?
         bool memecarte = false;
 
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        if (Coins[n].elimine && Coins[m].elimine) continue;
-        // TODO : erreur, il faut continuer pour déterminer si l'un est le cadre de l'autre
-        //if (!Coins[n].elimine && !Coins[m].elimine)
+        if (Coins[n].elimine && Coins[m].elimine) continue; // deux coins éliminés
+        // il faut continuer pour déterminer si l'un est le cadre de l'autre
         {
           float d1, d2, d3, d11, d22;
           int dc = std::max(5, maconf.deltacadre);
@@ -3223,9 +3259,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
         }
 
-        // if (ii < 0 || jj < 0) continue; // coin Q éliminé
-
-
         // coins P et Q proches //
         // tenir compte de l'imprécision de position des bords de carte (*2)
         // il peut y avoir trois droites // : le cadre d'un RDV et deux droites proches du bord de carte
@@ -3239,29 +3272,25 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         { //  PR // QV
           // calcule le produit scalaire PR.QV    négatif si orientés en sens inverse
           int ps = (R.x - P.x) * (V.x - Q.x) + (R.y - P.y) * (V.y - Q.y);
-          if (ps < 0)
-              continue; // aucun ne peut être cadre de l'autre
+          if (ps < 0)  continue; // aucun ne peut être cadre de l'autre
           // calcule le produit scalaire PS.QU    négatif si orientés en sens inverse
           ps = (S.x - P.x) * (U.x - Q.x) + (S.y - P.y) * (U.y - Q.y);
-          if (ps < 0)
-              continue; // aucun ne peut être cadre de l'autre
+          if (ps < 0)  continue; // aucun ne peut être cadre de l'autre
         }
         else
         {
           // calcule le produit scalaire PR.QU   négatif si orientés en sens inverse
           int ps = (R.x - P.x) * (U.x - Q.x) + (R.y - P.y) * (U.y - Q.y);
-          if (ps < 0)
-              continue; // aucun ne peut être cadre de l'autre
+          if (ps < 0) continue; // aucun ne peut être cadre de l'autre
           // calcule le produit scalaire PS.QV    négatif si orientés en sens inverse
           ps = (S.x - P.x) * (V.x - Q.x) + (S.y - P.y) * (V.y - Q.y);
-          if (ps < 0)
-              continue; // aucun ne peut être cadre de l'autre
+          if (ps < 0) continue; // aucun ne peut être cadre de l'autre
         }
 
         // éliminer ce coin Q s'il est dans le coin P
         //
         double d, dd; // distances algébriques de Q à PS et PR
-        double epsilon = dc - 1;
+        double epsilon = std::max(1,dc - 1);
         // tenir compte de l'orthogonalité PR xPS
         // projections de Q : H sur PR   K sur PS
         // PH = PQ.PR / ||PR||
@@ -3401,26 +3430,13 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
     // on a alors identifié la nouvelle carte et les nouveaux coins
     // il sera inutile de traiter ces coins, même si la carte est un personnage
-    const std::string nomval[14] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-        "10", "V", "D", "R"};
 
-    if (estvideo) {
-      traiterCartes(image, maconf, Coins, coinsPrec,
-         lignes, monpli);
-      }
+    if (estvideo) traiterCartes(image, maconf, Coins, coinsPrec, lignes, monpli);
 
 
-    // afficher ce qui reste selectionné
-    cv::Mat imaC = ima2.clone();
-    //********************** fond noir pour ne voir que les lignes des coins
-    for (int y = 0; y < imaC.rows; y++)
-      for (int x = 0; x < imaC.cols; x++)
-          imaC.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
-    /***************/
     if (estvideo){
       // éliminer les coins de la frame précédente qui ne sont pas dans celle-ci
       int dc = std::max(2, maconf.deltacadre);
-      // TODO : éliminer les coins du vecteur coinsPrec qui ne sont pas dans cette frame
       for (auto it=coinsPrec.begin() ; it != coinsPrec.end();  ) {
         bool trouve = false;
         uncoinPrec up = *it;
@@ -3442,6 +3458,13 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
     // afficher les coins
   if (printoption) {
+    // afficher ce qui reste selectionné
+    cv::Mat imaC = ima2.clone();
+    //********************** fond noir pour ne voir que les lignes des coins
+    for (int y = 0; y < imaC.rows; y++)
+      for (int x = 0; x < imaC.cols; x++)
+          imaC.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
+
     c = 0;
     for (int n = 0; n < Coins.size(); n++) {
       int cc = Coins[n].numCarte; // numéro de carte
@@ -3491,8 +3514,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       if (estvideo){
         // si ce coin était trouvé dans la frame précédente, inutile de le considérer
         if (Coins[n].couleur >= 0 && Coins[n].valeur > 0) {
-          if (printoption) std::cout<<"coin "<< n << " identifié, couleur:"
-                <<Coins[n].couleur<<", valeur:"<<Coins[n].valeur<<std::endl;
+          if (printoption) std::cout<<"coin "<< n << " identifié: "
+                <<nomcouleur[Coins[n].couleur]<<" "<<Coins[n].valeur<<std::endl;
           Coins[n].elimine = true;
         } else for (auto up : coinsPrec){
           if (std::abs (P.x - up.x) <= maconf.deltacadre 
@@ -3501,8 +3524,14 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
             Coins[n].couleur = up.couleur;
             Coins[n].valeur = up.valeur;
             Coins[n].elimine = true;
-            if (printoption) std::cout<<"coin "<< n << " dans une frame précédente carte couleur:"
+            if (printoption){
+              std::string s;
+              if (up.couleur >=0 && up.couleur <=3 && up.valeur >= 0 && up.valeur <=13) {
+                s = couleurcarte[up.couleur];
+              }
+              std::cout<<"coin "<< n << " dans une frame précédente carte couleur:"
               <<up.couleur<<", valeur:"<<up.valeur<<std::endl;
+            }
             break;
           }
         }
@@ -3572,11 +3601,9 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 //        a posteriori après traitement multithread
 
 
-    const std::string valeurcarte[14]  = {" ", "1","2", "3", "4", "5", "6", "7", "8", "9", "10", "V", "D", "R"};
-    const std::string couleurcarte[4]  = {"P", "C", "K", "T"}; 
 
   if (!estvideo ||  maconf.coinsoption > 0) {    // traiter aussi les coins isolés
-    for (int n = 0; n < nbcoins; n++) {
+    for (int n = 0; n < Coins.size(); n++) {
       if (Coins[n].elimine || (estvideo && Coins[n].couleur >= 0 && Coins[n].valeur> 0) )
           continue; // coin éliminé ou déjà analysé dans une carte
       int l1W[4], l2W[4];
@@ -3605,7 +3632,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         {
           if (!estvideo) cv::imshow("result", result);
           cv::Point2i PT(Coins[n].sommet);
-          std::string resW = couleurcarte[Coins[n].couleur] + valeurcarte[Coins[n].valeur];
+          std::string resW = couleurcarte[Coins[n].couleur];
+          resW += valeurcarte[Coins[n].valeur];
           std::string res = resW + "#";
 
           afficherResultat(result, PT, res);
@@ -3648,30 +3676,33 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     if (printoption) std::cout << "Temps écoulé : " << elapsed.count() << " secondes" << std::endl;
     Durees[3] += elapsed.count();
 
-    // TODO:
     // si on traite une vidéo, ajouter les 4 sommet de la dernière carte ajoutée au pli en cours
-    //   aux coins de la frame précédente (donc celle qu'on est en train de construire) 
-    for (int i=0; i<4;i++){
-      int x = monpli.cartes[nbcartes-1].sommet[i].x;
-      int y = monpli.cartes[nbcartes-1].sommet[i].y;
-      // rechercher s'il est présent dans les coins précédents (de la frame précédente)
-      bool trouve = false;
-      for (auto up : coinsPrec){
-        if (x == up.x && y == up.y) { trouve = true; break;}
+    //   aux coins de la frame précédente (donc celle qu'on est en train de construire)
+    if (estvideo) {
+      int coul = monpli.cartes[nbcartes-1].couleur;
+      int val = monpli.cartes[nbcartes-1].valeur;
+      for (int i=0; i<4;i++){
+        int x = monpli.cartes[nbcartes-1].sommet[i].x;
+        int y = monpli.cartes[nbcartes-1].sommet[i].y;
+        // rechercher s'il est présent dans les coins précédents (de la frame précédente)
+        bool trouve = false;
+        for (auto up : coinsPrec){
+          if (x == up.x && y == up.y) { trouve = true; break;}
+        }
+        if (!trouve) {
+          uncoinPrec up;
+          up.couleur = coul;
+          up.valeur = val;
+          up.x = x;
+          up.y = y;
+          coinsPrec.push_back(up);
+        }
       }
-      if (!trouve) {
-        uncoinPrec up;
-        up.couleur = monpli.cartes[nbcartes-1].couleur;
-        up.valeur = monpli.cartes[nbcartes-1].valeur;
-        up.x = x;
-        up.y = y;
-        coinsPrec.push_back(up);
-      }
-    }
+    } 
 
 
     // cv::imshow("result", result);
-    // Affichage des résultats après synchronisation
+    // Affichage des résultats après synchronisation multithread
     // les résultats sont dans le tableau des coins 
     // afficher un résultat pour chaque carte
     bool nouveaucoin = false;
@@ -3692,7 +3723,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
             // pas vidéo et coin non éliminé et valeur de carte trouvée et carte en cours
             if (!Coins[n].elimine && Coins[n].valeur > 0 && nc == Coins[n].numCarte){
                 if (premier) {cc1 = Coins[n].couleur; vc1 = Coins[n].valeur;}
-                std::string resW = couleurcarte[Coins[n].couleur] + valeurcarte[Coins[n].valeur];
+                std::string resW = couleurcarte[Coins[n].couleur];
+                resW += valeurcarte[Coins[n].valeur];
                 std::string res = resW + "#";
                 afficherResultat(result, PT, res);
                 if (premier) cartes[nc - 1] = resW;

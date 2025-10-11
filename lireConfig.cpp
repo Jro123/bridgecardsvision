@@ -91,6 +91,7 @@ int lireConfig(std::string nomfichier, config& maconf) {
     ASSIGN_OPTION(contratcouleur)
     ASSIGN_OPTION(contratvaleur)
     ASSIGN_OPTION(declarant)
+    ASSIGN_OPTION(numeroDonne)
 
 
     return 0;

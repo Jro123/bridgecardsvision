@@ -63,8 +63,6 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     if(threadoption)
         if (printoption) std::cout << "+++Thread " << std::this_thread::get_id() << " demarre..." << std::endl;
     
-    //int cecoin[12];
-    //for (int i = 0; i<12; i++) cecoin[i] = coins[n][i];
     std::string nomOCR = "tesOCR";
     if (maconf.tesOCR == 0)
         nomOCR = "SERVEUR";
@@ -73,8 +71,6 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
 
     bool estunRDV = false;
     bool estunRDV0 = false; // ce qui a été déterminé par la comparaison des coins
-    //int i = cecoin[0]; // indice de ligne
-    //int j = cecoin[1];
     if (Coins[n].elimine)
         {retourcoin(n); return;} // coin éliminé
     estunRDV0 = Coins[n].estunRDV;
@@ -103,15 +99,15 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     cv::Point2i K;
     cv::Point2i L;
     cv::Point2i I;
-    int taille = maconf.taillechiffre + maconf.deltahaut; // pour visualiser juste le numéro ou  R D V
-    if (estunRDV)
-        taille = maconf.tailleVDR + maconf.deltahautVDR;
-    taille = maconf.hauteurcarte + 4; // extraire toute la carte
+    //int taille = maconf.taillechiffre + maconf.deltahaut; // pour visualiser juste le numéro ou  R D V
+    //if (estunRDV)
+    //    taille = maconf.tailleVDR + maconf.deltahautVDR;
+    int taille = maconf.hauteurcarte + 4; // extraire toute la carte
 
     double pr = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
     double ps = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
-    pr = sqrt(pr);
-    ps = sqrt(ps);
+    pr = std::sqrt(pr);
+    ps = std::sqrt(ps);
     H.x = P.x + ((double)taille / pr) * (R.x - P.x);
     H.y = P.y + ((double)taille / pr) * (R.y - P.y);
 
