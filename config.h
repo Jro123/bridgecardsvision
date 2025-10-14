@@ -119,6 +119,7 @@ public:
   int y;
   int couleur;
   int valeur;
+  int numcarte;
 };
 
 class ligne{
