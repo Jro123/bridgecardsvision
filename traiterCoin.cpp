@@ -54,8 +54,9 @@ void retourcoin(int n){
 
 void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector<std::string>& resultats, 
                         cv::Mat result, const int *l1, const int *l2, const config &maconf)
-{
 
+{
+  uncoin& cn = Coins[n];
     int waitoption = maconf.waitoption;
     int printoption = maconf.printoption;
     if (printoption) std::cout<< "+++Traitercoin " <<n <<std::endl;
@@ -69,19 +70,45 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     else
         nomOCR = "tesOCR";
 
-    bool estunRDV = false;
-    bool estunRDV0 = false; // ce qui a été déterminé par la comparaison des coins
-    if (Coins[n].elimine)
+    if (cn.elimine)
         {retourcoin(n); return;} // coin éliminé
-    estunRDV0 = Coins[n].estunRDV;
-    estunRDV = false; // détection douteuse, désactivée
-    cv::Point2i P = cv::Point2i(Coins[n].sommet); // intersection des deux lignes
-    cv::Point2i Q;
-    Q = P;              // initialiser un point valide
+    bool estunRDV0 = cn.estunRDV;
+    bool estunRDV = estunRDV0;
+    //estunRDV = false; // détection douteuse
+    cv::Point2i P = cn.sommet; // intersection des deux lignes
+
+
+    cv::Point2i Q = cn.sommet; // initialiser un point valide
+    if (estunRDV) Q = cn.cadre;
+    if (estunRDV){
+      // TODO : repositionner le sommet du cadre
+      // selon le premier coté du coin
+      int dc = maconf.deltacadre;
+      cv::Point2i W;
+      int d1 = std::round(std::abs(cn.l1->dist(Q)));
+      int d2 = std::round(std::abs(cn.l2->dist(Q)));
+      if ( std::abs(d1 - dc) > 1 || std::abs(d2 - dc) > 1 ){ // Q mal localisé
+        if (cn.l1->dist(cn.K) > 0){
+          W.x = P.x + std::round(dc*cn.l1->a);
+          W.y = P.y + std::round(dc*cn.l1->b);
+        } else {
+          W.x = P.x - std::round(dc*cn.l1->a);
+          W.y = P.y - std::round(dc*cn.l1->b);
+        }
+        if (cn.l2->dist(cn.H) > 0){
+          Q.x = W.x + std::round(dc*cn.l2->a);
+          Q.y = W.y + std::round(dc*cn.l2->b);
+        } else {
+          Q.x = W.x - std::round(dc*cn.l2->a);
+          Q.y = W.y - std::round(dc*cn.l2->b);
+        }
+        cn.cadre = Q;
+      }
+    }
     // déterminer le rectangle correspondant au coin selon les directions AB et CD, point diagonal Q
     //
-    cv::Point2i R(Coins[n].R); // AB --> PR  R = A ou B
-    cv::Point2i S(Coins[n].S); // CD --> PS  S = C ou D
+    cv::Point2i R(cn.R); // AB --> PR  R = A ou B
+    cv::Point2i S(cn.S); // CD --> PS  S = C ou D
 
     float lgPR = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
     float lgPS = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
@@ -676,6 +703,10 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
         //    doivent être uniformes et plutot claires (surtout en rouge)
         //    attention au coin arondi
         // ne pas faire ce test si l'écart entre le bord de carte et le cadre éventuel est trop faible
+        //_________________________ bord supérieur calculé
+        // | ...................... bord réel éventuel
+        // |           TTTTTTT      zone testée, doit être blanche 
+        // |           ???????      zone testée si deltacadre est assez grand  
         if (maconf.deltacadre > 3 ) { 
             dcc = 1;
             if (maconf.deltacadre > 5)
@@ -684,7 +715,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
             cv::Mat lig;
             // recherche du cadre horizontal:
             rr.width = maconf.taillechiffre + maconf.taillesymbole;
-            rr.height = std::max(1, maconf.deltacadre - 2 * dcc - 1); // flou du bord de carte
+            rr.height = std::max(1, maconf.deltacadre - 2 * dcc - 2); // flou du bord de carte
             if (II.x > PP.x)
             {
                 rr.x = PP.x + maconf.deltahautsymbole;
@@ -697,12 +728,13 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
                 {
                     rr.width += rr.x;
                     rr.x = 0;
+                    if(rr.width <1) rr.width = 1;
                 }
             }
             if (II.y > PP.y)
-                rr.y = PP.y + dcc;
+                rr.y = PP.y + dcc + 1;
             else
-                rr.y = PP.y - maconf.deltacadre + dcc;
+                rr.y = PP.y - maconf.deltacadre + dcc + 1;
             lig = coinPetit(rr);
             cv::meanStdDev(lig, m1, ect1);
             if (ect1[0] > m1[0] / 10 || ect1[1] > m1[1] / 10 || ect1[2] > m1[2] / 10)
@@ -717,7 +749,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
             }
             // bande verticale
             rr.height = maconf.taillechiffre + maconf.taillesymbole;
-            rr.width = std::max(1, maconf.deltacadre - 2 * dcc - 1);
+            rr.width = std::max(1, maconf.deltacadre - 2 * dcc - 2);
             if (II.y > PP.y)
             {
                 rr.y = PP.y + maconf.deltahautsymbole;
@@ -733,9 +765,9 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
                 }
             }
             if (II.x > PP.x)
-                rr.x = PP.x + dcc;
+                rr.x = PP.x + dcc + 1;
             else
-                rr.x = PP.x - maconf.deltacadre + dcc;
+                rr.x = PP.x - maconf.deltacadre + dcc + 1;
             lig = coinPetit(rr);
             cv::meanStdDev(lig, m1, ect1);
             if (ect1[0] > m1[0] / 10 || ect1[1] > m1[1] / 10 || ect1[2] > m1[2] / 10)
@@ -1200,21 +1232,33 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     int limsombre = 100;
     if (moncoin.moyblanc[2] < 200)
         limsombre = 64; // TODO : limites à préciser
-    rz.width = std::min(maconf.largeurchiffre, maconf.taillechiffre);
-    rz.width = std::min(rz.width, maconf.deltagros - 1);
-    rz.width = std::min(rz.width, maconf.deltagroshaut - 1);
-    rz.height = rz.width;
-    if (UU.x < PP.x) {
-        rz.x = PP.x - 1 - rz.width;
+
+    if (estunRDV) {
+      rz.width = rz.height = maconf.largeurVDR;
+      rz.x = QQ.x;
+      if (UU.x < PP.x) rz.x = QQ.x - rz.width;
+      rz.y = QQ.y;
+      if (U.y < PP.y) rz.y = QQ.y - rz.height;
     } else {
-        rz.x = PP.x +1;
+      rz.width = std::min(maconf.largeurchiffre, maconf.taillechiffre);
+      rz.width = std::min(rz.width, maconf.deltagros - 1);
+      rz.width = std::min(rz.width, maconf.deltagroshaut - 1);
+      rz.height = rz.width;
+      if (UU.x < PP.x) {
+          rz.x = PP.x - 1 - rz.width;
+      } else {
+          rz.x = PP.x +1;
+      }
+      rz.height = maconf.largeurchiffre;
+      if (U.y < PP.y) {
+          rz.y = PP.y - 1 - rz.height;
+      }    else {
+          rz.y = PP.y + 1;
+      }
     }
-    rz.height = maconf.largeurchiffre;
-    if (U.y < PP.y) {
-        rz.y = PP.y - 1 - rz.height;
-    }    else {
-        rz.y = PP.y + 1;
-    }
+    rz.x = std::max(0, rz.x); rz.y = std::max(0, rz.y);
+    if (rz.width > coinPetit.cols - rz.x) rz.width = coinPetit.cols - rz.x;
+    if (rz.height > coinPetit.rows - rz.y) rz.height = coinPetit.rows - rz.y;
     z1 = coinPetit(rz); // zone minimale du caractère vertical ou horizontal
     cv::meanStdDev(z1, m1, ect1);
     // éliminer ce coin s'il est clair et uniforme
@@ -1247,6 +1291,8 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     rz.width = V.x - U.x + 1;
     rz.y = U.y;
     rz.height = V.y - U.y + 1;
+    if (rz.width > coinPetit.cols - rz.x) rz.width = coinPetit.cols - rz.x;
+    if (rz.height > coinPetit.rows - rz.y) rz.height = coinPetit.rows - rz.y;
     z1 = coinPetit(rz);
     m1 = cv::mean(z1);
     rz2 = rz;
@@ -1254,6 +1300,8 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     rz2.width = VV.x - UU.x + 1;
     rz2.y = UU.y;
     rz2.height = VV.y - UU.y + 1;
+    if (rz2.width > coinPetit.cols - rz2.x) rz2.width = coinPetit.cols - rz2.x;
+    if (rz2.height > coinPetit.rows - rz2.y) rz2.height = coinPetit.rows - rz2.y;
     z2 = coinPetit(rz2);
     m2 = cv::mean(z2);
     // std::cout<<m1[2]<<" "<<m2[2]<<"..";
@@ -1721,6 +1769,10 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
         if (output.size() > 0)
         {
             std::string outW = ValiderOCR(output, estServeur, false, moncoin, maconf);
+            // valider la détection de V D ou R  vertical si c'est confirmé avec une confiance correcte
+            if (output == outW && (output == "V" || output == "D" || output == "R") && confiance > 0.5) {
+              estDroit = true; // ne pas tester le caractère horizontal
+            }
             if (output == "3" && outW != "3") output = "";
             else output = outW;
             outprec = Vcar = out[0] = output;
@@ -2428,7 +2480,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
             // TODO valider la valeur trouvée selon la présence d'un gros symbole
             if (printoption)
                 std::cout << "==> serveur " << output << " confiance " << confiance << std::endl;
-            std::string outW = ValiderOCR(output, estunRDV, inverse, moncoin, maconf);
+            std::string outW = ValiderOCR(output, estServeur , inverse, moncoin, maconf);
             if (output == "3" && outW != "3") output = "";
             else output = outW;
             if (output.size() > 0){

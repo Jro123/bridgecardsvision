@@ -57,7 +57,7 @@ const char* couleurcarte[4]  = {"P", "C", "K", "T"};
 cv::Scalar couleurs[10]; // initialisées dans processvideo()
 
 // déclarations de fonctions locales
-void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res);
+void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res, cv::Scalar color = cv::Scalar(0,255,255));
 void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
 void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
 void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);
@@ -456,8 +456,11 @@ bool enregistrerContratEtPli(const std::string& nomTable, int numeroDonne,
 // décoder les cartes du mort et enregistrer sa main
 void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMortW) {
   int printoption = maconf.printoption;
+  std::chrono::duration<double> duree;
+  auto t1 = std::chrono::high_resolution_clock::now();
+
 // procéder de gauche à droite
-// extraire la couleur d'une colonne de 1 pixel à gauche (en x = 2)
+// extraire la couleur d'une colonne de 1 pixel à gauche
   int icarteMort(1); // indice des 13 cartes du mort. première carte déjà jouée
   cv::Scalar couleurFond; // couleur du fond
   cv::Rect r;
@@ -472,7 +475,6 @@ void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMortW) {
   r.width = 1;
   r.height = imaMort.rows;
   lig = imaMort(r); couleurFond = cv::mean(lig); // couleur du fond
-  m0 = couleurFond; // supprimer si m0 n'est plus utilisé
 
   // !!!!! spécifique pour mise au point avec une vidéo de FUNBRIDGE
   // vérifier que c'est sans effet sur une vidéo réelle
@@ -589,7 +591,7 @@ while(true) {
   r.height = std::min(ybas+8, maconf.hauteurcarte /2);
   r.y = std::min(imaMort.rows - 1, ybas + 8) - r.height;
   r.y = std::max(1, r.y);
-  if (printoption) tracerRectangle(r, mortCopie, "Mort", cv::Scalar(0,0,0));
+  if (printoption > 0) tracerRectangle(r, mortCopie, "Mort", cv::Scalar(0,0,0));
 
   cv::Mat imaCol = imaMort(r); // bas de la carte à analyser
   xcol = r.x; ycol = r.y; // position de imaCol dans imaMort
@@ -604,7 +606,7 @@ while(true) {
   maconf.nbpoints = save;
 
   // afficher les lignes;
-  if (printoption > 1) {
+  if (printoption > 0) {
     for (auto ligne : lignes){
       cv::Point2i A(ligne.ln[0], ligne.ln[1]);
       cv::Point2i B(ligne.ln[2], ligne.ln[3]);
@@ -618,19 +620,20 @@ while(true) {
   std::vector<uncoin> Coins;
   trouverCoins(maconf, lignes, Coins);
   // afficher les coins
-  if (printoption > 1) {
+  if (printoption > 0) {
     for(auto moncoin : Coins ){
       cv::Point2i P(moncoin.sommet);
       P.x += xcol; P.y += ycol;
       cv::circle(mortCopie, P, 2, cv::Scalar(0,0,255),-1);
     }
-    if(printoption) afficherImage("Mort", mortCopie);
+    if (printoption > 0) afficherImage("Mort", mortCopie);
+    if (waitoption > 0) cv::waitKey(0); else cv::waitKey(1);
   }
   // rechercher la ligne longue plutot horizontale la plus basse
   // puis les lignes plutot verticales à gauche et à droite 
   // puis calculer les coins bas gauche et droite
   // si on ne trouve pas, rechercher lescoins gauche et droit sur (proche de)  cette ligne
-  ligne ligneBas;
+  ligne ligneBas, ligneGauche, ligneDroite;
   int yLigneBas(0);
   int xLigneGauche(12345); // position ligne #verticale gauche
   int xLigneDroite (0); // position ligne #verticale à droite
@@ -649,16 +652,15 @@ while(true) {
 
   // si on a trouvé la ligne du bas, rechercher une ligne plutot verticale
   // la plus à gauche (son point le plus bas le plus à gauche)
-  // orthogonale (quoique !) à la ligne du bas
   // calculer le point d'intersection
   if (yLigneBas > 0){
     for (auto ligne: lignes){ // ligne AB
-      float ps = ligne.a * ligneBas.a + ligne.b * ligneBas.b;
-      //if (std::abs(ps) > maconf.cosOrtho ) continue;
-      if (std::abs(ps) > 0.5 ) continue; // pas assez verticale
+      //float ps = ligne.a * ligneBas.a + ligne.b * ligneBas.b;
+      //if (std::abs(ps) > 0.5 ) continue; // pas assez verticale
+      if (std::abs(ligne.b) > 0.5 ) continue;  // pas assez verticale
       if (ligne.ln[1] < ligne.ln[3]){ // B le plus bas
-        if (ligne.ln[2] < xLigneGauche) xLigneGauche = ligne.ln[2];
-      } else if (ligne.ln[0] < xLigneGauche) xLigneGauche = ligne.ln[0];
+        if (ligne.ln[2] < xLigneGauche) {ligneGauche=ligne; xLigneGauche = ligne.ln[2];}
+      } else if (ligne.ln[0] < xLigneGauche) {ligneGauche=ligne; xLigneGauche = ligne.ln[0];}
     } 
     if (xLigneGauche < imaCol.cols) { // on a trouvé une ligne verticale
       PG.x = xLigneGauche;
@@ -669,46 +671,46 @@ while(true) {
     for (auto ligne: lignes){ // ligne AB
       if (std::abs(ligne.b) > 0.5) continue; // pas assez verticale
       if (ligne.ln[1] < ligne.ln[3]){ // B le plus bas
-        if (ligne.ln[2] > xLigneDroite) xLigneDroite = ligne.ln[2];
-      } else if (ligne.ln[0] > xLigneDroite) xLigneDroite = ligne.ln[0];
+        if (ligne.ln[2] > xLigneDroite) {ligneDroite=ligne; xLigneDroite = ligne.ln[2];}
+      } else if (ligne.ln[0] > xLigneDroite) {ligneDroite=ligne; xLigneDroite = ligne.ln[0];}
     } 
     if (xLigneDroite < imaCol.cols) {
       PD.x = xLigneDroite;
-      PD.y = yLigneBas; // il faudrait calculer l'intersection
+      PD.y = yLigneBas; // il faudrait calculer l'intersection des lignes 
     }
   }
 
   // si on n'a pas trouvé le coin gauche (PG) rechercher le coin le plus bas à gauche,
-  //  si ce n'est pas la première carte en bas  de la colonne rechercher les deux coins supérieurs
-  //    situés sur la ligne longue (au moins la moitié de largeur de carte) la plus basse
-  //     mais au dessus du haut de la carte précédente (min de pts[*][1])
   if (PG.x == 0){ // pas encore trouvé le coin bas gauche
     for(auto moncoin : Coins ){
-      P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+      P = moncoin.sommet;
+      if (P.x > maconf.largeurcarte / 2) continue; // coin pas assez à gauche
       if (yLigneBas > 0) {
-        float dist = P.x * ligneBas.a + P.y * ligneBas.b + ligneBas.c;
+        if (P.x > ligneBas.ln[0]  ) continue; // coin à droite de A  de la ligne du bas AB
+        if (P.x > ligneBas.ln[2]  ) continue; // coin à droite de B  de la ligne du bas AB
+        float dist = ligneBas.dist(P);
         if (std::abs(dist) > maconf.deltacadre) continue; // pas sur la ligne du bas
       }
-      if (P.x < maconf.largeurcarte / 2){
-        if (P.y > yg) {yg = P.y; coinGauche = moncoin; coinGauche.elimine = false;}
-        if (P.y == yg && P.x < xg) {xg = P.x; coinGauche = moncoin; coinGauche.elimine=false; PG = P;}
-      }
+      if (P.y > yg) {yg = P.y; coinGauche = moncoin; coinGauche.elimine = false;}
+      if (P.y == yg && P.x < xg) {xg = P.x; coinGauche = moncoin; coinGauche.elimine=false; PG = P;}
     }
   }
-  // coordonnées de PG et PD dans l'image imaMort
-  cv::Point2i PGG = PG;
-  PG.x += xcol; PG.y += ycol;
+  
+  cv::Point2i PGG = PG;  // coordonnées dans imaCol
+  PG.x += xcol; PG.y += ycol; // coordonnées de PG dans l'image imaMort
 
     int xd(0), yd(0), ecart(12345);
   // si on n'a pas trouvé le coin bas droit, rechercher le coin le plus bas à droite
   if (PD.x == 0){
     for(auto moncoin : Coins ){
-      P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+      P = moncoin.sommet;
+      if (P.x < maconf.largeurcarte / 2) continue; //coin trop à gauche
       if (yLigneBas > 0) {
-        float dist = P.x * ligneBas.a + P.y * ligneBas.b + ligneBas.c;
+        if (P.x < ligneBas.ln[0]  ) continue; // coin à gauche de A  de la ligne du bas AB
+        if (P.x < ligneBas.ln[2]  ) continue; // coin à gauche de B  de la ligne du bas AB
+        float dist = ligneBas.dist(P);
         if (std::abs(dist) > maconf.deltacadre) continue; // pas sur la ligne du bas
       }
-      if (P.x < maconf.largeurcarte / 2) continue;
       if (P.y > yd) {yd = P.y; coinDroit = moncoin; }
       if (P.y == yd) {
         int lg = std::sqrt((P.x - PGG.x)*(P.x - PGG.x) + (P.y - PGG.y)*(P.y - PGG.y));
@@ -722,14 +724,17 @@ while(true) {
       }
     }
   }
-  cv::Point2i PDD = PD;
-  PD.x += xcol; PD.y += ycol;
+  cv::Point2i PDD = PD; // coordonnées dans imaCol
+  PD.x += xcol; PD.y += ycol; // coordonnées dans imaMort
   // si on a un seul coin (PGG ou PDD nul), on peut calculer l'autre 
-  if (PDD.x == 0 && PDD.y == 0) {
+  if (PDD.x == 0 && PDD.y == 0) {  // coin bas droit non trouvé
     float a, b;
     if (PGG.x > 0 || PGG.y > 0 ){
-      // calculer à partir du coin gauche
-      if(!coinGauche.elimine) {
+      if (yLigneBas > 0 ){ // calculer à partir de la ligne du bas
+        a = ligneBas.b; b = ligneBas.a; if (a < 0) {a = -a; b = -b;}
+        PDD.x = PGG.x + a*maconf.largeurcarte;
+        PDD.y = PGG.y + b*maconf.largeurcarte;
+      } else if(!coinGauche.elimine) { // calculer à partir du coin bas gauche
         int lg  = coinGauche.l1->lg;
         if (lg < coinGauche.l2->lg) {
           a = std::abs(coinGauche.l2->a);
@@ -741,16 +746,16 @@ while(true) {
         if (b > a) {int w = a; a = b; b = w;}
         PDD.x = PGG.x + a*maconf.largeurcarte;
         PDD.y = PGG.y + b*maconf.largeurcarte;
-      } else {
-        // calculer à partir de la ligne du bas 
-        a = ligneBas.b; b = ligneBas.a; if (a < 0) {a = -a; b = -b;}
-        PDD.x = PGG.x + a*maconf.largeurcarte;
-        PDD.y = PGG.y + b*maconf.largeurcarte;
       }
       PD.x = PDD.x + xcol; PD.y = PDD.y + ycol;
     }
-  } else if (PGG.x == 0 && PGG.y == 0 ) {
-      // calculer à partir du coin droit
+  } else if (PGG.x == 0 && PGG.y == 0 ) { // calculer à partir du coin droit
+    if (yLigneBas > 0 ){ // calculer à partir de la ligne du bas
+      float a,b;
+      a = ligneBas.b; b = ligneBas.a; if (a < 0) {a = -a; b = -b;}
+      PGG.x = PDD.x - a*maconf.largeurcarte;
+      PGG.y = PDD.y - b*maconf.largeurcarte;
+    } else { // calculer à partir du coin droit
       float a, b;
       int lg  = coinDroit.l1->lg;
       if (lg < coinDroit.l2->lg) {
@@ -763,20 +768,21 @@ while(true) {
       if (b > a) {int w = a; a = b; b = w;}
       PGG.x = PDD.x - a*maconf.largeurcarte;
       PGG.y = PDD.y - b*maconf.largeurcarte;
-      PG.x = PGG.x + xcol; PG.y = PGG.y + ycol;
+    }
+    PG.x = PGG.x + xcol; PG.y = PGG.y + ycol;
   }
 
   // ajuster la position du coin bas droit : à droite du coin bas gauche à distance largeurcarte
   {
     float lg = std::sqrt((PD.x - PG.x)*(PD.x - PG.x) + (PD.y - PG.y)*(PD.y - PG.y));
-    if (std::abs(lg - maconf.largeurcarte) > maconf.deltacadre ) {
+    if (std::abs(lg - maconf.largeurcarte) > 2*maconf.deltacadre ) {
       PD.x = PG.x + maconf.largeurcarte * float(PD.x - PG.x) / lg;
       PD.y = PG.y + maconf.largeurcarte * float(PD.y - PG.y) / lg;
       PDD.x = PGG.x + maconf.largeurcarte * float(PDD.x - PGG.x) / lg;
       PDD.y = PGG.y + maconf.largeurcarte * float(PDD.y - PGG.y) / lg;
     }
   }
-  if (printoption){
+  if (printoption > 0){
     cv::circle(mortCopie, PG, 4, cv::Scalar(255,255,0),1);
     cv::circle(mortCopie, PD, 4, cv::Scalar(255,255,0),1);
     afficherImage("Mort", mortCopie);
@@ -787,40 +793,47 @@ while(true) {
   //   (uniquement pour la carte du bas de la colonne )
 
   if (!estPremier) {  // ce n'est pas la première carte de la colonne
+    //  si ce n'est pas la première carte en bas  de la colonne rechercher les deux coins supérieurs
+    //    situés sur la ligne longue (au moins la moitié de largeur de carte) la plus basse
+    //     mais au dessus du haut de la carte précédente (min de pts[*][1])
     // rechercher la ligne longue du haut de carte #Horizontale la plus basse 
     //      au dessus des coins bas gauche et droit  qu'on vient de déterminer
     // coin haut gauche (droit): intersection entre l'arête #verticale du coin bas gauche (droit)
     //      et la ligne longue
     //
-    // TODO : le bord supérieur de carte peut être morcelé en plusieurs lignes courtes
+    // le bord supérieur de carte peut être morcelé en plusieurs lignes courtes
     //      à cause de la carte juste au dessus, qu'elle recouvre
-    //      ==> accepter les lignes courtes
-    //      il faudrait vérifier qu'il y a plusieurs lignes alignées
+    //      ==> accepter les lignes courtes alignées (fusionables)
     cv::Point2i HG(0,0), HD(0,0); // coin haut gauche et droit
     int ymax(0);
     int ylim = imaCol.rows - maconf.taillechiffre; // pas trop bas
     if (PGG.x > 0) ylim = std::max(0,PGG.y - maconf.taillechiffre);
-    ligne maligne; 
+    ligne ligneHaut; 
+    cv::Point2i A(imaCol.cols,0), B(0, 0); // ligne AB reconstituée
     for (auto ligne1 : lignes) {
       if (std::abs(ligne1.a) > 0.5) continue; // ligne pas assez horizontale (30 degrés)
       if (ligne1.ln[1] > ylim) continue; // ligne trop basse 
       if (ligne1.ln[3] > ylim) continue; // ligne trop basse
-      if (ligne1.lg < maconf.largeurcarte / 4) { // ligne trop courte
-        if (ligne1.lg < maconf.largeurcarte / 12) continue; // ligne vraiement trop courte
-        // si la ligne est très courte, vérifier qu'il y a d'autres lines alignées
-        //  meme normale (ou opposée) dont une extrémité est sur cette ligne
+      if (ligne1.lg < maconf.largeurcarte / 12) continue; // ligne vraiement trop courte
+      if (ligne1.lg < maconf.largeurcarte / 3) { // ligne trop courte
+        // vérifier s'il y a d'autres lines alignées
+        //  ayant meme normale (ou opposée) dont une extrémité est sur cette ligne
         // calculer les points extrèmes (en x) des lignes cumulées
         // créer une nouvelle ligne supérieure
         int lgtot = 0; // cumuler les petites lignes alignées AB
-        cv::Point2i A(imaCol.cols,0), B(0, 0);
+        A.x = ligne1.ln[0]; A.y = ligne1.ln[1];
+        B.x = ligne1.ln[2]; B.y = ligne1.ln[3];
+        if (B.x < A.x) {
+          A.x = ligne1.ln[2]; A.y = ligne1.ln[3];
+          B.x = ligne1.ln[0]; B.y = ligne1.ln[1];
+        }
         for (auto ligne2 : lignes) {
-          //if (ligne2 == ligne) continue;
-          if (ligne2.lg < maconf.largeurcarte / 12) continue; // ligne vraiment trop courte
-          if (ligne2.ln[1] > ylim) continue; // ligne trop basse 
-          if (ligne2.ln[3] > ylim) continue; // ligne trop basse
-          float a = ligne2.a; float b= ligne2.b;
-          if (std::abs (a*ligne1.b - b*ligne1.a) > maconf.cosOrtho) continue; // lignes non //
-          float dist  = ligne1.a * ligne2.ln[0] + ligne1.b * ligne2.ln[1] + ligne1.c;
+          if (ligne2.lg < maconf.largeurcarte / 12) continue; // ligne trop courte
+          if (ligne2.ln[1] > ylim + 2) continue; // ligne trop basse 
+          if (ligne2.ln[3] > ylim + 2) continue; // ligne trop basse
+          float dist  = ligne1.dist(cv::Point2i(ligne2.ln[0], ligne2.ln[1]));
+          if (std::abs(dist) > maconf.deltacadre) continue;
+          dist  = ligne1.dist(cv::Point2i(ligne2.ln[2], ligne2.ln[3]));
           if (std::abs(dist) > maconf.deltacadre) continue;
           if (A.x > ligne2.ln[0]) {A.x = ligne2.ln[0]; A.y = ligne2.ln[1];}
           if (A.x > ligne2.ln[2]) {A.x = ligne2.ln[2]; A.y = ligne2.ln[3];}
@@ -828,38 +841,37 @@ while(true) {
           if (B.x < ligne2.ln[2]) {B.x = ligne2.ln[2]; B.y = ligne2.ln[3];}
           lgtot += ligne2.lg;
         }
-        if (lgtot < maconf.largeurcarte / 3) continue; // cumul au moins 1/3 de largeur de carte
-        {
+        if (lgtot < maconf.largeurcarte / 4 || (B.x - A.x) < maconf.largeurcarte / 3)  continue;
+        if (A.y >= ymax) {
           ligne lW;
           lW.ln[0] = A.x; lW.ln[1] = A.y; lW.ln[2] = B.x; lW.ln[3] = B.y;
           float lg = std::sqrt((B.x - A.x)*(B.x - A.x) + (B.y - A.y)*(B.y - A.y));
           lW.lg = lg;
-          lW.a = (B.y - A.y )/lg;
-          lW.b = (A.x - B.x) / lg;
+          lW.a = float(B.y - A.y )/lg;
+          lW.b = float(A.x - B.x) / lg;
           lW.c = -A.x * lW.a - A.y*lW.b;
-          if (A.y >= ymax) { ymax = A.y; maligne = lW;}
+          ymax = A.y;
+          ligneHaut = lW;
         }
-      }
-      if (ligne1.ln[1] > ymax) {ymax = ligne1.ln[1]; maligne = ligne1;}
+      } // if ligne courte
+      else if (ligne1.ln[1] > ymax) {ymax = ligne1.ln[1]; ligneHaut = ligne1;}
     }
 
     if (ymax > 0 ){ // on a trouvé la ligne horizontale bord supérieur de la carte
       // calculer l'intersection avec l'arête verticale du coin bas gauche puis droit
       // en fait on calcule la projection du coin bas gauche sur le bord supérieur de la carte
-      //cv::Point2i A(maligne.ln[0], maligne.ln[1]); 
-      //cv::Point2i B(maligne.ln[2], maligne.ln[3]);
       if (PGG.x > 0 ) { // coin bas gauche trouvé ou calculé
-        float dist = PGG.x * maligne.a + PGG.y * maligne.b + maligne.c;
-        HG.x = PGG.x - dist*maligne.a;
-        HG.y = PGG.y - dist*maligne.b;
+        float dist = ligneHaut.dist(PGG);
+        HG.x = PGG.x - dist*ligneHaut.a;
+        HG.y = PGG.y - dist*ligneHaut.b;
       }
       if (PDD.x > 0) { // coin bas droit trouvé ou calculé
-        float dist = PDD.x * maligne.a + PDD.y * maligne.b + maligne.c;
-        HD.x = PDD.x - dist*maligne.a;
-        HD.y = PDD.y - dist*maligne.b;
+        float dist = ligneHaut.dist(PDD);
+        HD.x = PDD.x - dist*ligneHaut.a;
+        HD.y = PDD.y - dist*ligneHaut.b;
       }
       float a, b;
-      a = maligne.b; b = -maligne.a; // vecteur directeur de la ligne du bord supérieur de la carte
+      a = ligneHaut.b; b = -ligneHaut.a; // vecteur directeur de la ligne du bord supérieur de la carte
       if (a < 0) {a = -a; b = -b;} 
       if (HD.x == 0 && HG.x > 0) { // calculer le coin haut droit à partir du gauche
         HD.x = HG.x + a * maconf.largeurcarte;
@@ -872,7 +884,7 @@ while(true) {
     }
 
     // le coin haut droit (HD) doit etre à distance largeurcarte du coin haut gauche (HG)
-    // TODO : au besoin, le recalculer et déplacer le coin bas droit de la même translation
+    // au besoin, le recalculer et déplacer le coin bas droit de la même translation
     if (HG.x > 0 && HD.x > 0) {
       float lgHaut = std::sqrt((HD.x - HG.x)*(HD.x - HG.x) + (HD.y - HG.y)*(HD.y - HG.y));
       if (std::abs(lgHaut - maconf.largeurcarte) > maconf.deltacadre) {
@@ -885,7 +897,7 @@ while(true) {
         PD.y += dy;
       }
     }
-    // rechercher le coin bien orienté le plus bas, plutot à gauche
+    // rechercher le coin supérieur bien orienté le plus bas, plutot à gauche
     // dont l'arête plutot horizontale est longue (au moins 3/4 de largeurcarte)
     // c'est alors le coin supérieur gauche de la carte
     // sinon, rechercher le coin droit ...
@@ -898,18 +910,16 @@ while(true) {
     //   coins bien orientés
     float a, b, aa, bb; // vecteurs directeurs de l'arête horizontale et verticale
     int ymaxi = 0;
-    //uncoin coinGauche(0,0);
     for(auto moncoin : Coins ){
-      P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+      P = moncoin.sommet;
+      if (P.x > maconf.largeurcarte / 2) continue; // trop à droite
       // vérifier que P est proche de l'arête verticale du coin bas gauche (s'il existe)
       if (PGG.x > 0 && !coinGauche.elimine) {
-        float dist = coinGauche.l1->a * P.x + coinGauche.l1->b * P.y + coinGauche.l1->c;
-        if (std::abs(dist) > maconf.deltacadre){
-          dist = coinGauche.l1->a * P.x + coinGauche.l1->b * P.y + coinGauche.l1->c;
-          if (std::abs(dist) > maconf.deltacadre) continue;
-        }
+        float dist;
+        if (std::abs(coinGauche.l1->a) > 0.5) dist = coinGauche.l1->dist(P);
+        else  dist = coinGauche.l2->dist(P);
+        if (std::abs(dist) > maconf.deltacadre) continue; // coin trop loin de l'arête verticale 
       }
-      if (P.x > maconf.largeurcarte / 2) continue;
       // utiliser le plus haut de H et K  (H.y ou K.y minimum)
       cv::Point2i M, N;
       if (moncoin.H.y < ycol + moncoin.K.y) {M = moncoin.H; N=moncoin.K;}
@@ -931,23 +941,22 @@ while(true) {
     if (ymaxi == 0){ // on n'a pas trouvé (ou choisi) le coin gauche sur une arête longue
       // chercher le coin haut droit de la carte
       for(auto moncoin : Coins ){
-        P = cv::Point2i(moncoin.sommet.x,moncoin.sommet.y);
+        P = moncoin.sommet;
+        if (P.x < maconf.largeurcarte / 2) continue; // trop à gauche
         // vérifier que P est proche de l'arête verticale du coin bas droit (s'il existe)
         if (PDD.x > 0 && yd > 0) {
-          float dist = coinDroit.l1->a * P.x + coinDroit.l1->b * P.y + coinDroit.l1->c;
-          if (std::abs(dist) > maconf.deltacadre){
-            dist = coinDroit.l1->a * P.x + coinDroit.l1->b * P.y + coinDroit.l1->c;
-            if (std::abs(dist) > maconf.deltacadre) continue;
-          }
+          float dist;
+          if (std::abs(coinDroit.l1->a) > 0.5) dist = coinDroit.l1->dist(P);
+          else dist = coinDroit.l2->dist(P);
+          if (std::abs(dist) > maconf.deltacadre) continue; // loin de l'arête verticale
         }
-        if (P.x < maconf.largeurcarte / 2) continue; // trop à gauche
         // utiliser le plus haut de H et K  (H.y ou K.y minimum)
-        cv::Point2i M, N;
-        if (moncoin.H.y < ycol + moncoin.K.y) {M = moncoin.H; N=moncoin.K;}
+        cv::Point2i M, N; // M le plus haut, N le plus bas
+        if (moncoin.H.y < moncoin.K.y) {M = moncoin.H; N=moncoin.K;}
         else {M = moncoin.K; N=moncoin.H;}
 
-        if (M.x > P.x) continue; // coin gauche
-        if (N.y < P.y) continue; // coin bas
+        if (M.y < P.y - maconf.deltacadre) continue; // coin bas
+        if (M.x > P.x + maconf.deltacadre) continue; // coin (haut) gauche
         // donc coin haut droit
         int dx = P.x - M.x;
         if (dx < maconf.largeurcarte / 4) continue; // pas sur le bord supérieur (largeur) de carte
@@ -963,7 +972,7 @@ while(true) {
         // utiliser les coins calculés à partir du bord supérieur et des coins bas
 
         if (HG.x > 0 && HD.x > 0) {
-          if (printoption){
+          if (printoption > 0){
             cv::circle(mortCopie, cv::Point2i(xcol+HG.x, ycol+HG.y), 4, cv::Scalar(0,255,255),1);
             cv::circle(mortCopie, cv::Point2i(xcol+HD.x, ycol+HD.y), 4, cv::Scalar(0,255,255),1);
             afficherImage("Mort", mortCopie);
@@ -979,6 +988,8 @@ while(true) {
         } else {
           // impossible de trouver les deux angles supérieurs de la carte
           std::cout<< "!!!! impossible de trouver le bord supérieur de la carte"<<std::endl;
+          afficherImage("imacol", imaCol);
+          cv::waitKey(0);
         }
         //cv::waitKey(0);
       }
@@ -988,7 +999,6 @@ while(true) {
         cv::circle(mortCopie, Phd, 4, cv::Scalar(255,255,0),1);
         // on a le coin haut droit, donc ses deux arêtes
         // calculer les 3 autres sommets à partir des normales (et donc vecteurs directeurs) des arêtes
-        //pts[1][0] = xcol + coinDroit.sommet.x; pts[1][1] = ycol + coinDroit.sommet.y;
         pts[1][0] = Phd.x; pts[1][1] = Phd.y;
         // arête vers la gauche, celle dont la normale est plutot verticale
         if (std::abs(coinDroit.l1->b) > std::abs(coinDroit.l1->a) ) { // arête horizontale ?
@@ -1051,7 +1061,7 @@ while(true) {
       if (PDD.x > 0) pts[2][0] = PD.x; pts[2][1] = PD.y;
       if (PGG.x > 0) pts[3][0] = PG.x; pts[3][1] = PG.y;
   }
-    if (printoption) afficherImage("Mort", mortCopie);
+    if (printoption > 0) afficherImage("Mort", mortCopie);
 
     // on a les 4 sommets de la carte, dans l'image imaMort
     // seul le haut de la carte est présent
@@ -1062,7 +1072,7 @@ while(true) {
     valcarte = decoderLaCarte(imacarte, maconf, numcolW);
     {
     std::string s = carteToString(numcol, valcarte);
-    //if (printoption) 
+    //if (printoption > 0) 
       std::cout<<"==> carte du mort :"<< s<<std::endl;
     }
     // s'assurer que pts[2] et pts[3] sont les coins hauts
@@ -1076,31 +1086,30 @@ while(true) {
   else { // on traite la première carte en bas, donc complète
     // chercher la ligne la plus longue = la ligne du bas = bord inférieur de carte
     // ligne avec une des extrémités la plus basse et plutot horizontale
-    int lgmax = 0; int imax;
+    int lgmax = 0;
     int ymax = 0;
-    for(int i = 0; i < lignes.size(); i++){
-      cv::Point2i A(lignes[i].ln[0], lignes[i].ln[1]);
-      cv::Point2i B(lignes[i].ln[2], lignes[i].ln[3]);
-      int lg = lignes[i].lg;
+    for(auto ligne:lignes){
+      cv::Point2i A(ligne.ln[0], ligne.ln[1]);
+      cv::Point2i B(ligne.ln[2], ligne.ln[3]);
+      int lg = ligne.lg;
       if (std::max(A.y, B.y) > ymax) {
-        if (std::abs(B.y - A.y) < std::abs(B.x - A.x)) { // ligne plutot horizontale
-          if (lg > maconf.largeurcarte / 2) {imax = i; ymax = std::max(A.y, B.y);}
+        if (std::abs(ligne.a) < 0.5) { // ligne plutot horizontale (30 degrés)
+          if (lg > maconf.largeurcarte / 2) {ymax = std::max(A.y, B.y);ligneBas = ligne;}
         }
       }
     }
-    cv::Point2i A(lignes[imax].ln[0], lignes[imax].ln[1]);
-    cv::Point2i B(lignes[imax].ln[2], lignes[imax].ln[3]);
+    cv::Point2i A(ligneBas.ln[0], ligneBas.ln[1]);
+    cv::Point2i B(ligneBas.ln[2], ligneBas.ln[3]);
     cv::Point2i AA = A + cv::Point2i(xcol, ycol);
     cv::Point2i BB = B + cv::Point2i(xcol, ycol);
     if (printoption > 1){
       cv::line(mortCopie,AA,BB,cv::Scalar(255,128,0),2);
       afficherImage("Mort", mortCopie); //cv::waitKey(0);
     }
-    ligne lbas = lignes[imax]; // ligne du bas
 
     pts[0][0] = PG.x; pts[0][1] = PG.y;
     pts[1][0] = PD.x; pts[1][1] = PD.y;
-    int aa = lbas.a; int bb = lbas.b; 
+    float aa = ligneBas.a; float bb = ligneBas.b; 
     if (bb > 0) {aa = -aa; bb = -bb;}
     pts[2][0] = pts[1][0] + aa*maconf.hauteurcarte;
     pts[2][1] = pts[1][1] + bb*maconf.hauteurcarte;
@@ -1112,7 +1121,7 @@ while(true) {
     valcarte = decoderCarte(imaMort, pts, maconf, numcol);
     {
       std::string s = carteToString(numcol, valcarte);
-      //if (printoption)
+      //if (printoption > 0)
        std::cout<<std::endl<<"==> carte du mort:"<< s<<std::endl;
     //cv::waitKey(0);
     }
@@ -1121,6 +1130,63 @@ while(true) {
   carteMort[icarteMort].valeur = valcarte;
   icarteMort++;
   //
+  {
+    //
+    // remplir la zone de la carte (élargie) avec la couleur du fond
+    // Définir les 4 points du rectangle incliné
+    // 0: bas gauche   1: bas droit  2: haut droit    3: haut gauche
+    // si la carte est en haut de imaMort, nettoyer à partir du haut de imaMort
+    if (pts[3][1] < maconf.taillegros) pts[3][1] = pts[2][1] = 2;
+    // elargir suffisamment à droite, sans déborder sur la prochaine colonne de cartes
+    // pour cela, décaler le coin haut droit à droite jusqu'à la couleur de fond 
+    // sur quelques pixels (10% de la largeur de carte)
+    int dx(0); //décalage à droite
+    int x = pts[2][0]; if(estPremier) x-= 2;
+    cv::Scalar px;
+    while(x < pts[2][0] + maconf.largeurcarte/8) {
+      px = imaMort.at<cv::Vec3b>(pts[2][1], x);
+      if (std::abs(px[0] - couleurFond[0]) + std::abs(px[0] - couleurFond[0])
+       + std::abs(px[0] - couleurFond[0]) < 60) break;
+       x++;
+    }
+    /************************************ 
+    while(x < pts[2][0] + maconf.largeurcarte/8) {
+      px = imaMort.at<cv::Vec3b>(pts[2][1], x);
+      if (std::abs(px[0] - couleurFond[0]) + std::abs(px[0] - couleurFond[0])
+       + std::abs(px[0] - couleurFond[0]) > 30) {
+        break;
+       }
+       x++;
+    }
+    *************************************/
+    dx = x - pts[2][0];
+    
+    cv::Point points[1][4];
+    cv::Point2i ptsW[4];
+    ptsW[0].x = std::max(0, pts[0][0] - 2);
+    ptsW[0].y = std::min(imaMort.rows -1, pts[0][1] +1);
+    ptsW[1].x = std::min(imaMort.cols -1 , pts[1][0] + dx);
+    ptsW[1].y = std::min(imaMort.rows -1, pts[1][1] +1);
+    ptsW[2].x = std::min(imaMort.cols -1 , pts[2][0] + dx);
+    ptsW[2].y = std::max(0, pts[2][1] -2);
+    ptsW[3].x = std::max(0, pts[3][0] -2);
+    ptsW[3].y = std::max(0, pts[3][1] -2);
+
+
+    points[0][0] = ptsW[0];
+    points[0][1] = ptsW[1];
+    points[0][2] = ptsW[2];
+    points[0][3] = ptsW[3];
+
+    // Convertir en structure compatible
+    const cv::Point* ppt[1] = { points[0] };
+    int npt[] = { 4 };
+    // Remplir le polygone
+    cv::fillPoly(imaMort, ppt, npt, 1, couleurFond);
+    // ajouter une ligne noire sur le bord supérieur de la carte qu'on vient de décoder
+    cv::line(imaMort, cv::Point2i(pts[3][0], std::max(0,pts[3][1]-1)),
+      cv::Point2i(pts[2][0], std::max(0,pts[2][1] - 1)), cv::Scalar(0,0,0), 1);
+  }
   // si la carte est en haut de la colonne, nettoyer l'image en incluant cette colonne
   if (pts[3][1] < 6 + maconf.taillechiffre) {
     cv::Rect rr;
@@ -1129,32 +1195,10 @@ while(true) {
     cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
     if (pts[2][0] > imaMort.cols - maconf.largeurcarte) break; // dernière colonne
     if (maconf.waitoption) {afficherImage("mort", imaMort); cv::waitKey(0);}
-  } else {
-    //
-    // remplir la zone de la carte (élargie) avec la couleur du fond
-    // Définir les 4 points du rectangle incliné
-    // 0: bas gauche   1: bas droit  2: haut droit    3: haut gauche
-    // si la carte est en haut de imaMort, nettoyer à partir du haut de imaMort
-    if (pts[3][1] < maconf.taillegros) pts[3][1] = pts[2][1] = 2;
-    cv::Point points[1][4];
-    points[0][0] = Point(pts[0][0] -2, pts[0][1] +1);
-    points[0][1] = Point(pts[1][0] +2, pts[1][1] +1);
-    points[0][2] = Point(pts[2][0] +2, pts[2][1]-2);
-    points[0][3] = Point(pts[3][0] -2, pts[3][1]-2);
-
-
-    // Convertir en structure compatible
-    const cv::Point* ppt[1] = { points[0] };
-    int npt[] = { 4 };
-    // Remplir le polygone
-    cv::fillPoly(imaMort, ppt, npt, 1, couleurFond);
-    // ajouter une ligne noire sur le bord supérieur de la carte qu'on vient de décoder
-    cv::line(imaMort, cv::Point2i(pts[3][0], pts[3][1]-1),
-      cv::Point2i(pts[2][0], pts[2][1] - 1), cv::Scalar(0,0,0), 1);
   }
 
   mortCopie = imaMort.clone();
-  if (printoption) afficherImage("Mort", mortCopie); //cv::waitKey(0);
+  if  (printoption > 0 ) afficherImage("Mort", mortCopie); //cv::waitKey(0);
 
   // traiter les autres cartes, limitées à la partie supérieure, de la colonne
   // rappel : haut gauche de la colonne : xcol, ycol
@@ -1162,6 +1206,9 @@ while(true) {
 
   estPremier = false;
 } // while(true)
+auto t2 = std::chrono::high_resolution_clock::now();
+duree = t2 - t1;
+std::cout << "Duree de décodage du Mort : " << duree.count() << " secondes" << std::endl;
 
 }
 
@@ -1220,6 +1267,8 @@ int processVideo(config &maconf, cv::String nomfichier)
     cv::Mat frame;
     cv::Mat frameW;
     cv::Mat framePrec;
+    cv::Mat framePli;  // image contenant un pli complet
+    cv::Mat result;
     cv::Mat frameTotale;
     cv::Mat image;
     cv::Mat diff;
@@ -1245,6 +1294,7 @@ int processVideo(config &maconf, cv::String nomfichier)
     int joueurMort = 0; // numéro de joueur du mort (0=Nord, 1=Est, 2=Sud, 3=Ouest). calculé plus tard
     joueurMort = (maconf.declarant +2 ) % 4;
 
+    int nbCartesDuPli = 0;
     while (true) { // boucle sur les frames
       cap >> frame; // Capture une frame
       if (!frame.empty() && printoption > 1 ) cv::imshow("Frame", frame); // Afficher la frame
@@ -1275,6 +1325,7 @@ int processVideo(config &maconf, cv::String nomfichier)
         r.width = maconf.wjeu;
         r.height = maconf.hjeu;
         frame = frameTotale(r);
+        if (framePli.cols == 0) framePli = frame.clone();
       }
 
 #ifdef ACTIVER
@@ -1331,7 +1382,9 @@ int processVideo(config &maconf, cv::String nomfichier)
       //             pas de retrait de carte du pli en cours, mais signaler
       //             ajout d'une nouvelle carte uniquement si le pli n'est pas déjà complet
       //                  sinon, signaler le problème 
+
       if (! frame.empty())  processFrame(maconf, frame, true, coinsPrec, monpli);
+
       // s'il n'y a aucune carte dans cette trame et si il y a 4 cartes dans le pli en cours:
       //        enregistrer le pli en tenant compte du joueur qui a entamé le pli
       //        vérifier en considérant la position des 4 cartes du pli (carte Nord est en haut de l'image)
@@ -1342,22 +1395,34 @@ int processVideo(config &maconf, cv::String nomfichier)
       ///           si elle n'est pas dans le pli en cours : l'ajouter au pli
       //            si c'est une autre nouvelle carte du pli : erreur
       //
-      bool estvide = true; // aucune carte détectée
+      bool estvide = true;
 
-      // TODO : rechercher dans le vecteur des cartes précédentes 
+      // rechercher dans le vecteur des cartes précédentes 
 
+      // cas particulier de la vidéo FUNBRIDGE :
+      // si le pli en cours est complet et s'il y a une seule carte dans cette frame,
+      //    enregistrer le pli en cours et ignorer la carte détectée
+      int nbcf(0); // comptage des cartes de cette frame (0, 1 ou 2)
+      int cc(-1), vv(0);
       // frame vide ? aucune carte (même avec un seul coin) détectée
-      for (auto up : coinsPrec){
-        cv::Point2i PT(up.x, up.y);
+      for (auto& up : coinsPrec){
         int c = up.couleur;
         int v = up.valeur;
+        cv::Point2i PT(up.x, up.y);
         if (c < 0) continue; // couleur non déterminée
         if (v <= 0) continue; // valeur non déterminée
         if (v > 13) continue; // valeur invalide
-        estvide = false; break;
+      if (cc < 0) {
+          nbcf = 1;
+        } else {
+          if (c != cc || v != vv) {nbcf = 2; break;}
+        }
       }
-     nbcartes = monpli.nbcartes;
-     if (nbcartes < 2) estvide = false; // une seule carte trouvée dans les frames précédentes
+      if (nbcf > 0) estvide = false;
+
+      nbcartes = monpli.nbcartes;
+
+      if (nbcartes < 2) estvide = false; // une seule carte trouvée dans les frames précédentes
 
 
       //  si c'est le premier pli et la troisième carte jouée, analyser la zone du mort
@@ -1487,10 +1552,15 @@ int processVideo(config &maconf, cv::String nomfichier)
         }
         carteMort[0].couleur = cepli.carte[joueurMort].couleur;
         carteMort[0].valeur = cepli.carte[joueurMort].valeur;
-        if(printoption) afficherImage("Mort", imaMort);
+        if(printoption > 0) afficherImage("Mort", imaMort);
+        // spécifique FUNBRIDGE
+        int saveLargeur = maconf.largeurcarte;
+        maconf.largeurcarte *= float(0.95);
         traiterMort(maconf, imaMort, carteMort);
+        maconf.largeurcarte = saveLargeur;
+
         mortAnalyse = true;
-      }
+      } // décodage du mort
 
       if ((estvide   || frame.empty()) && numpli < 13) {
         if (monpli.nbcartes > 0)
@@ -1500,13 +1570,16 @@ int processVideo(config &maconf, cv::String nomfichier)
           //
           int couldef = 3;
           if (maconf.contratcouleur == 3) couldef = 2;
+          unecarte uc;
+          uc.couleur = couldef;
+          uc.valeur = 2;
           for (int i = monpli.nbcartes; i < 4; i++){
-            monpli.cartes[i].couleur = couldef;
-            monpli.cartes[i].valeur = 2;
+            monpli.cartes[i] = uc;
             std::cout<<" pli incomplet"<<std::endl;
           }
           monpli.nbcartes = 4; // le pli est complet ou vient d'être complété
           bool estincomplet = false;
+
           
           // dans le pli en cours (monpli), on a les 4 cartes jouées (dans l'ordre du jeu)
           // déterminer les joueurs à partir de la position des 4 cartes
@@ -1545,6 +1618,28 @@ int processVideo(config &maconf, cv::String nomfichier)
             ij = (ij + 1) % 4;
           }
 
+          // on affiche les valeurs trouvées
+          if (maconf.printoption >= 0) {
+            cv::Scalar colorFond;
+            result = framePli.clone();
+            for (int k=0; k<4; k++){
+              if (k==0) colorFond = cv::Scalar(128,255,255);
+              else if (k==1) colorFond = cv::Scalar(255,255,192);
+              else if (k==2) colorFond = cv::Scalar(255,192,255);
+              else colorFond = cv::Scalar(192,192,192);
+              unecarte uc = cepli.carte[k];
+              int numcol = uc.couleur;
+              char nomcol = '?';
+              if (numcol >= 0 && numcol <= 3) nomcol = couleurcarte[numcol][0];
+              std::string val = valeurcarte[uc.valeur];
+              std::string res = nomcol + val;
+              for (int i= 0; i<4; i++){
+                afficherResultat(result, uc.sommet[i], res, colorFond);
+              }
+            }   
+            cv::imshow("result", result); cv::waitKey(1);
+          }
+          
           int j1 = cepli.joueur;
           int jgagnant = j1; // a priori le même joueur emporte le pli
           int coul = cepli.carte[j1].couleur;
@@ -1556,7 +1651,7 @@ int processVideo(config &maconf, cv::String nomfichier)
               std::cout<<" pli incomplet"<<std::endl;
               c = 3;
               if (maconf.contratcouleur == 3) c = 2;
-              cepli.carte[n].couleur = c; // compléter avec le 2 de trefle (ou carreau si trfle est atout)
+              cepli.carte[n].couleur = c; // compléter avec le 2 de trefle (ou carreau si trefle est atout)
             }
             if (cepli.carte[n].valeur <= 0) cepli.carte[n].valeur = 2;
 
@@ -1626,7 +1721,7 @@ int processVideo(config &maconf, cv::String nomfichier)
           if (waitoption) cv::waitKey(0);          
         }
         else {
-          if (printoption && coinsPrec.size() > 0)
+          if (printoption > 0 && coinsPrec.size() > 0)
            std::cout<<" frame vide, aucune carte jouée du pli en cours"<<std::endl;
         }
       } // frame vide, aucune carte trouvée
@@ -1635,7 +1730,13 @@ int processVideo(config &maconf, cv::String nomfichier)
 
       numeroframe++;
       if (printoption > 1) std::cout << "====== fin de frame "<< numeroframe <<" ======" << std::endl;
-  }
+      if (monpli.nbcartes == 4) { // pli complet
+        if (nbCartesDuPli != 4) {
+          framePli = frame.clone(); // première frame avec un pli complet
+          nbCartesDuPli = 4;
+        }
+      } else nbCartesDuPli = monpli.nbcartes;
+  } // while(true)
     auto t1 = std::chrono::high_resolution_clock::now();
     duree = t1 - t0;
     std::cout << "Temps total video : " << duree.count() << " secondes" << std::endl
@@ -1648,7 +1749,11 @@ int processVideo(config &maconf, cv::String nomfichier)
 
 int main(int argc, char **argv)
 {
-    config maconf;
+#ifndef _WIN32
+cv::startWindowThread(); cv::waitKey(1);
+#endif
+
+  config maconf;
     std::cout << " arguments optionels :"
               << " nom du fichier image ou video, "
               << " nom du fichier de configuration, "
@@ -1706,644 +1811,6 @@ int main(int argc, char **argv)
 }
 
 
-// analyser les cartes
-// 
-void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, std::vector<uncoinPrec>& coinsPrec,
-   const std::vector<ligne>&  lignes, unpli& monpli) {
-  if (printoption > 1) std::cout<< std::endl<<"================== recherche des nouvelles cartes ======"<<std::endl;
-  bool estvideo = true;
-  int epsilon = std::max(4,2*maconf.deltacadre);
-  int nca = 0; // numéro de carte complète à analyser
-  int nc = 0; // numéro de carte cherchée
-  int numcol, valcarte; // couleur et valeur de carte
-  int h0 = -1; // coin de la frame précédente
-  int h1 = -1;
-  int attendre = 0; // pour pouvoir actualiser l'affichage en debug 
-  if(attendre) cv::waitKey(0);
-  // déterminer si la carte était déjà dans la frame précédente
-  // la distance entre un sommet de la carte et un point de la frame précédente
-  //         doit être commune à tous les sommets de la carte
-  // un des coins de cette carte était-il déjà dans la frame précédente
-  for (int n = 0; n < Coins.size(); n++){
-    const auto& cn = Coins[n];
-    // nouvelle carte
-    if (cn.numCarte <= nc) continue; // coin d'une carte déjà recherchée
-    if (cn.elimine) continue;
-    if (cn.couleur >= 0 && cn.valeur > 0) continue; // coin déjà analysé 
-    nc = cn.numCarte; // numéro de carte suivante de cette frame
-
-        // noter que par construction des numéros de cartes, 
-        //  les numéros de cartes sont en ordre croissant des numéros de coins
-    // considérer tous les coins de cette carte nc
-    h0 = -1;  // a priori pas présente dans la frame précédente
-    h1 = -1;
-    bool estNouveau = false; // nouveau sommet dans cette frame ?
-    cv::Point2i  P1(cn.sommet);
-    int dmin(100), dmax(0);
-    std::string nomcarte="";
-    int numcol(-1), valcarte(0);
-    for(int  m= n; m< Coins.size(); m++ ){
-      const auto& cm = Coins[m];
-      if (cm.numCarte != nc) continue; // coin d'une autre carte
-      cv::Point2i PT(cm.sommet);
-      // rechercher dans le vecteur coinsPrec des coins  mémorisés des frames précédentes
-      bool trouve(false);
-      h0 = -1;
-      dmin = 100; // distance minimale entre le coin PT de la carte et la frame précédente
-      
-      for (int h = 0; h < coinsPrec.size(); h++){
-        uncoinPrec up = coinsPrec[h];
-        cv::Point2i QT(up.x, up.y);
-        if (std::abs(PT.x - QT.x) > epsilon ) continue;
-        if (std::abs(PT.y - QT.y) > epsilon ) continue;
-        if (h1 >= 0) { // on a trouvé un coin précédent proche de cette carte
-          if (numcol >= 0 && valcarte > 0) {
-            if (numcol != up.couleur) continue; // couleur différente
-            if (valcarte != up.valeur) continue; // valeur différente
-          }
-        }
-        int d = std::max(std::abs(PT.x - QT.x), std::abs(PT.y - QT.y));
-        if (dmin > d ) { 
-          dmin = d;
-          h0 = h;
-        }
-      }
-      if (h0 >= 0){ // on a trouvé un coin précédent proche du coin PT de cette carte
-        if (h1 < 0 || numcol < 0 || valcarte <= 0){ // pas encore trouvé un coin proche dans la frame précédente
-          // mémoriser couleur et valeur du coin précédent
-          numcol = coinsPrec[h0].couleur;
-          valcarte = coinsPrec[h0].valeur;
-          h1 = h0;
-        }
-      }
-      if (h0 < 0){ // le coin PT n'est pas trouvé dans la frame précédente
-        // mémoriser qu'il y a un nouveau sommet de la carte
-        // et attendre la recherche de tous les sommets de la carte
-        estNouveau = true;
-      }
-      else if (dmax < dmin) dmax = dmin; // maximum entre les coins de la carte et de la carte de la frame précédente
-      if (h1 >= 0 && dmax > maconf.hauteurcarte / 10) break;
-    } // for m
-
-    // si un des sommets de la carte est nouveau dans cette frame
-    // et si on a trouvé une carte correspondant à celle-ci dans la frame précédente
-    //  qui n'a pas de couleur et valeur
-    //  ==> ne pas reconnaitre que c'est la même carte
-    if (estNouveau && h1 >= 0) {
-      if (numcol < 0 || valcarte <= 0) dmax = 100;
-    }
-    if (h1 >= 0 && dmax < maconf.hauteurcarte / 10) { // carte proche d'une carte de la frame précédente
-      nomcarte = "";
-      if (numcol >= 0 && numcol <= 3) nomcarte = nomcouleur[numcol];
-      if (coinsPrec[h1].valeur > 0 && coinsPrec[h1].valeur < 14){
-        nomcarte += " ";
-        nomcarte += nomval[coinsPrec[h1].valeur];
-      }
-      if(printoption > 1)  std::cout<< " carte "<< nc << " ("<< nomcarte 
-        << ") déjà dans la frame précédente." << std::endl;
-      // noter qu'il est inutile d'analyser ce coin
-      //cn.couleur = numcol;
-      //cn.valeur = valcarte;
-      // ainsi que tous les coins de cette carte
-      for (auto &coin:Coins){
-        if (coin.numCarte == nc) { coin.couleur = numcol; coin.valeur = valcarte;}
-      } 
-      continue; // for n
-    }
-
-    // nouveau coin, nouvelle carte dans cette frame
-    // vérifier que c'est la seule nouvelle carte
-    // analyser les coins à partir du coin n+1 nouveaux 
-    //   de la même carte --> les angles de la carte
-    //   d'une autre carte --> erreur : plusieurs nouvelles cartes
-    if (printoption) std::cout<< "nouvelle carte "<< nc<<" nouveau sommet "<< n <<P1<<std::endl;
-    bool estcarte(false);
-    for (int m =n+1; m< Coins.size(); m++){
-      const auto& cm = Coins[m];
-      if (cm.numCarte != nc) continue;
-      if (cm.elimine) continue;
-      cv::Point2i P2(cm.sommet);
-      // coin de la même carte ?
-      if (nc == cm.numCarte) { // même carte
-        // mémoriser
-        if (printoption) std::cout << " autre sommet "<< m<< " "<< P2<<std::endl;
-        // distance entre les deux points proche de longueur ou largeur de carte
-        if (!estcarte) {
-          double dist = std::sqrt((P1.x - P2.x)*(P1.x - P2.x) + (P1.y - P2.y)*(P1.y - P2.y));
-          if (std::abs(dist - maconf.hauteurcarte) < maconf.hauteurcarte / 10) estcarte =true;
-          if (std::abs(dist - maconf.largeurcarte) < maconf.hauteurcarte / 10) estcarte =true;
-        }
-      }               
-    } // for m
-    if (estcarte) { // carte avec au moins deux coins et absente de la frame précédente
-      if (printoption) std::cout<<" carte complète "<< nc<<std::endl;
-      // analyser la nouvelle carte
-      if (nca != 0){
-        if (printoption) std::cout<< " plusieurs cartes complètes "<< nca << ","<<nc<<std::endl;
-        // ignorer la carte dont un sommet est sur un bord de carte de la frame précédente
-        // parcourir les coins de la carte nc
-        // comparer chaque coin aux bords des cartes du pli en cours
-        // vérifier les deux cartes NC puis NCA
-        // vérifier les sommets de la carte nc
-        bool ignorerNC = false;
-        for (int i = 0; i < Coins.size(); i++){
-          if (Coins[i].numCarte != nc) continue;
-          cv::Point2i P(Coins[i].sommet);
-          cv::Point2i U, V;
-          // comparer aux bords de cartes du pli en cours
-          for (int j = 0; j < monpli.nbcartes; j++ ) { // chaque carte du pli
-            numcol = monpli.cartes[j].couleur;
-            numcol = monpli.cartes[j].valeur;
-            for (int k = 0; k < 4; k++){ // chaque sommet
-              U = monpli.cartes[j].sommet[k];
-              for (int l=k+1; l < 4; l++) { // chaque autre sommet de la même carte du pli
-                V = monpli.cartes[j].sommet[l];
-                // on a un bord UV
-                double dist = calculerDistance(P, U, V);
-                if (std::abs(dist) > maconf.deltacadre) continue;
-                ignorerNC = true;
-                break;
-              } // for l
-              if (ignorerNC) break;
-            } // for k
-            if (ignorerNC) break;
-          } // for j
-          if (ignorerNC) break;
-        } // for i
-        if (ignorerNC) {
-          nc = 0;
-          if (printoption > 1) std::cout<<" carte "<<nc<< " ignorée car dans la frame précédente"<<std::endl;
-        }
-        else {
-          // vérifier la carte nca
-          for (int i = 0; i < Coins.size(); i++){
-            if (Coins[i].numCarte != nca) continue;
-            cv::Point2i P(Coins[i].sommet);
-            // comparer aux bords de cartes du pli en cours
-            for (int j = 0; j < monpli.nbcartes; j++ ) { // chaque carte du pli
-              numcol = monpli.cartes[j].couleur;
-              numcol = monpli.cartes[j].valeur;
-              for (int k = 0; k < 4; k++){ // chaque sommet
-                cv::Point2i U(monpli.cartes[j].sommet[k]);
-                for (int l=k+1; l < 4; l++) { // chaque autre sommet de la même carte du pli
-                  cv::Point2i V(monpli.cartes[j].sommet[l]);
-                  // on a un bord UV
-                  double dist = calculerDistance(P, U, V);
-                  if (std::abs(dist) > maconf.deltacadre) continue;
-                  ignorerNC = true;
-                  break;
-                } // for l
-                if (ignorerNC) break;
-              } // for k
-              if (ignorerNC) break;
-            } // for j
-            if (ignorerNC) break;
-          } // for i
-          if (ignorerNC) {
-            if (printoption > 1) std::cout<<" carte "<<nca<< " ignorée car dans la frame précédente"<<std::endl;
-            nca = nc;
-            nc = 0;
-          }
-        } // else
-      }
-      nca = nc;
-    } else // coin (n) absent de la frame précédente et non opposé à un autre coin
-      if(printoption > 1) std::cout<< " carte "<<nc<< " a un seul coin: "<< n<<std::endl;
-  } // for n
-
-  
-  if (nca){
-    if (printoption > 1) std::cout<<"==> analyse de la carte "<<nca<<std::endl;
-    // obtenir les 4 sommets du rectangle de la carte
-    // trouver l'encombrement des coins de la carte
-    // partir d'un coin le plus  à gauche, le plus haut s'il y en a plusieurs, (P)
-    // rechercher un coin opposé (Q) à distance proche de la longueur ou largeur de carte
-    // Q doit être proche d'une des lignes du coin P
-    // et la distance PQ doit être la plus proche possible de la longueur ou largeur de carte
-    // si la distance n'est pas exactement la longueur ou largeur
-    // repartir du coin Q (--> P) et chercher un coin Q à distance convenable.
-    // on a alors deux coins P et Q opposés PQ étant un coté de la carte
-    // chercher ou calculer les deux autres sommets
-    cv::Point2i P, Q, U, V;
-    int n1(-1), n2(-1), n3(-1), n4(-1);
-    int nbpts;
-    //int i, j;
-    int dc = std::max(4, maconf.deltacadre);
-    // rechercher le coin le plus à gauche (et le plus haut s'il y en a plusieurs)
-    int xmin(12345); // une grande valeur
-    for (auto& cn:Coins) {
-      if (cn.numCarte != nca) continue; // autre carte
-      if (cn.elimine) continue; // coin éliminé
-      if (cn.sommet.x <= xmin ) {
-        xmin = cn.sommet.x;  //limite gauche de la carte
-      }
-    }
-    int ymin(12345); // une grande valeur
-    for (int n = 0; n < Coins.size(); n++) {
-      const auto& cn = Coins[n];
-      if (cn.numCarte != nca) continue; // autre carte
-      if (cn.elimine) continue; // coin éliminé
-      if (cn.sommet.x <= xmin ) {    // un des coins les plus à gauche
-        if (cn.sommet.y < ymin ) {
-          n1 = n;
-          ymin = cn.sommet.y;
-        }
-      }
-    }
-    P = Coins[n1].sommet;
-    if(printoption > 1) std::cout<<" coin "<< n1 <<" "<<P<<std::endl;
-    // rechercher un coin opposé sur le premier coté du coin P puis sur le deuxième
-    n2 = -1;
-    int lgref, lgref2;
-    float a,b,c, aa,bb,cc;
-    cv::Vec4i ln = Coins[n1].l1->ln;
-    cv::Vec4i ln2 = Coins[n1].l2->ln;
-    a = Coins[n1].l1->a; b = Coins[n1].l1->b; c = Coins[n1].l1->c;
-    aa = Coins[n1].l2->a; bb = Coins[n1].l2->b; cc = Coins[n1].l2->c;
-    for (int i=0; n2< 0 && i < 2; i++) {
-      n2 = -1;
-      float ecart, ecartmin(dc);
-      for (int n = 0; n < Coins.size(); n++) {
-        const auto& cn = Coins[n];
-        if (cn.numCarte != nca || cn.elimine) continue;
-        if (n == n1) continue;
-        Q = cn.sommet;
-        float dist = a*Q.x + b*Q.y + c;
-        float lg = std::abs(dist);
-        if (lg > dc) continue; // Q n'est pas proche d'une arête du coin n (P)
-        lg = std::sqrt((Q.x - P.x)*(Q.x - P.x) + (Q.y - P.y)*(Q.y - P.y));
-        if (lg > maconf.hauteurcarte + dc) continue; // PQ trop grand
-        if (lg < maconf.largeurcarte - dc) continue; //PQ trop court
-        if (lg > maconf.largeurcarte + dc && lg < maconf.hauteurcarte - dc) continue;
-        // PQ est hauteur ou largeur de carte ?
-        if (lg > (maconf.largeurcarte + maconf.hauteurcarte)/2) {
-          lgref = maconf.hauteurcarte;
-          lgref2 = maconf.largeurcarte;
-        }
-        else {
-          lgref = maconf.largeurcarte;
-          lgref2 = maconf.hauteurcarte;
-        }
-        ecart = lgref - lg;
-        if (ecart <= ecartmin){
-          ecartmin = ecart;
-          n2 = n;
-        }
-      }
-      if (n2 < 0) {
-        ln2 = ln;
-        ln = Coins[n1].l2->ln;
-        aa = a; bb=b; cc=c;
-        a = Coins[n1].l2->a; b = Coins[n1].l2->b; c = Coins[n1].l2->c;
-      }
-    } // while n2
-
-
-    if (n2 < 0) {
-      // aucun coin opposé au coin P
-      nbpts = 1;
-    } else {
-      Q = Coins[n2].sommet;
-      if(printoption > 1) std::cout<<" coin opposé "<< n2 <<" "<<Q<<std::endl;
-      // on a deux sommets de la carte P (n1) et Q (n2)
-      // rechercher ou calculer les deux autres sommets U et V
-      // la ligne commune est : coin n1 indice i, ligne ln, coefficient a b c
-      // rechercher le coin U sur l'autre ligne (j) du coin P
-      cv::Vec4i ln = ln2;
-      float ecmin = 3;
-      n3 = -1;
-      for (int n = 0; n < Coins.size(); n++) {
-        const auto& cn = Coins[n];
-        if (cn.numCarte != nca || cn.elimine) continue;
-        if (n == n1 || n == n2) continue;
-        U = cn.sommet;
-        float dist = aa*U.x + bb*U.y + cc;
-        if (std::abs(dist) > 1) continue; // U n'est pas sur l'autre ligne (que PQ) j du coin P
-        float lg = std::sqrt((U.x - P.x)*(U.x - P.x) + (U.y - P.y)*(U.y - P.y));
-        if (std::abs(lg - lgref2) > ecmin) continue; // U n'est pas à distance convenable de P (hauteur ou largeur de carte)
-        if(std::abs(lg - lgref2) < ecmin) {
-          ecmin = std::abs(lg - lgref2);
-          n3 = n;
-        }
-      }
-      if(n3 >= 0) {
-        U = cv::Point2i(Coins[n3].sommet);
-        if(printoption > 1) std::cout<<" coin trois "<< n3 <<" "<<U<<std::endl;
-      }
-      ligne *l1 = Coins[n2].l1;
-      ligne *l2 = Coins[n2].l2;
-      // rechercher le sommet V sur le coté orthogonal à PQ du coin Q (n2)
-      float ps = a*Coins[n2].l1->a + b*Coins[n2].l1->b;
-      if(std::abs(ps) < 0.5) {
-        l2 = l1;
-        l1 =Coins[n2].l2;
-      }
-      // ii est la ligne // PQ  jj est la ligne ortogonale à PQ
-      // rechercher un coin V de cette carte tel que QV = lgref2 (à deltacadre près)
-      // distance de V à la droite PQ = lgref2   et QV orthogonal à PQ
-      n4 = -1;
-      ecmin = 3;
-      for (int n = 0; n < Coins.size(); n++) {
-        const auto& cn = Coins[n];
-        if (cn.numCarte != nca || cn.elimine) continue;
-        if (n == n1 || n == n2 || n == n3) continue;
-        V = cn.sommet;
-        // distance de V à cette ligne jj orthogonale à PQ:
-        float d = V.x * l2->a + V.y * l2->b + l2->c;
-        if (std::abs(d) > dc) continue;
-
-        float dist = std::abs(a*V.x + b*V.y + c);
-        if (std::abs(dist - lgref2) > ecmin) continue;
-        if (std::abs(dist - lgref2) < ecmin) {
-          ecmin = std::abs(dist - lgref2);
-          n4 = n;
-        }
-      }
-      if(n4 >= 0) {
-        V = cv::Point2i(Coins[n4].sommet);
-        if(printoption > 1) std::cout<<" coin quatre "<< n4 <<" "<<V<<std::endl;
-      }
-
-
-      if (n3 < 0) {
-        // pas de coin sur l'autre ligne du coin P
-        U = V;
-        n3 = n4;
-        n4 = -1;
-      }
-    }
-    nbpts = 1;
-    if (n4 >= 0) nbpts = 4;
-    else if (n3 >= 0) nbpts = 3;
-    else if (n2 >= 0) nbpts = 2;
-    int pts[4][2]; // les 4 points de la carte
-    pts[0][0] = P.x; pts[0][1] = P.y;
-    if (n2 >= 0) pts[1][0] = Q.x; pts[1][1] = Q.y;
-    if (n3 >= 0) pts[2][0] = U.x; pts[2][1] = U.y;
-    if (n4 >= 0) pts[3][0] = V.x; pts[3][1] = V.y;
-
-    // TODO  si on n'a pas les 4 sommets, compléter à partir des deux premiers;
-    //
-    //  U_________V
-    //  |         |
-    //  |         |
-    //
-    double lgW; // longueur de l'autre coté
-    double lg, lg2;
-    int nbptsW = nbpts;
-    if ((nbpts == 2 || nbpts == 3)){
-      // les deux premiers points sont la longueur ou la largeur ou la diagonale
-
-      // on dispose du vecteur normal des lignes des coins
-      cv::Point2i P(Coins[n1].sommet);
-      cv::Point2i Q(Coins[n2].sommet);
-      // vérifier que PQ est la hauteur ou la largeur de carte
-      cv::Point2i C; // autre sommet opposé au point P
-      cv::Point2i D; // autre sommet opposé au point Q
-      // PQ hauteur ou largeur de carte ?
-      lg2 = (Q.x - P.x)*(Q.x - P.x) + (Q.y - P.y)*(Q.y - P.y);
-      lg = std::sqrt(lg2);
-      if (lg > 5*maconf.hauteurcarte/4 && nbpts == 3){
-        // c'est la diagonale.
-        // s'il y a un 3ème sommet, remplacer le 2ème sommet
-        Q = Coins[n3].sommet;
-        pts[1][0] = pts[2][0]; pts[1][1] = pts[2][1]; 
-        lg2 = (Q.x - P.x)*(Q.x - P.x) + (Q.y - P.y)*(Q.y - P.y);
-        lg = std::sqrt(lg2);
-        int w = n2; n2 = n3; n3 = w;
-      }
-      if (std::abs (lg - maconf.hauteurcarte) <= dc ) lgW = maconf.largeurcarte;
-      else if (std::abs (lg - maconf.largeurcarte) <= dc ) lgW = maconf.hauteurcarte;
-      else lgW = 0;
-      if (lgW > dc) {
-
-        double a = Coins[n1].l1->a;
-        double b = Coins[n1].l1->b;
-        double c = Coins[n1].l1->c;
-        double dist = a*Q.x + b*Q.y +c;
-        cv::Point2i R(Coins[n1].K);
-        if (abs(dist) > dc) { // PQ // autre ligne du coin P
-          a = Coins[n1].l2->a;
-          b = Coins[n1].l2->b;
-          c = Coins[n1].l2->c;
-          R = Coins[n1].H;
-        }
-        // distance de R à la droite (i)
-        double dR = a*R.x + b*R.y + c;
-        // dR > 0 : vecteur normal dirigé vers l'intérieur 
-        if (dR < 0) lgW = -lgW;
-        C.x = Q.x + a*lgW;
-        C.y = Q.y + b*lgW;
-        D.x = P.x + a*lgW;
-        D.y = P.y + b*lgW;
-        if (nbpts == 3) {
-          // remplacer C ou D par le point n3
-          cv::Point2i K(Coins[n3].sommet);
-          if (std::abs(C.x - K.x) < dc && std::abs(C.y - K.y) < dc ) {
-            C = K;
-          } else if (std::abs(D.x - K.x) < dc && std::abs(D.y - K.y) < dc ) {
-            D = K;
-          }
-        }
-        if (C.x >= 0 && C.x < image.cols && C.y >= 0 && C.y < image.rows 
-        && D.x >= 0 && D.x < image.cols && D.y >= 0 && D.y < image.rows ) {
-          pts[2][0] = C.x;
-          pts[2][1] = C.y;
-          pts[3][0] = D.x;
-          pts[3][1] = D.y;
-          nbpts = 4;   // on vient de compléter
-        } else {
-          if(printoption > 1) std::cout<<" hors de l'ecran"<<std::endl;
-        }
-      } //if lgW > dc
-    }
-
-    if (nbpts == 4){
-      // vérifier qu'aucun autre coin d'une autre carte n'est dans celle-ci
-      // réordonner les sommets ABCD : partir du premier point A= pts[0]
-      // si le segment 0-1 n'est pas un coté de carte (longueur > hauteurcarte), inverser 1 et 2
-      // si 2-3 est dans le même sens que 0-1, inverser 2 et 3 
-      int lg = (pts[1][0] - pts[0][0])*(pts[1][0] - pts[0][0]) + (pts[1][1] - pts[0][1])*(pts[1][1] - pts[0][1]);
-      lg = std::sqrt(lg);
-      if (lg > 5*maconf.hauteurcarte/4) { // inverser les points 1 et 2
-        int x= pts[1][0]; int y = pts[1][1];
-        pts[1][0] = pts[2][0]; pts[1][1] = pts[2][1];
-        pts[2][0] = x; pts[2][1] = y;
-      }
-      // CD en sens inverse de AB ?
-      // calcul du produit scalaire AB*CD
-      int ps = (pts[1][0] - pts[0][0])*(pts[3][0]-pts[2][0]) 
-          + (pts[1][1] - pts[0][1])*(pts[3][1]-pts[2][1]);
-      if (ps > 0) { // inverser 2 et 3
-        int x= pts[3][0]; int y = pts[3][1];
-        pts[3][0] = pts[2][0]; pts[3][1] = pts[2][1];
-        pts[2][0] = x; pts[2][1] = y;
-      }
-      for (int n = 0; n < Coins.size(); n++){
-        const auto& cn = Coins[n];
-        if (cn.numCarte == nca) continue; // un coin de cette carte
-        cv::Point2i P(cn.sommet);
-        // ignorer ce coin s'il était déjà dans la frame précédente
-        if (estvideo) {
-          bool trouve = false;
-          for (int h = 0; h < coinsPrec.size(); h++){
-            uncoinPrec up = coinsPrec[h];
-            if (std::abs(P.x - coinsPrec[h].x) <= 1 
-            && std::abs(P.y - coinsPrec[h].y) <= 1 ) {
-              trouve = true;
-              break;
-            }
-          }
-          if (!trouve) continue; // ignorer ce coin à l'intérieur de la nouvelle carte
-        }
-        // P à l'intérieur de la carte (rectangle) ?
-        // la projection de P sur chacun des 4 coté doit être à l'intérieur du segment
-        // (c'est un rectangle, il suffirait de considérer les deux premiers cotés)
-        // coté UV : UP.UV doit être positif et inférieur à UV.UV
-        bool estdehors = false;
-        int x = pts[3][0];
-        int y = pts[3][1];
-        cv::Point2i U(x,y);
-        cv::Point2i V;
-        int ps;
-        for (int i= 0; i < 4; i++){
-          V = cv::Point2i(pts[i][0], pts[i][1]);
-          //ps = (P.x - U.x)*(V.x - U.x) + (P.y - U.y)*(V.y - U.y);
-          ps = unvecteur(U,P)*unvecteur(U,V);
-          if (ps < 3*maconf.hauteurcarte) {
-            estdehors = true; break;}
-          //if (ps > (V.x - U.x)*(V.x - U.x) + (V.y - U.y)*(V.y - U.y) - 2*maconf.hauteurcarte) {
-          if (ps > unvecteur(U,V)*unvecteur(U,V) - 2*maconf.hauteurcarte) {
-            estdehors = true; break;
-          }
-          U = V;
-        }
-        if (!estdehors ){
-          nbpts = 0;
-          if(printoption > 1) std::cout<< " coin "<< n << P <<" dans la carte "<<std::endl; 
-        }
-      }
-      if (nbpts == 4) {
-        //        comparer aux cartes du pli en cours
-        //        comparer à une carte (C)du pli en cours
-        //        comparer chaque sommet aux 4 sommets de la carte (C)
-        //        obtenir l'écart minimum
-        //        obtenir pour les 4 sommets de (C) : ecart minimum et maximum des écarts minimaux
-        //        obtenir l'écart global mini et maxi des minima 
-        //        si l'écart maxi est faible, ignorer cette nouvelle carte 
-        //        sinon : décoder et ajouter la carte au pli en cours
-        float dmin2 = image.cols + image.rows;
-        int iproche;
-        for (int i = 0; i < monpli.nbcartes; i++){ // chaque carte du pli en cours
-          float dmax1 = 0; // distance de la carte analysée à la carte du pli
-          for (int k = 0; k < nbpts; k++){ // chaque sommet de la carte analysée
-            unpoint M(pts[k][0], pts[k][1]); // un point de la carte en cours
-            float dmin1 = image.cols + image.rows;
-            for (int j = 0; j< 4; j++){ // chaque sommet de la carte du pli en cours
-              unpoint S(monpli.cartes[i].sommet[j]) ;
-              float d = unvecteur(M,S).lg();
-              if (d < dmin1) dmin1 = d;
-            }
-            if (dmax1 < dmin1) dmax1 = dmin1;
-          }
-          // dmax1 = distance de la carte analysée à la carte i du pli
-          if (dmin2 > dmax1) {dmin2 = dmax1; iproche = i;}
-        }
-        int numcol= -1;
-        int valcarte = 0;
-        bool ajouteraupli = false;
-        // carte analysée proche d'une carte du pli ?
-        if (dmin2 < maconf.hauteurcarte/4) {
-          numcol = monpli.cartes[iproche].couleur;
-          valcarte = monpli.cartes[iproche].valeur;
-          if (printoption > 1){
-            std::cout<<"carte proche d'une carte du pli en cours "<<couleurcarte[numcol]<<" "<<valcarte<<std::endl;
-          }
-        }
-        else {  // Décoder cette nouvelle carte
-          valcarte = decoderCarte(image, pts, maconf, numcol);
-          // vérifier qu'elle n'est pas déjà dans la distribution
-          // puis l'ajouter dans la distribution
-
-          if (numcol >= 0 && valcarte > 0 && valcarte <= 13) { // on a trouvé
-            bool duplique = false;
-            for (int i = 0; i < 4; i++) {
-              for (int j = 0; j < 13; j++) {
-                if ( numcol == distribution[i][j][0] && valcarte == distribution[i][j][1]) {
-                  std::cout<<" cette carte ("<<couleurcarte[numcol]<<" "<<valcarte<<")"<<" est deja dans le pli "
-                    <<j+1<<" du joueur "<<i<<std::endl;
-                  duplique = true; break;
-                }
-              }
-              if (duplique) break;
-            }
-          }
-          ajouteraupli = true;
-          if (printoption) {
-            if (numcol >= 0 && valcarte > 0 && valcarte <= 13)  // on a trouvé
-              std::cout<<"==> carte : "<<couleurcarte[numcol]<<" "<<valcarte<<std::endl;
-            else
-              std::cout<<"==> carte valeur "<<valcarte<<" couleur "<<numcol<<std::endl;
-          }
-        }
-        // mémoriser la valeur obtenue sur tous les coins de la carte
-        // uniquement si on a trouvé couleur et valeur
-        if (numcol >= 0 && valcarte > 0 && valcarte <= 13) {
-          for (auto &coin:Coins){
-            if (coin.numCarte != nca) continue; // pas un coin de cette carte
-            coin.couleur = numcol;
-            coin.valeur = valcarte;
-            if (valcarte > 10) coin.estunRDV = true;
-          }
-        }
-        // si l'option d'analyse des coins isolés est active
-        //        noter : ne pas analyser les coins pas encore analysés et sur un bord de cette carte
-        if (maconf.coinsoption){
-          cv::Point2i P(pts[3][0], pts[3][1]);
-          for (int i = 0; i < 4; i++){
-            cv::Point2i Q(pts[i][0], pts[i][1]);
-            float a, b, c; // normale de la droite PQ et equation de PQ
-            float lg = std::sqrt((Q.x - P.x)*(Q.x - P.x) + (Q.y - P.y)*(Q.y - P.y));
-            a = (Q.y - P.y) /lg;
-            b = -(Q.x - P.x) / lg;
-            c = -a*P.x - b*P.y; 
-            for (auto& coin:Coins){
-              if (coin.elimine) continue;
-              if (coin.couleur >= 0 && coin.valeur > 0) continue; // déjà décodé
-              cv::Point2i M(coin.sommet);
-              // sommet (M) du coin n sur le segment PQ ?
-              if (std::abs(a*M.x + b*M.y + c) < maconf.deltacadre ) {
-                // MP.MQ < 0 --> M entre P et Q ?
-                if ((P.x - M.x)*(Q.x - M.x) + (P.y - M.y)*(Q.y - M.y) < 0) {
-                  coin.elimine = true;
-                  break;
-                }
-              }
-              P = Q;
-            }
-          }
-        }
-
-        //        
-        if (ajouteraupli){
-          // ajouter la carte au pli en cours
-          if (monpli.nbcartes < 4) {
-            int nc = monpli.nbcartes;
-            monpli.cartes[nc].couleur = numcol;
-            monpli.cartes[nc].valeur = valcarte;
-            for (int i=0; i < 4;i++) {
-              int x = pts[i][0]; int y = pts[i][1];
-              monpli.cartes[nc].sommet[i].x = x;
-              monpli.cartes[nc].sommet[i].y = y;
-            }
-            monpli.nbcartes++;
-          }
-        }
-      }
-    }
-  } // traitement carte nca
-return;
-}
 
 // trouver les lignes droites dans une image
 void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
@@ -2428,8 +1895,516 @@ void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
   }
 }
 
+void validerCoin(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins, uncoin& cn);
+void validerCoin(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins, uncoin& cn){
+  // comparer aux coins déjà enregistrés sommet Q lignes l1 et l2 extrémités U et V
+  // ignorer si l1 n'est pas parallèle à AB (ou CD)
+  // ignorer si Q est loin de P (loin de AB et de CD)
+  // ignorer si l1 (QU) n'est pas de même sens que PH (ou PK)    
+  // ignorer si l2 (QV) n'est pas de même sens que PK (ou PH)
+  // si Q est à l'intérieur de cn ( Q et H du même coté de CD)  ignorer cn  
+  //                              ( Q et K du même coté de AB)  ignorer cn
+  // si Q est dans le quart intérieur du coin : actualiser ce coin : cadre= Q, estunRDV
+  // si Q est dans le quart hors du coin
+  //   actualiser le coin (Q)  : cadre = P, estunRDV 
+  //   et ignorer  le coin cn
+  //
+  
+  int dc = maconf.deltacadre;
+  int dcRDV = std::max(2*dc, dc + maconf.deltaVDR + 1);
+  cv::Point2i P = cn.l1->intersect(cn.l2); // calculer le point d'intersection des deux lignes de cn
+  cn.sommet = P;
+  cn.R = cn.H; cn.S = cn.K;
+  cv::Point2i H(cn.H), K(cn.K);
+  if (maconf.printoption > 0) std::cout<<"              validercoin " << P<<H<<K<<std::endl;
+  bool eliminer(false);
+  for (int i=0; i<Coins.size(); i++){
+    uncoin& coin=Coins[i];
+    cv::Point2i U(coin.H), V(coin.K), Q(coin.sommet);
+    // Q loin des cotés de cn ?
+    // en tenant compte de la ligne parasite qui borde le caractère R
+    if (std::abs(cn.l1->dist(Q)) > dcRDV) continue;
+    if (std::abs(cn.l2->dist(Q)) > dcRDV) continue;
+    if(std::abs(cn.l1->a*coin.l2->a + cn.l1->b*coin.l2->b ) > maconf.cosOrtho) { // l1 non // l1
+      if(std::abs(cn.l1->a*coin.l1->a + cn.l1->b*coin.l1->b ) > maconf.cosOrtho) continue; // l1 non // l2
+      // l1 // l2  (et l2 // l1)
+      U = coin.K; V = coin.H;
+    }
+    // dans le même sens ? PH.QU   et pour l2//l2 PK.QV
+    if ((H.x - P.x)*(U.x - Q.x) + (H.y - P.y)*(U.y - Q.y) < 0) continue; //sens opposé
+    if ((K.x - P.x)*(V.x - Q.x) + (K.y - P.y)*(V.y - Q.y) < 0) continue; //sens opposé
+
+    cv::Point2i HH(coin.H), KK(coin.K);
+    // Q à l'intérieur du coin cn ? PQ.PH > 0 et PQ.PK> 0
+    if ((Q.x - P.x)*(H.x - P.x) + (Q.y - P.y)*(H.y - P.y) > 0
+        && (Q.x - P.x)*(K.x - P.x) + (Q.y - P.y)*(K.y - P.y) > 0) {
+          // Q à l'intérieur : actualiser le coin Q = coin cn, et éliminer cn
+          eliminer = true;
+          // c'est le cadre sauf si on a déjà un cadre meilleur
+          if ( std::abs(std::abs(cn.l1->dist(Q)) - dc) < std::abs(std::abs(cn.l1->dist(coin.cadre)) - dc)
+          && std::abs(std::abs(cn.l1->dist(Q)) - dc) < std::abs(std::abs(cn.l1->dist(coin.cadre)) - dc) ) {
+            coin.cadre = Q;
+            coin.estunRDV = true;
+          }
+          
+          // actualiser coin (=cn)
+          coin.l1 = cn.l1; coin.l2 = cn.l2;
+          coin.H = coin.R = cn.H; coin.K = coin.S = cn.K;
+          coin.sommet = cn.sommet;
+          if (maconf.printoption)
+            std::cout<<"==> actualisation coin "<< i<<Q<<HH<<KK<<" --> "
+            <<coin.sommet<<coin.H<<coin.K<<"cadre"<<coin.cadre<<std::endl;
+          
+    } else if ((Q.x - P.x)*(H.x - P.x) + (Q.y - P.y)*(H.y - P.y) >= 0
+        || (Q.x - P.x)*(K.x - P.x) + (Q.y - P.y)*(K.y - P.y) >= 0) {
+          // Q à l'intérieur d'un coté, à l'extérieur de l'autre (ou sur une ligne)
+          // si Q est à distance deltacadre (+- 1) d'une ligne et sur l'autre (+-1)
+          //   repositionner Q à deltacadre de la ligne vers l'intérieur
+          //   puis actualiser le coin avec cn 
+          cv::Point2i W;
+          if (std::abs(cn.l1->dist(Q)) <= 1 && std::abs(std::abs(cn.l2->dist(Q)) - dc) <=1) {
+            // Q sur l1
+            //   H-------P--Q     ou H------Q--P
+            if (cn.l2->dist(H) * cn.l2->dist(Q) < 0 ) { // P entre H etQ
+              //coin.sommet = Q; // inchangé
+              if (cn.l1->dist(cn.K) > 0) {W.x = P.x + dc*cn.l1->a; W.y = P.y + dc*cn.l1->b; }
+              else {W.x = P.x - dc*cn.l1->a; W.y = P.y - dc*cn.l1->b; }
+            } else { // Q entre H et P
+              coin.sommet = P;
+              if (cn.l1->dist(cn.K) > 0) {W.x = Q.x + dc*cn.l1->a; W.y = Q.y + dc*cn.l1->b; }
+              else {W.x = Q.x - dc*cn.l1->a; W.y = Q.y - dc*cn.l1->b; }
+              // remplacer les lignes du coin par celles de cn
+              coin.l1 = cn.l1; coin.l2 = cn.l2; coin.H = coin.R = cn.H; coin.K = coin.S = cn.K;
+            }
+            eliminer=true;
+            coin.cadre  = W; coin.estunRDV = true;
+            if (maconf.printoption)
+              std::cout<<"==> actualisation coin "<<i<<Q<<HH<<KK<<" --> "
+              <<coin.sommet<<coin.H<<coin.K<<"cadre"<<coin.cadre<<" RDV"<<std::endl;
+          } else if (std::abs(cn.l2->dist(Q)) <= 1 && std::abs(std::abs(cn.l1->dist(Q)) - dc) <=1) {
+            // Q sur l2
+            // l2: K-------P--Q   ou  K-------Q--P
+            if (cn.l1->dist(K) * cn.l1->dist(Q) < 0 ) { // P entre K etQ
+              //coin.sommet = Q; // inchangé
+              if (cn.l2->dist(cn.H) > 0) {W.x = P.x + dc*cn.l2->a; W.y = P.y + dc*cn.l2->b; }
+              else {W.x = P.x - dc*cn.l2->a; W.y = P.y - dc*cn.l2->b; }
+            } else { // Q entre H et P
+              coin.sommet = P;
+              if (cn.l2->dist(cn.K) > 0) {W.x = Q.x + dc*cn.l2->a; W.y = Q.y + dc*cn.l2->b; }
+              else {W.x = Q.x - dc*cn.l2->a; W.y = Q.y - dc*cn.l2->b; }
+              // remplacer les lignes du coin par celles de cn
+              coin.l1 = cn.l1; coin.l2 = cn.l2; coin.H = coin.R = cn.H; coin.K = coin.S = cn.K;
+            }
+            eliminer=true;
+            coin.cadre  = W; coin.estunRDV = true;
+            if (maconf.printoption)
+              std::cout<<"==> actualisation coin "<<i<<Q<<HH<<KK<<" --> "
+              <<coin.sommet<<coin.H<<coin.K<<"cadre"<<coin.cadre<<" RDV"<<std::endl;
+          } else {
+            // Q ni dedans ni dehors
+            // remplacer une ligne (1 ou 2 ? à préciser) par la ligne parallèle de cn
+            //         et recalculer l'intersection
+            // conserver le coin. actualiser
+            // si Q et K sont du même coté de l1 : remplacer la ligne //l1 du coin par l1
+            // si Q et H sont du même coté de l2 : remplacer la ligne //l2 du coin par l2
+            // recalculer le sommet du coin
+            ligne la= *(cn.l1), lb = *(cn.l2);
+            if (cn.l1->dist(Q) * cn.l1->dist(K) > 0) {
+              if (std::abs( coin.l1->a * cn.l1->a + coin.l1->b * cn.l1->b) < 0.5){ //coin.l1 orthogonale à cn.l1
+                la = *(coin.l2);
+                coin.l2 = cn.l1; coin.K = coin.R = H;
+              }else{
+                la = *(coin.l1);
+                 coin.l1 = cn.l1; coin.H = coin.R = H;
+              }
+            }
+            if (cn.l2->dist(Q) * cn.l2->dist(H) > 0) {
+              if (std::abs( coin.l1->a * cn.l1->a + coin.l1->b * cn.l1->b) < 0.5){ //coin.l1 orthogonale à cn.l1
+                lb = *(coin.l1);
+                coin.l1 = cn.l2; coin.H= coin.R = K;
+              }else{
+                lb = *(coin.l2); 
+                coin.l2 = cn.l2; coin.K= coin.S = K;
+              }
+            }
+            coin.R = coin.H; coin.S = coin.K;
+            coin.cadre = la.intersect(lb);
+            coin.sommet = coin.l1->intersect(coin.l2);
+            if (maconf.printoption)
+              std::cout<<"==> actualisation coin "<<i<<Q<<HH<<KK<<" --> "
+              <<coin.sommet<<cn.H<<cn.K<<"cadre"<<coin.cadre<<" RDV"<<std::endl;
+            coin.estunRDV = true;
+            eliminer = true;
+        }
+    } else {
+      // Q est dans le quart hors du coin. y compris le sommet P
+      // donc P est à l'intérieur du coin Q
+      // donc c'est un RDV et il faut obtenir ou calculer le cadre
+      // si Q est à distance  dc+-1 des deux lignes P est le cadre
+      if ( std::abs(std::abs(cn.l1->dist(Q))  - dc) <= 2
+        && std::abs(std::abs(cn.l2->dist(Q))  - dc) <= 2 ) {
+            // sauf si on a déjà un cadre meilleur
+          if ( std::abs(std::abs(cn.l1->dist(Q)) - dc) < std::abs(std::abs(cn.l1->dist(coin.cadre)) - dc)
+          && std::abs(std::abs(cn.l1->dist(Q)) - dc) < std::abs(std::abs(cn.l1->dist(coin.cadre)) - dc) ) {
+            coin.cadre = P; coin.estunRDV = true;
+          }
+
+      } else {
+        // calculer la position du cadre à deltacadre des deux cotés du coin Q
+        // partir de W=Q, déplacer de deltacadre sur coin.l1 (= selon la normale à coin.l2) en direction de H
+        //  puis déplacer de deltacadre, selon la normale de coin.l1 en direction de K
+        cv::Point2i W(Q);
+        if (coin.l2->dist(coin.H) > 0) {W.x += dc*coin.l2->a; W.y += dc*coin.l2->b; }
+        else {W.x -= dc*coin.l2->a; W.y -= dc*coin.l2->b; }
+        if (coin.l1->dist(coin.K) > 0) {W.x += dc*coin.l1->a; W.y += dc*coin.l1->b; }
+        else {W.x -= dc*coin.l1->a; W.y -= dc*coin.l1->b; }
+        coin.cadre = W; coin.estunRDV = true;
+      }
+      if (maconf.printoption)
+        std::cout<<"==> actualisation coin "<<i<<coin.sommet<<coin.H<<coin.K
+          <<" --> cadre"<<coin.cadre<<" RDV"<<std::endl;
+      eliminer = true;
+    }
+  }
+  if (!eliminer) { 
+    // ne pas créer un coin avec un coté trop court
+    if (std::abs(cn.l1->dist(cn.K) ) < 2*maconf.deltacoin) return;
+    if (std::abs(cn.l2->dist(cn.H) ) < 2*maconf.deltacoin) return;
+    if (maconf.printoption) std::cout<<"==> ajout coin "<<Coins.size()<<P<<H<<K<<std::endl;
+    Coins.push_back(cn);
+  }
+}
 
 void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins){
+  int printoption = maconf.printoption;
+  int nbcoins = 0;
+  int nbcartes = 0;
+  // pour chaque ligne AB
+  // rechercher les lignes CD orthogonales à AB
+  // ignorer CD trop courte (2*deltacoin)
+  // ignorer les lignes CD non orthogonales à AB
+  // ignorer les lignes CD loins de AB (A et B loins du même coté de CD)
+  //    ou (C et D loins de AB du même coté)
+  // pour une ligne CD :
+  //    proche d'une extrémité M = A ou B (N = B ou A)
+  //      U= C ou D  (V = D ou C) proche de AB : préparer le coin cn sur AB et CD avec H=N K=V P=ABxCD
+  //    sinon, si U=C ou D proche de AB :
+  //           préparer un coin sur AB et CD avec H=A K=V P=ABxCD
+  //           préparer un coin              avec H=B 
+  //    sinon (donc C et D loins séparés par AB):
+  //           préparer 4 coins avec H=A ou H=B et K=U ou K=V
+  //
+  // valider chaque coin calculé
+  //
+  int dc = maconf.deltacadre;
+  int dcoin = maconf.deltacoin;
+  uncoin cn;
+  for (int i = 0; i < lignes.size(); i++) { // ligne AB
+    ligne& ln = lignes[i];
+    cv::Vec4i l1 = ln.ln;
+    if (l1[0] < 0)   continue; // ligne fusionnée ou effacée
+    if(ln.lg < 2*maconf.deltacoin) continue; // trop courte
+    cv::Point2i A(l1[0], l1[1]);
+    cv::Point2i B(l1[2], l1[3]);
+    cn.l1 = &ln;
+    for (int j = i+1; j < lignes.size(); j++) { // ligne CD
+      ligne& ln2 = lignes[j];
+      cv::Vec4i l2 = ln2.ln;
+      if (l2[0] < 0)   continue; // ligne fusionnée ou effacée
+      if(ln.lg < 2*maconf.deltacoin) continue; // trop courte
+      if(std::abs(ln.a*ln2.a + ln.b*ln2.b) > maconf.cosOrtho) continue; // pas un angle droit
+      if (ln2.dist(A) > dcoin && ln2.dist(B) > dcoin) continue; // AB loin de CD, coté positif
+      if (ln2.dist(A) < -dcoin && ln2.dist(B) < -dcoin) continue; // AB loin de CD coté négatif
+
+      cv::Point2i C(l2[0], l2[1]);
+      cv::Point2i D(l2[2], l2[3]);
+      if (ln.dist(C) > dcoin && ln.dist(D) > dcoin) continue; // CD loin de AB, coté positif
+      if (ln.dist(C) < -dcoin && ln.dist(D) < -dcoin) continue; // CD loin de AB coté négatif
+
+      cv::Point2i M(A), N(B); // M proche de CD, N loin
+      cv::Point2i U(C), V(D); // U proche de AB, V loin 
+      if (std::abs(ln2.dist(A)) > std::abs(ln2.dist(B))) { M=B; N=A; }
+
+      if (std::abs(ln2.dist(M)) < dcoin) { // M proche de la droite CD. proche de C ou D ?
+        if (printoption > 0) std::cout<<"                lignes "<<i<<" "<<j<<std::endl;
+        if (std::abs(ln.dist(C)) > std::abs(ln.dist(D))) { U=D; V=C; }
+        if (std::abs(ln.dist(U)) <= dcoin) { // U proche de AB
+          // préparer un nouveau coin
+          cn.H = N; cn.K=V; cn.l1= &ln; cn.l2=&ln2;
+          validerCoin (maconf, lignes, Coins, cn);
+        } else {
+          // C et D séparés par la droite AB
+          // deux coins : un du coté C et un du coté D
+          cn.H = N; cn.K=C; cn.l2=&ln2;
+          validerCoin (maconf, lignes, Coins, cn);
+          cn.K = D;
+          validerCoin (maconf, lignes, Coins, cn);
+        }
+      } else { // A et B loin de CD (déjà éliminé si du même coté)
+          if (printoption > 0) std::cout<<"                lignes "<<i<<" "<<j<<std::endl;
+        // ligne CD au milieu du segment AB
+        // C ou D proche de AB ?
+        U=C; V=D;
+        if (std::abs(ln.dist(C)) >  dcoin) {U=D; V=C;}
+
+        if (std::abs(ln.dist(U)) < dcoin) { // U proche de AB. donc deux coins 
+          cn.l2=&ln2; cn.H=A; cn.K=V;
+          validerCoin (maconf, lignes, Coins, cn);
+          cn.H=B;
+          validerCoin (maconf, lignes, Coins, cn);
+        } else { // CD coupe AB au milieu. donc 4 coins;
+          cn.l2=&ln2; cn.H=A; cn.K=C;
+          validerCoin (maconf, lignes, Coins, cn);
+          cn.K=D;
+          validerCoin (maconf, lignes, Coins, cn);
+          cn.H=B;
+          validerCoin (maconf, lignes, Coins, cn);
+          cn.K=C;
+          validerCoin (maconf, lignes, Coins, cn);
+        }
+      }
+    } // CD
+  } // AB
+}
+
+
+void trouverCoinsBAK2(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins){
+  int printoption = maconf.printoption;
+  int nbcoins = 0;
+  int nbcartes = 0;
+
+// provisoire : test du nouveau calcul
+  //trouverCoinsNEW(maconf, lignes, Coins);
+//return;
+
+
+  // pour chaque ligne AB
+  // rechercher les lignes CD orthogonales à AB
+  // ignorer CD trop courte (2*deltacoin)
+  // ignorer les lignes CD non orthogonales à AB
+  // ignorer les lignes CD loins de AB (A et B loins du même coté de CD)
+  //    ou (C et D loins de AB du même coté)
+  // pour une ligne CD :
+  //    proche d'une extrémité M = A ou B (N = B ou A)
+  //      U= C ou D  (V = D ou C) proche de AB : préparer le coin cn sur AB et CD avec H=N K=V P=ABxCD
+  //    sinon, si U=C ou D proche de AB :
+  //           préparer un coin sur AB et CD avec H=A K=V P=ABxCD
+  //           préparer un coin              avec H=B 
+  //    sinon (donc C et D loins séparés par AB):
+  //           préparer 4 coins avec H=A ou H=B et K=U ou K=V
+  //
+  // pour chaque coin  cn préparé sommet P lignes AB et CD extrémités H et K
+  // comparer aux coins déjà enregistrés sommet Q lignes l1 et l2 extrémités U et V
+  // ignorer si l1 n'est pas parallèle à AB (ou CD)
+  // ignorer si Q est loin de P (loin de AB et de CD)
+  // ignorer si l1 (QU) n'est pasde même sens que PH (ou PK)    
+  // ignorer si l2 (QV) n'est pasde même sens que PK (ou PH)
+  // si Q est à l'intérieur de cn ( Q et H du même coté de CD)  ignorer cn  
+  //                              ( Q et K du même coté de AB)  ignorer cn
+  // si Q est dans le quart intérieur du coin : actualiser ce coin : cadre= Q, estunRDV
+  // si Q est dans le quart hors du coin
+  //   actualiser le coin (Q)  : cadre = P, estunRDV 
+  //   et ignorer  le coin cn
+  //
+  // 
+
+
+  // éviter de trouver deux fois un coin : ABxCD et CDxAB
+  for (int i = 0; i < lignes.size(); i++) {
+    bool ignorerAB = false;
+    ligne& ln = lignes[i];
+    cv::Vec4i l1 = ln.ln;
+    if (l1[0] < 0)   continue; // ligne fusionnée ou effacée
+    if (ln.lg < maconf.largeurgros) continue; // ligne trop courte
+    // TODO : si la ligne est // à une ligne d'un coin déjà créé et proche (deltacadre +1)
+    //   et si A et B sont à l'intérieur du coin, A ou B proche des deux cotés,   ignorer cette ligne 
+    cv::Point2i A(l1[0], l1[1]);
+    cv::Point2i B(l1[2], l1[3]);
+    float lg1 = ln.lg;
+    if (printoption > 1)
+      std::cout << i << " Ligne AB " << A << B << " Longueur: " << lg1 << std::endl;
+    float a = ln.a; // vecteur normal de la droite AB
+    float b = ln.b;
+    // pour M = A puis B (et N=B puis A): 
+    //
+    // chercher, parmi les autres lignes la ligne orthogonale CD
+    //   à distance < deltacoin de M 
+    //   dont C (ou D) est à distance < deltacoin de AB
+    //   ou dont C et D sont de part et d'autre de AB ( > deltacoin)
+    //   choisir la ligne CD la plus loin de N
+    //   --> coin potentiel P (AB x CD)
+    cv::Point2i M= A;
+    cv::Point2i N= B;
+    for (int k = 0; k<3; k++) { // point A puis B puis au milieu
+      float d1(-maconf.hauteurcarte); //distance algébrique de CD à M
+      ligne lW;
+      ligne* lnCD(&lW);
+      uncoin cn, cn2; // 1 ou deux coins potentiels
+      cn.l1 = &lignes[i];
+      cn2.l1 = &lignes[i];
+      cn2.elimine = true; // sauf si AB orthogonal à un segment CD de part et d'autre de AB
+      bool ignorerCD=false;
+      cv::Point2i P;
+      for (int j = i+1; j < lignes.size(); j++) {
+        ligne* ln2 = &lignes[j];
+        cv::Vec4i l2 = ln2->ln;
+        if (l2[0] < 0) continue; // ligne trop courte ou fusionnée à une autre
+        if (ln2->lg < maconf.largeurgros) continue; // ligne trop courte
+        float lg2 = ln2->lg;
+        float psX = a*ln2->a + b*ln2->b; // cosinus (AB, CD) = cosinus des normales
+        if (std::abs(psX) > maconf.cosOrtho)  continue;  // lignes non approximativement orthogonales
+        // TODO :erreur si une ligne CD est entre A et B
+        if ( k < 2 && std::abs(ln2->dist(M)) > maconf.deltacoin) continue; // ln2 trop loin de M
+        cv::Point2i C(l2[0], l2[1]);
+        cv::Point2i D(l2[2], l2[3]);
+        if (k == 2){ // accepter la lignes CD proche de AB entre A et B
+          if (std::abs(ln.dist(C)) > maconf.deltacoin
+             && std::abs(ln.dist(D)) > maconf.deltacoin) continue; 
+          
+          // C ou D proche de AB 
+          // A et B loins (> deltacoin) de CD
+          if (std::abs(ln2->dist(A)) <= maconf.deltacoin) continue; // déjà traité
+          if (std::abs(ln2->dist(B)) <= maconf.deltacoin) continue; // déjà traité
+          // créer deux coins
+          P.x = - float(ln.c*ln2->b - ln2->c*ln.b) / (ln.a*ln2->b - ln2->a*ln.b);
+          P.y =  float(ln.c*ln2->a - ln2->c*ln.a) / (ln.a*ln2->b - ln2->a*ln.b);
+          cn.sommet = P; cn2.sommet = P;
+          cn.H = A; cn2.H = B;
+          if (std::abs(ln.dist(C)) > std::abs(ln.dist(C))) {cn.K = C; cn2.K = C;}
+          else {cn.K = D; cn2.K = D;}
+          cn.l2 = ln2; cn2.l2 = ln2;
+          cn.estunRDV = cn2.estunRDV = false;
+          cn.cadre = cn2.cadre = P;
+          // ajouter les deux coins
+          Coins.push_back(cn);
+          Coins.push_back(cn2);
+          if (printoption > 1){
+            std::cout << " coin "<< nbcoins<<" " <<P << cn.H << cn.K << std::endl;
+            nbcoins++;
+            std::cout << " coin "<< nbcoins<<" " <<P << cn2.H << cn2.K << std::endl;
+          } else nbcoins++;
+          nbcoins++;
+          continue; // autre ligne CD
+        }
+
+        // calcul de l'intersection des deux lignes AB et CD   ln et ln2
+        // TODO : créer uneligne::inter(ligne& ligne2)
+        P.x = - float(ln.c*ln2->b - ln2->c*ln.b) / (ln.a*ln2->b - ln2->a*ln.b);
+        P.y =  float(ln.c*ln2->a - ln2->c*ln.a) / (ln.a*ln2->b - ln2->a*ln.b);
+        float d = ln2->dist(M); // distance algébrique
+        float dd = std::abs(ln2->dist(N)); // distance absolue
+        // choisir la ligne CD la plus éloignée (en valeur absolue) de N
+        if (std::abs(ln.dist(C)) > maconf.deltacoin){
+          if (std::abs(ln.dist(D)) > maconf.deltacoin){
+            if (ln.dist(C) * ln.dist(D) > 0) continue; // segment CD loin de AB
+            // deux coins possibles
+            // préparer les deux coins
+            // créer le coin du coté C et du coté D
+            if (dd > d1) {d1 = dd; lnCD = ln2;cn.K = D; cn.sommet = P; cn.cadre = P;
+              cn2.K = C; cn2.sommet = P; cn2.cadre = P;
+            }
+          } else { // D proche de AB. coin CPN  P= ABxCD
+            if (dd > d1) {d1 = dd; lnCD = ln2;cn.K = C; cn.sommet = P;cn.cadre = P;}
+          }
+        } else { // C proche de AB. coin DPN  P= ABxCD
+          if (dd > d1) {d1 = dd; lnCD = ln2;cn.K = D; cn.sommet = P;cn.cadre = P;}
+        }
+      } // for ln2
+      if (k >= 2) continue;
+      if (k < 2) {
+        if (d1 < -maconf.largeurcarte) continue; 
+        // on a trouvé une ligne CD
+        //cn.l1 = &ln;
+        cn.l2 = lnCD;
+        cn.H = N;
+        // calcul de l'intersection des deux lignes AB et CD   ln et lnCD
+        // TODO : créer uneligne::inter(ligne& ligne2)
+        P.x = - float(ln.c*lnCD->b - lnCD->c*ln.b) / (ln.a*lnCD->b - lnCD->a*ln.b);
+        P.y =  float(ln.c*lnCD->a - lnCD->c*ln.a) / (ln.a*lnCD->b - lnCD->a*ln.b);
+        cn.sommet = P;
+      }
+      cn.R = cn.H; cn.S = cn.K;
+      // chercher si une autre ligne UV // AB est proche de AB (à deltacadre) 
+      //  à l'extérieur du coin, dont U ou V est proche de CD ou CD entre U et V
+      //     dans ce cas, on ignore le coin (il reviendra avec une ligne AB = cette ligne UV)
+      //  à l'intérieur du coin : le coin est un RDV et Q (UV x CD) est le cadre
+      for (auto& ln3:lignes){
+        cv::Point2i U(ln3.ln[0], ln3.ln[1]);
+        cv::Point2i V(ln3.ln[2], ln3.ln[3]);
+        int du = ln.dist(U); int dv = ln.dist(V); int dk = ln.dist(cn.K);
+        if (std::abs(du) <= 1 && std::abs(dv) <= 1 ) continue; // UV trop proche de AB ( probablement = AB)
+        if (std::abs(du) > maconf.deltacadre) continue; // U loin de AB
+        if (std::abs(dv) > maconf.deltacadre) continue; // V loin de AB
+        if (ln3.lg < maconf.largeurgros) continue; // ligne trop courte
+        if (std::abs(lnCD->dist(U)) <= maconf.deltacadre
+        || std::abs(lnCD->dist(V)) <= maconf.deltacadre)
+        { // U ou V proche de CD
+          cn.H = V;
+          lnCD = cn.l2;
+          if (std::abs(lnCD->dist(U)) > maconf.deltacadre) {du = dv; cn.H = U;}
+          cv::Point2i Q; // UV x CD
+          Q.x = - float(ln3.c*lnCD->b - lnCD->c*ln3.b) / (ln3.a*lnCD->b - lnCD->a*ln3.b);
+          Q.y =  float(ln3.c*lnCD->a - lnCD->c*ln3.a) / (ln3.a*lnCD->b - lnCD->a*ln3.b);
+          if (du*dk > 0) { // U (ou V) à l'intérieur du coin
+            cn.estunRDV = true;
+            cn.cadre = Q; 
+          } else { // U à l'extérieur
+            // ??? faut-il ignorer la ligne AB ???
+            ignorerCD = true;
+            break; // ignorer ce coin
+            // P devient le cadre et le coin devient (UV x CD) 
+            //cn.cadre = P;
+            //cn.sommet = Q;
+            //cn.l1 = &ln3;
+          }
+        }
+      } // ln3
+      if (!ignorerCD) {
+        // TODO : si ce coin cn est à l'intérieur proche (deltacadre + 1) d'un coin déjà créé,
+        //     ignorer ce coin et renseigner la position du cadre du coin trouvé
+        bool ignorerCoin = false;
+        cv::Point2i P= cn.sommet;
+        for(auto& cx:Coins) {
+          if (std::abs(cx.l1->dist(P)) > maconf.deltacadre + 1) continue; // cn loin de cx
+          if (std::abs(cx.l2->dist(P)) > maconf.deltacadre + 1) continue;
+          // à l'intérieur de cx sommet Q extrémités des lignes H et K
+          // produits scalaires QP.QH et QP.QK positifs ?
+          cv::Point2i Q= cx.sommet;
+          cv::Point2i H(cx.H), K(cx.K);
+          int ps = (P.x - Q.x)*(H.x - Q.x) + (P.y - Q.y)*(H.y - Q.y);
+          if (ps <= 0) continue;
+          ps = (P.x - Q.x)*(K.x - Q.x) + (P.y - Q.y)*(K.y - Q.y);
+          if (ps <= 0) continue;
+          ignorerCoin = true; // ignorer le coin cn
+          // TODO : actualiser cx.cadre = P   si P est à distance deltacadre des deux cotés de cx 
+          break;
+        }
+        if (! ignorerCoin) {
+          Coins.push_back(cn);
+          if (printoption > 1)
+            std::cout << " coin "<< nbcoins<<" " <<P << cn.H << cn.K << std::endl;
+          nbcoins++;
+        }
+        if (cn2.elimine == false){
+          cn2.l1 = &ln;
+          cn2.l2 = lnCD;
+          cn2.H = N;
+          cn2.sommet = P;
+          cn2.R = cn2.H; cn2.S = cn2.K;
+          Coins.push_back(cn2);
+          if (printoption > 1)
+            std::cout << " coin "<<nbcoins<<" " <<P << cn2.H << cn2.K << std::endl;
+          nbcoins++;
+        }
+      }
+      M =B; N = A;
+    } // deuxième extrémité
+  } // première droite
+}
+
+
+
+void trouverCoinsBAK(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins){
   int printoption = maconf.printoption;
   int nbcoins = 0;
   int nbcartes = 0;
@@ -2609,14 +2584,15 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
       c = 0; // indice de couleur
       float maxlg = 0;
-      for (const auto& ligne:lignes)
+      for (int i=0; i<lignes.size(); i++)
       {
+        ligne& ligne=lignes[i];
           cv::Vec4i l = ligne.ln;
           cv::Point A(l[0], l[1]);
           cv::Point B(l[2], l[3]);
           cv::line(ima2, A, B, couleurs[c], 1);
           c++; c = c%NBCOULEURS;
-          std::cout << "Ligne " << A << "->" << B << " Longueur: " << ligne.lg << std::endl;
+          std::cout << "Ligne "<<i<<" " << A << "->" << B << " Longueur: " << ligne.lg << std::endl;
           maxlg = std::max(maxlg, ligne.lg);
       }
       cv::imshow("Lignes toutes", ima2); // Afficher l'image avec les segments de droite
@@ -2631,9 +2607,9 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       for (int k = 0; k < 5; k++) { 
         // fusionner des lignes fusionnées, de plus en plus distantes
         deltamax = k + 1;
-        for (int i = 0; i < nblignes; i++)
+        for (int i = 0; i < lignes.size(); i++)
         {
-          ligne ln = lignes[i];
+          ligne& ln = lignes[i];
           cv::Vec4i l = ln.ln;
           if (l[0] < 0)   continue; // ligne invalidée
           cv::Point2i A(l[0], l[1]);
@@ -2642,10 +2618,10 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
           float a = ln.a;
           float b = ln.b;
           float c = ln.c;
-          for (int j = i + 1; j < nblignes; j++)
+          for (int j = i + 1; j < lignes.size(); j++)
           {
             // fusionner la ligne la plus courte sur la plus longue
-            ligne ln2 = lignes[j];
+            ligne& ln2 = lignes[j];
             cv::Vec4i ll = ln2.ln;
             if (ll[0] < 0)  continue; // ligne invalidée
             cv::Point2i C(ll[0], ll[1]);
@@ -2654,16 +2630,16 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
             if (lg1 > lg2)
             {
               // distances de C ou D à AB > epsilon à préciser --> ignorer la ligne j
-              float dC = a*C.x + b*C.y + c;
+              float dC = ln.dist(C); // a*C.x + b*C.y + c;
               if (abs(dC) > epsilon)   continue;
-              float dD = a*D.x + b*D.y + c;
+              float dD = ln.dist(D); //a*D.x + b*D.y + c;
               if (abs(dD) > epsilon)  continue;
             }
             else
             {
-              float dA = A.x*ln2.a + A.y*ln2.b + ln2.c;
+              float dA =ln2.dist(A); //A.x*ln2.a + A.y*ln2.b + ln2.c;
               if (abs(dA) > epsilon)  continue;
-              float dB = B.x*ln2.a + B.y*ln2.b + ln2.c;
+              float dB = ln2.dist(B); //B.x*ln2.a + B.y*ln2.b + ln2.c;
               if (abs(dB) > epsilon) continue;
             }
             // 4 points A B C D alignés. ignorer si l'écart entre AB et CD est important
@@ -2673,7 +2649,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
             {
               xmin = std::min(A.x, B.x);
               if (xmin > C.x && xmin > D.x) { // AB à droite de CD
-                  if ((xmin - C.x) > deltamax && (xmin - D.x) > deltamax) continue; // segments loins
+                  if ((xmin - C.x) > deltamax && (xmin - D.x) > deltamax) continue; // segments loin
               } else {
                   xmax = std::max(A.x, B.x);
                   if (C.x - xmax > deltamax && D.x - xmax > deltamax) continue; // CD à gauche de AB
@@ -2681,7 +2657,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
             } else { // Y plus variable que X
               ymin = std::min(A.y, B.y);
               if (ymin > C.y && ymin > D.y)  { // AB sous CD
-                  if ((ymin - C.y) > deltamax && (ymin - D.y) > deltamax) continue; // segments loins
+                  if ((ymin - C.y) > deltamax && (ymin - D.y) > deltamax) continue; // segments loin
               } else {
                   ymax = std::max(A.y, B.y);
                   if (C.y - ymax > deltamax && D.y - ymax > deltamax) continue; // CD au dessus de AB
@@ -2824,7 +2800,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
 
     // TODO : éliminer les droites qui contiennent un segment dans une liste spécifique
-    //        concerne les vidéos où il y a une poutre entre la table et la caméra
+    //        concerne les vidéos où il y a un fond commun sur la table ou entre la table et la caméra
 
     // invalider les lignes dont la longueur est inférieure à la taille du chiffre + symbole
     // test :éliminer les ligne de longueur inférieure à la moitié de hauteur de carte
@@ -2832,17 +2808,18 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     // modif 2025/06/11 : on conserve les lignes longues à cause du mort
     lgmax = maconf.taillechiffre + maconf.taillesymbole; // limite inférieure
     int lgmin = maconf.hauteurcarte + maconf.deltacadre;
-    for (auto& ln:lignes)
+    for ( int i=0; i< lignes.size(); i++)
     {
+      ligne& ln=lignes[i];
       cv::Vec4i l = ln.ln;
-      if (l[0] < 0)  continue; // ligne invalidée
+      if (l[0] < 0)  continue; // ligne déjà invalidée
       if ((ln.lg < lgmax) /* ||  (ln.lg > lgmin) */)
       {
         ln.ln[0] = -1; // invalider la ligne
         if (printoption > 2){
           cv::Point2i A(l[0], l[1]);
           cv::Point2i B(l[2], l[3]);
-          std::cout << "supprime la ligne " << A << "-" << B << " longueur " << ln.lg << std::endl;
+          std::cout << "supprime la ligne "<<i<<" " << A << "->" << B << " longueur " << ln.lg << std::endl;
         }
       }
     }
@@ -2853,8 +2830,9 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       for (int y = 0; y < ima2.rows; y++) for (int x = 0; x < ima2.cols; x++)
           ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
       c = 0;
-      for (const auto& ln:lignes)
+      for (int i=0; i<lignes.size(); i++)
       {
+        ligne& ln=lignes[i];
         cv::Vec4i l = ln.ln;
         if (l[0] < 0)  continue; // ligne fusionnée ou ignorée car trop courte
         cv::Point A(l[0], l[1]);
@@ -2862,7 +2840,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         cv::line(ima2, A, B, couleurs[c], 1);
         c++; c = c % NBCOULEURS;
         if (printoption > 2)
-          std::cout << "Ligne " << A << "->" << B << " Longueur: " << ln.lg << std::endl;
+          std::cout << "Ligne "<<i<<" " << A << "->" << B << " Longueur: " << ln.lg << std::endl;
         if (ln.lg > maxlg) maxlg = ln.lg;
       }
       // Afficher l'image avec les segments de droite
@@ -2893,6 +2871,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     // une des autres devrait être dans le rapport des cotés de carte ( 3 / 2 )
     // 
 
+    float epsilon = std::max(1,maconf.deltacadre / 2);
     int htmax = 0; // hauteur maximale de carte, proche de la valeur dans la configuration
     int lamax = 0; // largeur maximale ....
     int ecartHt = maconf.hauteurcarte;
@@ -2924,9 +2903,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         // AB semble alors etre un bord de carte
         //
         bool estoppose = false;
-        float epsilon = std::max(1,maconf.deltacadre / 2);
         // première ligne du coin n contient le sommet B du coin m ?
-        //float dist = B.x * cn.l1->a + B.y + cn.l1->b + cn.l1->c;
         float dist = cn.l1->dist(B);
         if (std::abs(dist) < epsilon) {
           // B proche de la première ligne du coin A
@@ -3034,7 +3011,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       maconf.hauteurcarte = 3*lamax / 2;
     }
     else {
-        if (printoption) {
+        if (printoption > 0) {
             std::cout << " !!!!! impossible d'estimer la taille des cartes" << std::endl;
             std::cout << " !!!!! poursuite avec la configuration " << std::endl;
         }
@@ -3241,141 +3218,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
           }
 
         }
-
-        // coins P et Q proches //
-        // tenir compte de l'imprécision de position des bords de carte (*2)
-        // il peut y avoir trois droites // : le cadre d'un RDV et deux droites proches du bord de carte
-        /* if (abs(Q.x - P.x) > 3 * maconf.deltacadre / 2 + 1)
-            continue; // *3/2 si oblique
-        if (abs(Q.y - P.y) > 3 * maconf.deltacadre / 2 + 1)
-            continue;
-        */
-        // ignorer le coin Q  (QU QV) s'il n'est pas orienté comme le coin P (PR PS)
-        if (estl22)
-        { //  PR // QV
-          // calcule le produit scalaire PR.QV    négatif si orientés en sens inverse
-          int ps = (R.x - P.x) * (V.x - Q.x) + (R.y - P.y) * (V.y - Q.y);
-          if (ps < 0)  continue; // aucun ne peut être cadre de l'autre
-          // calcule le produit scalaire PS.QU    négatif si orientés en sens inverse
-          ps = (S.x - P.x) * (U.x - Q.x) + (S.y - P.y) * (U.y - Q.y);
-          if (ps < 0)  continue; // aucun ne peut être cadre de l'autre
-        }
-        else
-        {
-          // calcule le produit scalaire PR.QU   négatif si orientés en sens inverse
-          int ps = (R.x - P.x) * (U.x - Q.x) + (R.y - P.y) * (U.y - Q.y);
-          if (ps < 0) continue; // aucun ne peut être cadre de l'autre
-          // calcule le produit scalaire PS.QV    négatif si orientés en sens inverse
-          ps = (S.x - P.x) * (V.x - Q.x) + (S.y - P.y) * (V.y - Q.y);
-          if (ps < 0) continue; // aucun ne peut être cadre de l'autre
-        }
-
-        // éliminer ce coin Q s'il est dans le coin P
-        //
-        double d, dd; // distances algébriques de Q à PS et PR
-        double epsilon = std::max(1,dc - 1);
-        // tenir compte de l'orthogonalité PR xPS
-        // projections de Q : H sur PR   K sur PS
-        // PH = PQ.PR / ||PR||
-        double lgpr = (R.x - P.x) * (R.x - P.x) + (R.y - P.y) * (R.y - P.y);
-        lgpr = sqrt(lgpr); // longueur de PR
-        double lgps = (S.x - P.x) * (S.x - P.x) + (S.y - P.y) * (S.y - P.y);
-        lgps = sqrt(lgps); // longueur de PS
-        dd = ((Q.x - P.x) * (R.x - P.x) + (Q.y - P.y) * (R.y - P.y)) / lgpr;
-        d = ((Q.x - P.x) * (S.x - P.x) + (Q.y - P.y) * (S.y - P.y)) / lgps;
-
-        if (std::max(abs(d), abs(dd)) > dc + 2*epsilon)
-            continue; // Q loin de PR ou de PS donc n'est pas le cadre
-
-        // les deux coins n et m appartiennent à la même carte
-        if (cm.numCarte != 0) {
-          cn.numCarte = cm.numCarte;
-        } else if (cn.numCarte != 0) {
-          cm.numCarte = cn.numCarte;
-        } else {
-          nbcartes++;
-          cn.numCarte = cm.numCarte = nbcartes;
-        }
-
-        if (!cm.elimine) { // Q pas encore éliminé
-          bool elimQ = false;
-          if (d >= 0 && d < dc + 2 * epsilon && dd >= 0 && dd < dc + 2 * epsilon)
-              elimQ = true;
-
-          if ((d >= -epsilon / 4 && dd >= epsilon / 4 && dd < dc + 2 * epsilon) 
-          || (dd >= -epsilon / 4 && d >= epsilon && d < dc + 2 * epsilon))
-              elimQ = true;
-          if (elimQ)
-          {
-            // Q à l'intérieur du coin P
-            // marquer le coin Q "éliminé"
-            cm.elimine = true;
-            if (printoption > 2)
-                std::cout << " --> elimination du coin " << m
-                          << " dans le coin " << n << std::endl;
-          }
-        }
-
-        //  P est-il dans le coin Q
-        // dans ce cas, d et dd sont négatifs, de valeur absolue inférieure à deltacadre
-        if ((d < 1 && dd < -epsilon && dd + dc >= -epsilon)
-          || (dd < 1 && d < -epsilon && d + dc >= -epsilon))
-        {
-          if (printoption > 2 && !eliminerP)
-              std::cout << " --> elimination du coin " << n
-                        << " dans le coin " << m << std::endl;
-          eliminerP = true; // élimination différée
-        }
-        if (!cm.elimine)
-        { // Q pas encore éliminé
-          // P est-il le sommet du cadre de Q ?
-          // a distance deltacadre du coté négatif des droites du coin Q
-          if ((dd < 0 && std::abs(dd + dc) <= epsilon) && (d < 0 && std::abs(d + dc) <= epsilon))
-          {
-            // P est le sommet du cadre du coin Q
-            cm.estunRDV = true;
-            cm.cadre = P;
-            eliminerP = true;
-            if (printoption > 2)
-                std::cout << " --> elimination du coin " << n
-                          << " dans le coin " << m << std::endl;
-          }
-          continue;
-        }
-
-        // Q est-il le cadre de la carte du coin P
-        // comme les coins on des angles droits, on sait que CD est  // l'autre droite A'B' ou C'D'
-        //
-        // si Q est à l'intérieur du coin P (éventuellement sur un des cotés PR ou PS)
-        //    éliminer le coin Q
-        //    si Q est proche du cadre si P est un R D ou V : noter que P est un Roi Dame ou Valet
-        //
-        // sinon, P est à l'intérieur de Q
-        //    différer l'élimination de P après la poursuite de la recherche des autres coins Q dans P
-        //    si P est proche du cadre possible de Q : noter Q est un Roi Dame ou Valet
-
-        // calculer la distance entre ces deux (presque) //
-        // en fait, c'est la distance du point Q à chacune des droites PR et PS
-
-        // il faut qu'au moins une des distances soit proche de deltacadre pour que le coin P soit un Roi Dame ou valet
-        // fausses détections ==> deux cas acceptables:
-        //   Q est à l'intérieur et à distance deltacadre des deux cotés du coin P
-        //   Q et à distance deltacadre d'un coté du coin P, à l'intérieur et à distance très faible de l'autre coté
-        // MODIF 2025/04/22 : Q doit être le sommet du cadre
-
-        if (d > 0 && dd > 0 && std::abs(d - dc) <= epsilon && std::abs(dd - dc) <= epsilon)
-        {
-          // Q est cadre à l'intérieur de PR et PS)
-          cn.estunRDV = true;
-          cn.cadre = Q;
-          cm.elimine = true; 
-
-          continue;
-        }
-
-        if (cm.elimine) continue;
-
-        // Q n'est pas sur le cadre de P
+        continue; // ce qui suit n'a plus de raison d'être après l'intégration dans trouverCoins()
       } // for m
 
       // élimination différée de P ?
@@ -3390,7 +3233,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       } else if (cn.numCarte == 0) { // pas encore affecté à une carte
         nbcartes++;
         cn.numCarte = nbcartes; // nouvelle carte
-        if (printoption > 1) std::cout<<" --> nouvelle carte "<<nbcartes<<" pour le coin "<<n<<std::endl;
+        if (printoption > 1) std::cout<<" --> nouvelle carte "<<nbcartes<<" pour le seul coin "<<n<<std::endl;
       }
       c++;
       c--; // pour pouvoir mettre un point d'arrêt
@@ -3399,6 +3242,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     // on a obtenu tous les coins et les cartes.
     // certains coins sont identifiés comme personnages (R D V) car contenant un cadre
 
+    if (estvideo){
     // si on traite une video,
     // un coin qui n'était pas présent avant désigne une nouvelle carte
     // analyser la nouvelle carte. vérifier qu'il y a une seule nouvelle carte
@@ -3414,10 +3258,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     // on a alors identifié la nouvelle carte et les nouveaux coins
     // il sera inutile de traiter ces coins, même si la carte est un personnage
 
-    if (estvideo) traiterCartes(image, maconf, Coins, coinsPrec, lignes, monpli);
-
-
-    if (estvideo){
+      traiterCartes(image, maconf, Coins, coinsPrec, lignes, monpli);
       // TODO : éliminer chaque carte de la frame précédente dont aucun coin n'est dans celle-ci
       // éliminer les coins de la frame précédente qui ne sont pas dans celle-ci
       int dc = std::max(2, maconf.deltacadre);
@@ -3440,6 +3281,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
           }
         }
         if (!trouve) {
+          if (printoption > 1 ) std::cout<<" retrait coin ("<<up.x<<","<<up.y<<") "<<up.couleur<< " "<<up.valeur<<std::endl;
           it = coinsPrec.erase(it);
         } else it++;
       }
@@ -3473,40 +3315,12 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
       // !!!! uniquement sur les copies
 
-      // remplacer l'extremité qui convient par l'intersection
-      // TODO : adapter
-      /**********************************
-      int k = coins[n][2]; // quelle extrémité de la ligne 1?
-      if (k != 0 && k != 2) k = 0; // protection
-      nl1[k] = coins[n][4];
-      nl1[k + 1] = coins[n][5];
-      k = coins[n][3];
-      if (k != 0 && k != 2) k = 0; // protection
-      nl2[k] = coins[n][4];
-      nl2[k + 1] = coins[n][5];
-
-      // pour chacune des lignes l1 et l2, remplacer l'extrémité loin du coin par le milieu de la ligne
-      // uniquement si la ligne est plus longue que la demi-largeur de carte et pour l'affichage : faire une copie
-
-      k = coins[n][2]; // vaut 0 ou 2
-      if (std::max(abs(B.x - A.x), abs(B.y - A.y)) > maconf.hauteurcarte / 3)
-      {
-        nl1[2 - k] = (A.x + B.x) / 2;
-        nl1[3 - k] = (A.y + B.y) / 2;
-      }
-      k = coins[n][3];
-      if (std::max(abs(D.x - C.x), abs(D.y - C.y)) > maconf.hauteurcarte / 3)
-      {
-        nl2[2 - k] = (C.x + D.x) / 2;
-        nl2[3 - k] = (C.y + D.y) / 2;
-      }
-      **************************/
       if (estvideo){
         // si ce coin était trouvé dans la frame précédente, inutile de le considérer
         if (cn.couleur >= 0 && cn.valeur > 0) {
-          if (printoption > 1) std::cout<<"coin "<< n << " identifié: "
+          if (printoption > 1) std::cout<<"coin "<< n <<cn.sommet<< " identifié: "
                 <<nomcouleur[cn.couleur]<<" "<<cn.valeur<<std::endl;
-          cn.elimine = true;
+          //cn.elimine = true;
         } else for (auto up : coinsPrec){
           if (std::abs (P.x - up.x) <= maconf.deltacadre 
           && std::abs (P.y - up.y) <= maconf.deltacadre ) {
@@ -3527,8 +3341,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         }
       }
 
-      if (cn.elimine   /*|| (estvideo && coins[n][10] >= 0 && coins[n][11]> 0)*/ )
-      {                                                          // coin éliminé précédemment
+      if (cn.elimine ) { // coin éliminé précédemment
         cv::circle(imaC, P, 2, cv::Scalar(255, 255, 255), -2); //  cercle blanc au sommet du coin
         cv::circle(grise, P, 2, cv::Scalar(0, 0, 255), -2);    //  cercle rouge au sommet du coin
         // si ce coin ressemble à un cadre, afficher les lignes en trait fin gris
@@ -3542,12 +3355,14 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
       cv::line(imaC, cv::Point(nl1[0], nl1[1]), cv::Point(nl1[2], nl1[3]), couleurs[cc], 1); // petit trait
       cv::line(imaC, cv::Point(nl2[0], nl2[1]), cv::Point(nl2[2], nl2[3]), couleurs[cc], 1); // petit trait
-      if (cn.estunRDV)
-        cv::circle(imaC, P, 5, couleurs[cc], 3); //  cercle au sommet du coin
+      if (cn.estunRDV){
+        cv::circle(imaC, P, 2, couleurs[cc], 3); //  cercle au sommet du coin
+        cv::circle(imaC, cn.cadre, 1, couleurs[cc], 1); //  point sur le cadre
+      }
       else
       {
-        cv::circle(imaC, P, 5, couleurs[cc], 1); //  cercle épais (RDV) au sommet du coin
-        cv::circle(grise, P, 5, couleurs[cc], 1);
+        cv::circle(imaC, P, 3, couleurs[cc], 1); //  cercle épais (RDV) au sommet du coin
+        cv::circle(grise, P, 3, couleurs[cc], 1);
       }
       // afficher le numéro du coin
       std::string texte = std::to_string(n);
@@ -3566,24 +3381,21 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     }
     cv::imshow("coins", imaC);
     cv::imshow("grise", grise);
-  } //if(printoption)
+  } //if(printoption > 0)
 
-    // cv::waitKey(0);
-    //  extraire les coins
-    //
-    bool estunRDV;
-    estunRDV = false;       // le coin contient-il un cadre ?
-    cv::Point2i Q;          // point du cadre
-    std::string cartes[50]; // cartes trouvées
+  bool estunRDV;
+  estunRDV = false;       // le coin contient-il un cadre ?
+  cv::Point2i Q;          // point du cadre
+  std::string cartes[50]; // cartes trouvées
 
-    auto t1 = std::chrono::high_resolution_clock::now();
-    duree = t1 - t33;
-    if (printoption > 1) std::cout << "Temps préparatoire : " << duree.count() << " secondes" << std::endl
-      << "============================"<< std::endl;
-    Durees[2] += duree.count();
-    result = image.clone();
-    if (printoption) cv::imshow("result", result);
-    int szPrec = 0;
+  auto t1 = std::chrono::high_resolution_clock::now();
+  duree = t1 - t33;
+  if (printoption > 1) std::cout << "Temps préparatoire : " << duree.count() << " secondes" << std::endl
+    << "============================"<< std::endl;
+  Durees[2] += duree.count();
+  result = image.clone();
+  if (printoption > 0) afficherImage("result", result);
+  int szPrec = 0;
 
 
 // TODO : vérifier que l'on obtient le même résultat pour tous les coins d'une même carte
@@ -3592,67 +3404,77 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
 
   if (!estvideo ||  maconf.coinsoption > 0) {    // traiter aussi les coins isolés
-    for (int n = 0; n < Coins.size(); n++) {
-      const auto& cn = Coins[n];
-      if (cn.elimine || (estvideo && cn.couleur >= 0 && cn.valeur> 0) )
-          continue; // coin éliminé ou déjà analysé dans une carte
-      int l1W[4], l2W[4];
-      // TODO : éliminer le coin s'il est sur un bord d'une carte déjà analysée
-
-
-
-      cv::Vec4i l1 = cn.l1->ln;
-      cv::Vec4i l2 = cn.l2->ln;
-      for (int i = 0; i < 4; i++)
-      {
-        l1W[i] = l1[i];
-        l2W[i] = l2[i];
-      }
-      if (printoption > 1)
-          std::cout << std::endl
-                    << "coin " << n << "   ";
-      std::string cartelue;
-
-      const int *p = 0; // &coins[0][0];
-      if (threadoption == 0) { // pas de sous-tache
-        if (cn.couleur < 0 || cn.valeur <=0) // valeur non encore déterminée
-            traiterCoin(n, Coins, image, resultats,
-                    result, &l1W[0], &l2W[0], maconf);
-        if (cn.valeur != 0 && cn.couleur >= 0) // valeur trouvée
+    int numcarte = 1;
+    //while(numcarte != 0){
+      //bool plusdecarte = true;
+      //int coul = -1; int val = 0; // couleur et valeur de la carte
+      for (int n = 0; n < Coins.size(); n++) {
+        const auto& cn = Coins[n];
+        //if(cn.numCarte != numcarte) continue;
+        //plusdecarte = false;
+        if (cn.elimine || (estvideo && cn.couleur >= 0 && cn.valeur> 0) )
+            continue; // coin éliminé ou déjà analysé dans une carte
+        int l1W[4], l2W[4];
+        // TODO : éliminer le coin s'il est sur un bord d'une carte déjà analysée
+        cv::Vec4i l1 = cn.l1->ln;
+        cv::Vec4i l2 = cn.l2->ln;
+        for (int i = 0; i < 4; i++)
         {
-          if (!estvideo) cv::imshow("result", result);
-          cv::Point2i PT(cn.sommet);
-          std::string resW = couleurcarte[cn.couleur];
-          resW += valeurcarte[cn.valeur];
-          std::string res = resW + "#";
-
-          afficherResultat(result, PT, res);
-          if (waitoption > 1)
-              cv::waitKey(0);
-          else cv::waitKey(1);
+          l1W[i] = l1[i];
+          l2W[i] = l2[i];
         }
-      }
-      else // sous-taches
-      if (cn.couleur < 0 || cn.valeur <=0) // valeur non encore déterminée
-      { // démarrer une sous-tache
-        if (threadoption == 1) MAX_THREADS = std::thread::hardware_concurrency(); // Limite du nombre de sous-tâches actives
-        else MAX_THREADS = threadoption;
-        if (MAX_THREADS == 0) MAX_THREADS = 8;
-        std::unique_lock<std::mutex> lock(mtx);
-        // std::cout << "Avant attente cvar..." << std::endl;
-        cvar.wait(lock, []
-                  { return activeThreads < MAX_THREADS; });
-        // std::cout << "Débloqué !" << std::endl;
+        if (printoption > 1)
+            std::cout << std::endl
+                      << "coin " << n << "   ";
+        std::string cartelue;
 
-        ++activeThreads;
-        threads.emplace_back([n, &Coins, image, &resultats, result, l1W, l2W, maconf]()
-                              { traiterCoin(n, std::ref(Coins), image, std::ref(resultats), result, l1W, l2W, maconf); });
+        if (threadoption == 0) { // pas de sous-tache
+          if (cn.couleur < 0 || cn.valeur <=0) // valeur non encore déterminée
+              traiterCoin(n, Coins, image, resultats,
+                      result, &l1W[0], &l2W[0], maconf);
+          if (cn.valeur != 0 && cn.couleur >= 0) // valeur trouvée
+          {
+            //if (coul < 0) {coul = cn.couleur; val =cn.valeur;}
+            //else if (coul != cn.couleur || val != cn.valeur) {
+            //  std::cout<<"!! carte "<< numcarte<<" coin "<<n<< " couleur ou valeur incohérentes "<<std::endl;
+            //}
+            if (!estvideo) cv::imshow("result", result);
+            cv::Point2i PT(cn.sommet);
+            std::string resW = couleurcarte[cn.couleur];
+            resW += valeurcarte[cn.valeur];
+            std::string res = resW + "#";
 
-        // std::cout<< activeThreads<< " theads actives "<< " coin "<<n <<std::endl;
-        // threads.emplace_back(traiterCoin, n, coins, std::ref(image),
-        //     std::ref(resultats), std::ref(result), l1W, l2W, std::ref(maconf));
-      }
-    } // boucle sur les coins
+            afficherResultat(result, PT, res);
+            if (waitoption > 1)
+                cv::waitKey(0);
+            else cv::waitKey(1);
+          }
+        }
+        else // sous-taches
+        if (cn.couleur < 0 || cn.valeur <=0) // valeur non encore déterminée
+        { // démarrer une sous-tache
+          if (threadoption == 1) MAX_THREADS = std::thread::hardware_concurrency(); // Limite du nombre de sous-tâches actives
+          else MAX_THREADS = threadoption;
+          if (MAX_THREADS == 0) MAX_THREADS = 8;
+          std::unique_lock<std::mutex> lock(mtx);
+          // std::cout << "Avant attente cvar..." << std::endl;
+          cvar.wait(lock, []
+                    { return activeThreads < MAX_THREADS; });
+          // std::cout << "Débloqué !" << std::endl;
+
+          ++activeThreads;
+          threads.emplace_back([n, &Coins, image, &resultats, result, l1W, l2W, maconf]()
+                                { traiterCoin(n, std::ref(Coins), image, std::ref(resultats), result, l1W, l2W, maconf); });
+
+          // std::cout<< activeThreads<< " theads actives "<< " coin "<<n <<std::endl;
+          // threads.emplace_back(traiterCoin, n, coins, std::ref(image),
+          //     std::ref(resultats), std::ref(result), l1W, l2W, std::ref(maconf));
+        }
+      } // boucle sur les coins
+      //if (plusdecarte) numcarte = 0;
+      //numcarte++;
+    //} //boucle sur les cartes
+
     if (threadoption > 0) {
       // Attente de toutes les sous-tâches
       for (auto &t : threads)
@@ -3666,119 +3488,132 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     if (printoption > 1) std::cout << "Temps écoulé : " << elapsed.count() << " secondes" << std::endl;
     Durees[3] += elapsed.count();
 
-    // si on traite une vidéo, ajouter les 4 sommet de chaque carte des coins
-    //   aux coins de la frame précédente (donc celle qu'on est en train de construire)
-    if (estvideo) for (int nc = 0; nc <= nbcartes; nc++){
-      int dc = std::max(1, maconf.deltacadre/2);
-      int numcarte = 0;
-      for (const auto& up:coinsPrec) {numcarte = std::max(numcarte, up.numcarte);}
-      for (auto& coin:Coins ){
-        if (coin.numCarte != nc) continue;
-      
-        bool ajoutcarte(false);
-        for (int i=0; i<4;i++){
-          int coul = coin.couleur;
-          int val = coin.valeur;
-          int x = coin.sommet.x;
-          int y = coin.sommet.y;
-          if (x <= 0 || y <= 0) break;
-          // rechercher s'il est présent dans les coins précédents (de la frame précédente)
-          bool trouve = false;
-          for (auto up : coinsPrec){
-            if (up.couleur == coul && up.valeur == val) {
-              if (std::abs(x - up.x) <= dc  && std::abs(y - up.y) <= dc) {
-                trouve = true; // position proche , même couleur et valeur 
-                up.x = x; up.y = y;  // actualiser la position
-                break;
-              }
-            }
-          }
-          if (!trouve) { // ajouter ce nouveau coin
-            uncoinPrec up;
-            up.couleur = coul;
-            up.valeur = val;
-            up.x = x;
-            up.y = y;
-            up.numcarte = numcarte + 1;
-            ajoutcarte = true;
-            coinsPrec.push_back(up);
-          }
-        } // sommet suivant
-      }
-    } 
+    // si on traite une vidéo, ajouter les  coins de chaque carte 
+    //   aux coins des frames précédentes (du pli en cours depuis une frame vide de cartes)
+    int numcarte = 0; // numéro de carte dans les frames précédentes
+    if (estvideo) for (const auto& up:coinsPrec) {numcarte = std::max(numcarte, up.numcarte);}
 
-    // cv::imshow("result", result);
-    // Affichage des résultats après synchronisation multithread
-    // les résultats sont dans le tableau des coins 
-    // afficher un résultat pour chaque carte
-    bool nouveaucoin = false;
-    for (int nc = 1; nc <= nbcartes; nc++) {
-      bool premier = true;
-      int cc1(-1), vc1(0);
-      //    compléter avec les sommets manquants
-      //    mémoriser la carte avec ses 4 sommets dans la frame précédente
-      for (const auto& cn:Coins){
-        if (nc != cn.numCarte) continue; // pas la carte nc
+    int dc = std::max(4, maconf.deltacadre/2); // tolérance d'égalité
+    bool coinNouveau(false);
+    for (int nc = 1; nc <= nbcartes; nc++) {  // les cartes de cette frame
+      bool nouveaucoin = false;
+      int cc1(-1), vc1(0); 
+      int ncp(-1); // numéro de carte dans la frame précédente
+      bool trouve(false);
+      for (const auto& coin : Coins){ // les coins de cette carte de cette frame
+        if (nc != coin.numCarte) continue; // pas la carte nc
 
-        cv::Point2i PT(cn.sommet);
+        cv::Point2i PT(coin.sommet);
         if (!estvideo) { // on ne traite pas une video
-            if (cn.elimine) continue; //coin éliminé
-            if (cn.valeur == 0) continue; // valeur de carte non trouvée
-        
-            // pas vidéo et coin non éliminé et valeur de carte trouvée et carte en cours
-            if (!cn.elimine && cn.valeur > 0 && nc == cn.numCarte){
-                if (premier) {cc1 = cn.couleur; vc1 = cn.valeur;}
-                std::string resW = couleurcarte[cn.couleur];
-                resW += valeurcarte[cn.valeur];
-                std::string res = resW + "#";
-                afficherResultat(result, PT, res);
-                if (premier) cartes[nc - 1] = resW;
-                else if (cc1 != cn.couleur || vc1 != cn.valeur) {
-                    // incohérence. quelle détection est fausse?
-                    std::cout<< "détection incohérente " << resW << " carte "<< cartes[nc - 1] <<std::endl; 
-                }
-                premier = false;
-            }
-            //
-            // si on traite une vidéo, ajouter les coins détectés ou analysés
+          // Affichage des résultats après synchronisation multithread
+          // les résultats sont dans le tableau des coins 
+          // afficher un résultat pour chaque carte
+          bool premier(true);
+          if (coin.elimine) continue; //coin éliminé
+          if (coin.valeur == 0) continue; // valeur de carte non trouvée
+      
+          // pas vidéo et coin non éliminé et valeur de carte trouvée et carte en cours
+          if (!coin.elimine && coin.valeur > 0 && nc == coin.numCarte){
+              if (premier) {cc1 = coin.couleur; vc1 = coin.valeur;}
+              std::string resW = couleurcarte[coin.couleur];
+              resW += valeurcarte[coin.valeur];
+              std::string res = resW + "#";
+              afficherResultat(result, PT, res);
+              if (premier) cartes[nc - 1] = resW;
+              else if (cc1 != coin.couleur || vc1 != coin.valeur) {
+                  // incohérence. quelle détection est fausse?
+                  std::cout<< "détection incohérente " << resW << " carte "<< cartes[nc - 1] <<std::endl; 
+              }
+              premier = false;
+          }
+          //
+          // si on traite une vidéo, ajouter les coins détectés ou analysés
         } else { // on traite une video
           // rechercher si le coin est déjà dans le vecteur coinsPrec
-          bool trouve(false);
-          int dc = std::max(1, maconf.deltacadre/2);
-          for (auto& up:coinsPrec){
-            if (std::abs(PT.x - up.x) <= dc && std::abs(PT.y - up.y) <= dc ){
-              trouve = true;
-              cc1 = up.couleur;
-              vc1 = up.valeur;
-              if (cc1 == cn.couleur && vc1 == cn.valeur) {
-                up.x = cn.sommet.x; up.y = cn.sommet.y; // actualiser la position
+          // 
+          // si on le trouve, on obtient son numéro de carte (dans la frame précédente)
+          //     et si la carte est identifiée, on obtient couleur et valeur du nouveau coin
+          //     et de tous les coins de cette carte de la frame
+          // attendre la fin d'analyse de tous les coins de cette carte de la frame
+
+          for (auto& up: coinsPrec){
+            if (std::abs(PT.x - up.x) > dc || std::abs(PT.y - up.y) > dc )continue;
+            if (!trouve){
+              if (up.couleur >= 0) {
+                cc1 = up.couleur;
+                vc1 = up.valeur;
+              } else {
+                cc1 = coin.couleur;
+                vc1 = coin.valeur;
+                up.couleur = cc1;
+                up.valeur = vc1;
               }
-              break;
             }
-          }
-          if (!trouve) { // ajouter un nouveau coin dans le vecteur des coins précédents
-            int c = cn.couleur;
-            int v = cn.valeur;
-            nouveaucoin = true;
-            cc1 = c; vc1 = v;
-            uncoinPrec up;
-            up.couleur = c;
-            up.valeur = v;
-            up.x = PT.x;
-            up.y = PT.y;
-            coinsPrec.push_back(up);
+            trouve = true;
+            if (ncp < 0) ncp = up.numcarte;
+            up.x = coin.sommet.x; up.y = coin.sommet.y; // actualiser la position
+            up.numcarte = ncp;
+            break;
           }
         }
       } //pour chaque coin de la frame
+
+      //    si on a trouvé la carte (un des coins) dans la frame précédente
+      //    rechercher chaque coin de cette carte dans les coins précédents
+      //     trouvé : actualiser couleur et valeur (précédente)
+      //     non trouvé : ajouter avec couleur, valeur et numéro de carte
+      if (trouve){ // on a trouvé la carte (ncp) dans les coins précédents de la carte (nc) de la frame analysée
+        for (auto& up: coinsPrec){
+          if (up.numcarte != ncp) continue;
+          up.couleur = cc1;
+          up.valeur = vc1;
+        }
+        // ajouter les coins de la carte (nc) qui ne sont pas dans la carte des coins précédents
+        for (auto& coin : Coins){
+          if (nc != coin.numCarte) continue;
+          cv::Point2i P = coin.sommet;
+          bool ajoutercoin(true);
+          for (auto& up : coinsPrec) {
+            if (ncp != up.numcarte) continue;
+            if (std::abs(P.x - up.x) > dc || std::abs(P.y - up.y) > dc ) continue;
+            ajoutercoin = false;
+            break;
+          }
+          if (ajoutercoin){
+            uncoinPrec up;
+            up.couleur = cc1;
+            up.valeur = vc1;
+            up.numcarte = ncp;
+            up.x = P.x;
+            up.y = P.y;
+            coinsPrec.push_back(up);
+          }
+        }
+      }
+      if (!trouve) { // ajouter les nouveaux coins de la nouvelle carte  dans le vecteur des coins précédents
+        numcarte++;
+        for (auto& coin: Coins){
+          if (nc != coin.numCarte) continue;
+            uncoinPrec up;
+            up.couleur = coin.couleur;
+            up.valeur = coin.valeur;
+            up.x = coin.sommet.x;
+            up.y = coin.sommet.y;
+            up.numcarte = numcarte;
+            coinsPrec.push_back(up);
+        }
+      }
+
       // valoriser tous les coins de cette carte si la valeur est connue
       if (cc1 >= 0 && vc1 > 0 ){
-        for (auto& cn:Coins){
-          if (cn.numCarte != nc) continue;
-          cn.couleur = cc1;
-          cn.valeur = vc1;
+        for (auto& coin : Coins){
+          if (coin.numCarte != nc) continue;
+          coin.couleur = cc1;
+          coin.valeur = vc1;
         }
       }
     } // for(nc) cartes
+
     // cv::imshow("result", result); // désactivé en multitache
     if (!estvideo) { cv::imshow("result", result); cv::waitKey(1);}
 
@@ -3816,7 +3651,6 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       if (printoption > 0) {cv::imshow("result", result); cv::waitKey(1);}
     } // estvideo
 
-    // afficher le résultat de la dernière image contenant au moins une carte
     bool aUneCarte = false;
     for (int i = 0; i < nbcartes; i++)
     {
@@ -3824,10 +3658,11 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       aUneCarte = true;
       break;
     }
+    // afficher le résultat de la dernière image contenant au moins une carte
     if (aUneCarte && (monpli.nbcartes >= 4 || printoption > 0)) {
-      cv::imshow("complet", result); cv::waitKey(1);
+      //cv::imshow("complet", result); cv::waitKey(1);
     }
-    if (printoption && nbcartes > 0) {
+    if (printoption > 0 && nbcartes > 0) {
       std::cout<<"===> cartes trouvées :"<<std::endl;
       for (int i = 0; i < nbcartes; i++)
       {
@@ -3848,7 +3683,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     }
 
     if (waitoption && !estvideo) cv::waitKey(0);
-    if (waitoption > 1 && estvideo && nouveaucoin) cv::waitKey(0);
+    if (waitoption > 1 && estvideo && coinNouveau ) cv::waitKey(0);
     if (false) {
       double val;
       val = cv::getWindowProperty("symbole", cv::WND_PROP_VISIBLE);
@@ -3901,7 +3736,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 }
 
 // affichage du résultat sur un coin
-void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res)
+void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res, cv::Scalar coulFond)
 {
     int pos = res.find('#');
     std::string texte = res.substr(0, pos);
@@ -3909,6 +3744,7 @@ void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res)
     double scale = 0.4;
     cv::Scalar colt(0, 0, 0);          // texte noir
     cv::Scalar rectColor(0, 255, 255); // sur fond jaune
+    rectColor = coulFond;
     int epais = 1;
 
     // Obtenir la taille du texte
@@ -3953,6 +3789,6 @@ void afficherResultat(cv::Mat result, cv::Point2i PT, std::string res)
     cv::putText(result, texteW, PT, font, scale, colt, epais);
     ft2->putText(result, symcol, PT, 10, coulsymb, -1, cv::LINE_AA, true);
 
-    //if (printoption)
+    //if (printoption > 0)
     //    cv::imshow("result", result);
 }

@@ -107,9 +107,12 @@ public:
     cv::Scalar moyblanc;  // couleur du "blanc"
     cv::Mat ima_coin;     // image du coin
     // constructeurs :
-    uncoin() {couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
-    uncoin(ligne& la, ligne& lb) {l1 = &la; l2 = &lb; couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
-    uncoin(int(*tab)[12]) {pcoins = tab;couleur = -1; valeur = 0; elimine=false; numCarte = 0;}
+    uncoin() {couleur = -1; valeur = 0; elimine=false; numCarte = 0; estunRDV = false;}
+    uncoin(ligne& la, ligne& lb) {
+      uncoin();
+      l1 = &la; l2 = &lb;
+      // couleur = -1; valeur = 0; elimine=false; numCarte = 0; estunRDV = false;
+    }
 };
 
 // un coin de la frame précédente
@@ -129,13 +132,53 @@ public:
     float a; // équation de la droite
     float b;
     float c;
-    ligne(){
-        ln = {0,0,0,0};
-        a = b = c = 0;
-        lg = 0;
-    };
-    float dist(cv::Point2i Q) {return a*Q.x + b*Q.y + c;}
+
+
+    float dist(cv::Point2i Q) const {return a*Q.x + b*Q.y + c;}
+
+    cv::Point2i intersect(const ligne& ln2) const {
+      cv::Point2i P;
+        // calcul de l'intersection de cette ligne et ln2
+        P.x =  float(ln2.c*b - c*ln2.b) / float(a*ln2.b - ln2.a*b);
+        P.y =  float(c*ln2.a - ln2.c*a) / float(a*ln2.b - ln2.a*b);
+      return P;
+    }
+    cv::Point2i intersect(const ligne *ln2) const {
+      cv::Point2i P;
+        // calcul de l'intersection de cette ligne et ln2
+        P.x =  float(ln2->c*b - c*ln2->b) / float(a*ln2->b - ln2->a*b);
+        P.y =  float(c*ln2->a - ln2->c*a) / float(a*ln2->b - ln2->a*b);
+      return P;
+    }
+
+  // contient un point sauf près des extrémités  
+  bool contient(cv::Point2i P, int ecart=2) const {
+    float dist = this->dist(P);
+    if (std::abs(dist) >= ecart) return false;
+    cv::Point2i A(ln[0], ln[1]), B(ln[2], ln[3]);
+    float ps = (A-P).x * (B-P).x + (A-P).y * (B-P).y;
+    if (ps >= 0) return false;
+    if (std::abs((A-P).x) < ecart && std::abs((A-P).y) <= ecart) return false; 
+    if (std::abs((B-P).x) < ecart && std::abs((B-P).y) <= ecart) return false; 
+    return true;
+  }
+
+  ligne(){
+      ln = {0,0,0,0};
+      a = b = c = 0;
+      lg = 0;
+  }
+
+  ligne(cv::Point2i A, cv::Point2i B){
+    ln = {A.x, A.y, B.x, B.y};
+    lg = std::sqrt( (B-A).x * (B-A).x + (B-A).y * (B-A).y);
+    a = - (B-A).y / lg;
+    b = (B-A).x / lg;
+    c = -a*A.x - b*A.y;
+  }
 };
+
+
 
 class unpoint {
 public:
@@ -159,6 +202,40 @@ public:
     valeur = 0;
     for (int i=0; i<4; i++) sommet[i] = cv::Point2i(0,0);
   }
+};
+
+class unbord {
+public:
+  int numcarte; // numéro de carte
+  uncoin* c1; // pointeur du coin origine
+  uncoin* c2; 
+  cv::Point2i A; 
+  cv::Point2i B;
+  unbord() {numcarte = 0; c1=0; c2=0; A= cv::Point2i(0,0); B= cv::Point2i(0,0);}
+  unbord(int nc, uncoin& cn1, uncoin& cn2) {
+    numcarte = nc;
+    c1 = &cn1; c2 = &cn2;
+    A = c1->sommet;
+    B = c2->sommet;
+  }
+  unbord(int nc = 0, uncoin* cn1 = 0, uncoin* cn2 = 0) {
+    numcarte = nc;
+    c1 = cn1; c2 = cn2;
+    if (c1) A = c1->sommet;
+    if (c2) B = c2->sommet;
+  }
+  // contient un point sauf près des extrémités
+  bool contient(cv::Point2i P, int ecart=2){
+    ligne ln (A,B);
+    float dist = ln.dist(P);
+    if (std::abs(dist) >= ecart) return false;
+    float ps = (A-P).x * (B-P).x + (A-P).y * (B-P).y;
+    if (ps >= 0) return false;
+    if (std::abs((A-P).x) < ecart && std::abs((A-P).y) <= ecart) return false; 
+    if (std::abs((B-P).x) < ecart && std::abs((B-P).y) <= ecart) return false; 
+    return true;
+  }
+
 };
 
 
@@ -235,6 +312,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol);
 int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol);
 std::string ValiderOCR(std::string output, bool estserveur, bool inverse,
              uncoin& moncoin, const config& maconf);
+void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, std::vector<uncoinPrec>& coinsPrec,
+   const std::vector<ligne>&  lignes, unpli& monpli);
 
 void eclaircirfond(cv::Mat& image);
 void blanchircadre(cv::Mat& image, cv::Scalar moyblanc, int nb);

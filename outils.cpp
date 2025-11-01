@@ -6,9 +6,11 @@
 #include "config.h"
 
 extern int threadoption;
+extern int printoption;
 
 // tracer le rectangle r sur une copie de l'image et afficher la fenêtre dont le nom est s 
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur) {
+    if (printoption < 0) return;
     if (r.width >= 1) cv::line(copie, cv::Point2i(r.x, r.y), cv::Point2i(r.x + r.width-1, r.y), couleur);
     if (r.height > 1){
         if (r.width > 1) cv::line(copie, cv::Point2i(r.x + r.width - 1, r.y + r.height-1), cv::Point2i(r.x, r.y + r.height-1), couleur);
@@ -20,6 +22,7 @@ void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleu
 
 void afficherImage(std::string nom, cv::Mat image) {
     if (threadoption) return;
+    if (printoption < 0) return;
 #ifndef _WIN32
     //cv::namedWindow(nom, cv::WINDOW_AUTOSIZE);
     cv::namedWindow(nom, cv::WINDOW_NORMAL);
@@ -382,7 +385,7 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
     {
             //TODO : vérifier la présence de la tête ou du corps d'un personnage au mileu des cotés du coin
         // déterminer si c'est un personnage (Roi Dame ou Valet)
-        // obtenir la valeur du blanc dand une petite colonne à droite de AB
+        // obtenir la valeur du blanc dans une petite colonne à droite de AB
         // au milieu de la bordure entre le bord de carte (AB) et le cadre éventuel
         // en évitant le caractère et le petit symbole en A et B
         // 
@@ -399,58 +402,86 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
         // on trouve une partie blanche sous le caractère et le symbole entre le cadre et le gros symbole
         // tester les deux orientations possibles
         // orientation verticale:
-        r.width = maconf.deltagrosRDV - maconf.deltacadre - 2;
-        if (moncoin.UU.x > moncoin.PP.x)  r.x = moncoin.PP.x + maconf.deltacadre + 1;
-        else r.x = moncoin.PP.x - maconf.deltacadre - 1 - r.width;
-        r.height = maconf.tailleVDR / 2;
-        if(moncoin.U.y > moncoin.PP.y) r.y = moncoin.PP.y + maconf.deltacadre + maconf.deltaVDR + maconf.taillesymbole + 2;  
-        else r.y = moncoin.PP.y - maconf.deltacadre - maconf.deltaVDR - maconf.taillesymbole - 2;
+        if (moncoin.estunRDV){
+          r.width = maconf.deltagrosRDV - maconf.deltacadre - 2;
+          if (moncoin.UU.x > moncoin.PP.x)  r.x = moncoin.QQ.x + 1;
+          else r.x = moncoin.QQ.x - 1 - r.width;
+          r.height = maconf.tailleVDR / 2;
+          if(moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltaVDR + maconf.taillesymbole + 2;  
+          else r.y = moncoin.QQ.y - maconf.deltaVDR - maconf.taillesymbole - 2;
+        } else {
+          r.width = maconf.deltagrosRDV - maconf.deltacadre - 2;
+          if (moncoin.UU.x > moncoin.PP.x)  r.x = moncoin.PP.x + maconf.deltacadre+ 1;
+          else r.x = moncoin.PP.x - maconf.deltacadre - 1 - r.width;
+          r.height = maconf.tailleVDR / 2;
+          if(moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltaVDR + maconf.taillesymbole + 2;  
+          else r.y = moncoin.QQ.y - maconf.deltaVDR - maconf.taillesymbole - 2;
+        }
         lig = moncoin.ima_coin(r);
         mbl = cv::mean(lig);
         if (mbl[0] < moncoin.moyblanc[0]) mbl = moncoin.moyblanc;
         // orientation horizontale
-        r.height = maconf.deltagrosRDV - maconf.deltacadre - 2;
-        if (moncoin.U.y > moncoin.PP.y)  r.y = moncoin.PP.y + maconf.deltacadre + 1;
-        else r.y = moncoin.PP.y - maconf.deltacadre - 1 - r.height;
-        r.width = maconf.tailleVDR / 2;
-        if(moncoin.UU.x > moncoin.PP.x) r.x = moncoin.PP.x + maconf.deltacadre + maconf.deltaVDR + maconf.taillesymbole + 2;  
-        else r.x = moncoin.PP.x - maconf.deltacadre - maconf.deltaVDR - maconf.taillesymbole - 2;
+        if (moncoin.estunRDV){
+          r.height = maconf.deltagrosRDV - maconf.deltacadre - 2;
+          if (moncoin.U.y > moncoin.PP.y)  r.y = moncoin.QQ.y + 1;
+          else r.y = moncoin.QQ.y - 1 - r.height;
+          r.width = maconf.tailleVDR / 2;
+          if(moncoin.UU.x > moncoin.QQ.x) r.x = moncoin.QQ.x + maconf.deltaVDR + maconf.taillesymbole + 2;  
+          else r.x = moncoin.QQ.x - maconf.deltaVDR - maconf.taillesymbole - 2;
+        } else {
+          r.height = maconf.deltagrosRDV - maconf.deltacadre - 2;
+          if (moncoin.U.y > moncoin.PP.y)  r.y = moncoin.PP.y + maconf.deltacadre + 1;
+          else r.y = moncoin.PP.y - maconf.deltacadre - 1 - r.height;
+          r.width = maconf.tailleVDR / 2;
+          if(moncoin.UU.x > moncoin.PP.x) r.x = moncoin.PP.x + maconf.deltacadre + maconf.deltaVDR + maconf.taillesymbole + 2;  
+          else r.x = moncoin.PP.x - maconf.deltacadre - maconf.deltaVDR - maconf.taillesymbole - 2;
+        }
         lig = moncoin.ima_coin(r);
         mbl2 = cv::mean(lig);
         if (mbl2[0] > mbl[0]) mbl = mbl2;
 
         moncoin.moyblanc = mbl;
         if (!inverse) {
-            // analyse de la tête éventuelle à gauche ou à droite (bord de carte)
-            r.width = maconf.deltagros - 2;
-            if (moncoin.UU.x > moncoin.PP.x ) r.x = moncoin.PP.x + std::max(2,maconf.deltacadre -1);
-            else r.x = moncoin.PP.x - std::max(2,maconf.deltacadre -1) - r.width;
-            r.height = maconf.taillegrosRDV; // environ la taille de la tête
-            if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.PP.y + maconf.deltagrosRDV + maconf.largeurgrosRDV + maconf.deltacadre;
-            else r.y = moncoin.PP.y - maconf.deltagrosRDV - maconf.largeurgrosRDV - maconf.deltacadre - r.height;
-            if (r.x >= 0 && r.y >= 0 && r.x < moncoin.ima_coin.cols - r.width && r.y < moncoin.ima_coin.rows - r.height ) {
-                lig = moncoin.ima_coin(r);
-                m = cv::mean(lig);
-                if (mbl[0] > m[0] + 10) estunRDV = true;
+          // analyse de la tête éventuelle à gauche ou à droite (bord de carte)
+
+          r.width = maconf.largeurgrosRDV;
+          if (moncoin.UU.x > moncoin.PP.x ) r.x = moncoin.PP.x + maconf.largeurcarte/2 - r.width / 2;
+          else r.x = moncoin.PP.x - maconf.largeurcarte/2 - r.width / 2;
+          r.height = maconf.taillegrosRDV;
+          if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.PP.y + maconf.deltacadre +1;
+          else r.y = moncoin.PP.y - maconf.deltacadre - 1 - r.height;
+          if (r.x >= 0 && r.y >= 0 && r.x < moncoin.ima_coin.cols - r.width && r.y < moncoin.ima_coin.rows - r.height ) {
+              lig = moncoin.ima_coin(r);
+              m = cv::mean(lig);
+              if (mbl[0] > m[0] + 10) estunRDV = true;
+          }
+        } else { // inverse
+          // analyse de la tête éventuelle dessus ou dessous (bord de carte)
+          r.height = maconf.deltagros - 2;
+          if (moncoin.U.y > moncoin.PP.y ) r.y = moncoin.PP.y + std::max(2,maconf.deltacadre -1);
+          else r.y = moncoin.PP.y - std::max(2,maconf.deltacadre -1) - r.height;
+          r.width = maconf.taillegrosRDV; // environ la taille de la tête
+          if (moncoin.UU.x > moncoin.PP.x) r.x = moncoin.PP.x + maconf.deltacadre + 1;
+          else r.x = moncoin.PP.x - maconf.deltacadre - 1 - r.width;
+          if (r.x >= 0 && r.y >= 0 && r.x < moncoin.ima_coin.cols - r.width && r.y < moncoin.ima_coin.rows - r.height ) {
+            lig = moncoin.ima_coin(r);
+            m = cv::mean(lig);
+            if (mbl[0] > m[0] + 10) {
+              estunRDV = true;
             }
+          }
         }
-        else { // inverse
-            // analyse de la tête éventuelle dessus ou dessous (bord de carte)
-            r.height = maconf.deltagros - 2;
-            if (moncoin.U.y > moncoin.PP.y ) r.y = moncoin.PP.y + std::max(2,maconf.deltacadre -1);
-            else r.y = moncoin.PP.y - std::max(2,maconf.deltacadre -1) - r.height;
-            r.width = maconf.taillegrosRDV; // environ la taille de la tête
-            if (moncoin.UU.x > moncoin.PP.x) r.x = moncoin.PP.x + maconf.deltagrosRDV + maconf.largeurgrosRDV + maconf.deltacadre;
-            else r.x = moncoin.PP.x - maconf.deltagrosRDV - maconf.largeurgrosRDV - maconf.deltacadre - r.width;
-            if (r.x >= 0 && r.y >= 0 && r.x < moncoin.ima_coin.cols - r.width && r.y < moncoin.ima_coin.rows - r.height ) {
-                lig = moncoin.ima_coin(r);
-                m = cv::mean(lig);
-                if (mbl[0] > m[0] + 10) estunRDV = true;
-            }
+        if (!moncoin.estunRDV && estunRDV) {
+          if (moncoin.UU.x > moncoin.PP.x) moncoin.QQ.x = moncoin.PP.x + maconf.deltacadre;
+          else moncoin.QQ.x = moncoin.PP.x - maconf.deltacadre;
+          if (moncoin.U.y > moncoin.PP.y) moncoin.QQ.y = moncoin.PP.y + maconf.deltacadre;
+          else moncoin.QQ.y = moncoin.PP.y - maconf.deltacadre;
+          moncoin.estunRDV = true;
         }
         if (!estunRDV){
-            if (printoption > 1) std::cout<<output<<" !! invalide"<<std::endl;
-            return ""; // ce n'est pas un personnage            
+            if (printoption > 1) std::cout<<output<<" !! incohérence RDV"<<std::endl;
+            if (maconf.waitoption > 1) cv::waitKey(0);
+            if (!moncoin.estunRDV) return ""; // ce n'est pas un personnage            
         }
             
         if (inverse){
@@ -464,39 +495,39 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
             if (inverse) rr.width /= 2;
             else rr.height /= 2; 
         }
-#ifdef ACTIVER        
-        if (!moncoin.estunRDV) {  // chiffre attendu ou indéterminé
+        if (!moncoin.estunRDV) {  // chiffre attendu ou indéterminé (et on a trouvé un R D V) 
             rr.width = maconf.largeurgros;
-            rr.height = maconf.taillegros;
+            rr.height = 3*maconf.taillegros/4;
             if (!inverse) { // OCR vertical ou OCR par le serveur (= orientation indéterminée)
                 // Gros symbole à coté du caractère
                 if (moncoin.UU.x > moncoin.PP.x)
-                    rr.x = moncoin.PP.x  + maconf.deltagros;
+                    rr.x = moncoin.PP.x  + maconf.deltagros + maconf.deltacadre;
                 else
-                    rr.x = moncoin.PP.x - maconf.deltagros - rr.width;
+                    rr.x = moncoin.PP.x - maconf.deltagros - maconf.deltacadre - rr.width;
                 if (moncoin.U.y > moncoin.PP.y)
-                    rr.y = moncoin.PP.y + maconf.deltagroshaut;
+                    rr.y = moncoin.PP.y + maconf.deltacadre + maconf.deltagroshaut;
                 else
-                    rr.y = moncoin.PP.y - maconf.deltagroshaut - rr.height;
+                    rr.y = moncoin.PP.y - maconf.deltacadre - maconf.deltagroshaut - rr.height;
             } else { // OCR inverse
                 // gros symbole au dessus ou au dessous du caractère
                 if (moncoin.UU.x > moncoin.PP.x)
-                    rr.x = moncoin.PP.x + maconf.deltagroshaut;
+                    rr.x = moncoin.PP.x + maconf.deltacadre + maconf.deltagroshaut;
                 else
-                    rr.x = moncoin.PP.x - maconf.deltagroshaut - rr.width;
+                    rr.x = moncoin.PP.x - maconf.deltacadre - maconf.deltagroshaut - rr.width;
                 if (moncoin.U.y > moncoin.PP.y)
-                    rr.y = moncoin.PP.y + maconf.deltagros;
+                    rr.y = moncoin.PP.y + maconf.deltacadre + maconf.deltagros;
                 else
-                    rr.y = moncoin.PP.y - maconf.deltagroshaut - rr.height;
+                    rr.y = moncoin.PP.y - maconf.deltacadre - maconf.deltagroshaut - rr.height;
             }
         } else // le caractère attendu est un Roi Dame ou Valet ( et trouvé)
-#endif         
-        { 
+        {
+          rr.width = maconf.largeurgrosRDV;
+          rr.height = 3*maconf.taillegrosRDV/4; // éviter l'épaule du roi ou la fleur de la reine
             if (!inverse) {
                 if (moncoin.UU.x > moncoin.QQ.x)
-                    rr.x = moncoin.QQ.x + maconf.deltagrosRDV;
+                    rr.x = moncoin.QQ.x + 1 + maconf.deltagrosRDV;
                 else
-                    rr.x = moncoin.QQ.x - maconf.deltagrosRDV - rr.width;
+                    rr.x = moncoin.QQ.x - 1 - maconf.deltagrosRDV - rr.width;
                 if (moncoin.U.y > moncoin.QQ.y)
                     rr.y = moncoin.QQ.y + maconf.deltagroshautRDV + 1;
                 else
@@ -507,9 +538,9 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
                 else
                     rr.x = moncoin.QQ.x - maconf.deltagroshautRDV - rr.width;
                 if (moncoin.U.y > moncoin.QQ.y)
-                    rr.y = moncoin.QQ.y + maconf.deltagrosRDV + 1;
+                    rr.y = moncoin.QQ.y + 1 + maconf.deltagrosRDV + 1;
                 else
-                    rr.y = moncoin.QQ.y - maconf.deltagrosRDV - rr.height - 1;
+                    rr.y = moncoin.QQ.y - 1 - maconf.deltagrosRDV - rr.height - 1;
             }
         }
         if ( rr.x < 0 || rr.y < 0 || rr.width > moncoin.ima_coin.cols - rr.x || rr.height > moncoin.ima_coin.rows - rr.y){
@@ -523,13 +554,31 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
         GS = moncoin.ima_coin(rr).clone();
         // amplifyContrast(GS);
         cv::meanStdDev(GS, m, ect);
-        if (ect[0] > 30 + (255 - m[0]) / 5)
-            estGS = true;
-        if ((estGS && ((moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y)
-                || (moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y)))
-          || (!estGS && ((moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y)
-                || (moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y))))
-        {
+        if (m[0] - mbl[0] < -mbl[0]/5) estGS = true;
+        //if (ect[0] > 40 + (255 - m[0]) / 5) estGS = true;
+        bool invalide = false;
+        if (inverse) {
+          if (estGS) {
+            if ((moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y)
+            || (moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y)) 
+              invalide = true;
+          } else {
+            if ((moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y)
+            || (moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y))
+              invalide = true;
+          }
+        } else {
+          if (estGS) {
+            if ((moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y)
+            || (moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y)) 
+              invalide = true;
+          } else {
+            if ((moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y)
+            || (moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y))
+              invalide = true;
+          }
+        }
+        if (invalide) {
             if (!estserveur)
             {
                 if (maconf.printoption > 1) {
@@ -537,7 +586,7 @@ std::string ValiderOCR(std::string output, bool estserveur, bool inverse, uncoin
                     if (estGS) std::cout<<" present ";
                     else std::cout<< " absent ";
                     std::cout << std::endl;
-
+                    if (maconf.waitoption) cv::waitKey(0);
                 }
                 return "";
             }
@@ -830,37 +879,116 @@ void calculerOrientation(uncoin& moncoin, const config& maconf) {
     int threadoption = maconf.threadoption;
     cv::Mat lig;
     cv::Rect r;
-    cv::Scalar moyblanc = moncoin.moyblanc;
-    int bleulim = 10; // �cart de bleu entre le blanc et la zone test�e pour le petit symbole (*3 pour GS)
+    cv::Scalar m, moyblanc = moncoin.moyblanc;
+    int bleulim = 20; // �cart de bleu entre le blanc et la zone test�e pour le petit symbole (*3 pour GS)
     bool estgrossymb = false;
     bool inverse(false);
     bool estDroit(false);
+    cv::Mat GS;
+    int numcol;
     cv::Mat z1, z2, z3;  // PS vertical, horizontal, sous PS vertical
     cv::Scalar m1, m2, m3;
     cv::Rect r2;
     cv::Mat imacop = moncoin.ima_coin.clone();
     int ts,ls;
-
-    // analyser la zone du petit symbole vertical (z1)
-    r.width = maconf.largeursymbole; r.height = maconf.taillesymbole;
-    r.height = 3*r.height/2; // grossir sous la zone du symbole vertical
+    if(printoption > 0) std::cout<<"calcul orientation"<<std::endl;
+    bool oriente = false;
+    // si c'est un personnage, extraire la zone du gros symbole
+    // extraire la partie commune aux deux orientations 
+    // déterminer si c'est un GS
+    // si c'est le cas, extraire le GS et obtenir la couleur
+    //  _____________
+    // |   ######
+    // |   ######
+    // |***++###
+    // |***++###
+    // |******
     if (moncoin.estunRDV){
-        r.x = moncoin.U.x;
-    } else {
-        /* if(moncoin.caractere == 'X') */ r.width -= (maconf.largeursymbole / 3);
+      bool estGS = false;
+      r.width = r.height = maconf.largeurgrosRDV - maconf.deltagrosRDV;
+      if (moncoin.UU.x > moncoin.PP.x) r.x = moncoin.QQ.x + maconf.deltagrosRDV;
+      else                             r.x = moncoin.QQ.x - maconf.deltagrosRDV - r.width;
+      if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagrosRDV;
+      else                            r.y = moncoin.QQ.y - maconf.deltagrosRDV - r.height;
+      lig = moncoin.ima_coin(r); m = cv::mean(lig);
+      if (moyblanc[0] - m[0] > 20) estGS = true;
+      if (moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y && !estGS) inverse = true;
+      if (moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y && !estGS) inverse = true;
+      if (moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y && estGS) inverse = true;
+      if (moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y && estGS) inverse = true;
+
+      if (inverse) {
+        r.width = maconf.taillegrosRDV; r.height = maconf.largeurgrosRDV;
+        if (moncoin.UU.x > moncoin.PP.x) r.x = moncoin.QQ.x + maconf.deltagroshautRDV;
+        else                             r.x = moncoin.QQ.x - maconf.deltagroshautRDV - r.width;
+        if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagrosRDV;
+        else                            r.y = moncoin.QQ.y - maconf.deltagrosRDV - r.height;
+      } else {
+        r.height = maconf.taillegrosRDV; r.width = maconf.largeurgrosRDV;
+        if (moncoin.UU.x > moncoin.PP.x) r.x = moncoin.QQ.x + maconf.deltagrosRDV;
+        else                             r.x = moncoin.QQ.x - maconf.deltagrosRDV - r.width;
+        if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagroshautRDV;
+        else                            r.y = moncoin.QQ.y - maconf.deltagroshautRDV - r.height;
+      }
+      moncoin.inverse = inverse;
+      oriente = true;
+      if (estGS) {
+        GS = moncoin.ima_coin(r).clone();
+        // redresser
+        if (inverse){
+          if (moncoin.U.y < moncoin.PP.y) { // dessus à droite, tourner de 90 degrés
+            cv::rotate(GS, GS, cv::ROTATE_90_CLOCKWISE);
+          } else {
+            cv::rotate(GS, GS, cv::ROTATE_90_COUNTERCLOCKWISE);
+          }
+        } else {
+          if (moncoin.U.y < moncoin.PP.y) cv::rotate(GS, GS, cv::ROTATE_180);
+        }
+        numcol = calculerCouleur(GS, true, maconf, moyblanc);
+        if (numcol == 1 || numcol == 2) moncoin.estRouge = true;
+        else moncoin.estRouge = false;
+        // moncoin.couleur = numcol; // à déterminer plus tard
+        return;
+      }
+    }
+
+    //  |                    |
+    //  | z1              z1 |
+    //  |                    |  
+    //  | W                W |
+    //  | W  z2        z2  W |
+    //  |_________  _________| 
+    //  |                    |
+    //  | W  z2        z2  W | 
+    //  | W                W |
+    //  |                    |
+    //  | z1              z1 |
+
+  if (!oriente) {
+    // analyser la zone du petit symbole vertical (z1  UV)
+    r.width = maconf.largeursymbole; r.height = 3*maconf.taillesymbole/2;
+    // grossir sous la zone du symbole vertical (c'est blanc)
+    r.x = moncoin.U.x;
+    /**************************
+    if (!moncoin.estunRDV){ // ???
+        r.width -= (maconf.largeursymbole / 3); // donc 2/3
         if (moncoin.UU.x < moncoin.PP.x) r.x = moncoin.PP.x - maconf.deltasymbole - 1 - r.width;
         else r.x = moncoin.PP.x + maconf.deltasymbole +1;
     }
+    *********************************/
     if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.U.y + 1;
-    else r.y = moncoin.V.y - 1 - r.height;
+    else r.y = std::max(0, moncoin.V.y - 1 - r.height);
     if(r.height > imacop.rows - r.y) r.height = imacop.rows - r.y;
     if (printoption > 1 && !threadoption) {
         cv::circle(imacop, moncoin.PP, 1, cv::Scalar(0,255, 0));
         if (moncoin.estunRDV) cv::circle(imacop, moncoin.QQ, 1, cv::Scalar(0,0, 255));
         tracerRectangle(r, imacop, "orient", cv::Scalar(0,255,255)); // petit symbole vertical
-    } 
+    }
+    if (r.width > moncoin.ima_coin.cols - r.x) r.width = moncoin.ima_coin.cols - r.x;
+    if (r.height > moncoin.ima_coin.rows - r.y) r.height = moncoin.ima_coin.rows - r.y;
+
     z1 = moncoin.ima_coin(r).clone();
-    cv:: Rect r1 = r;
+    cv::Rect r1 = r;
     m1 = cv::mean(z1);  // zone du petit symbole vertical
 
     // si on n'a pas encore déterminé l'orientation, analyser les deux zones du petit symbole
@@ -870,69 +998,56 @@ void calculerOrientation(uncoin& moncoin, const config& maconf) {
         // Gros symbole dans l'autre coté
         // ___________________
         //|            | 
-        //| 9    GS    | 9  ps
+        //| 9    GS    | 9  z2
         //| z1   GS    | GS
-        //| z2   GS    | GS
+        //|      GS    | GS
 
         // U V UU VV mal recalculés si l'OCR n'a pas permis de déterminer l'orientation
         // dans ce cas , l'orientation a été fixée à ***inverse***
 
         // analyser la zone du petit symbole horizontal (z2)
-        r.width = maconf.taillesymbole; r.height = maconf.largeursymbole;
-        if (moncoin.estunRDV) {
-            r.x = moncoin.UU.x; r.y = moncoin.UU.y;
-        } else {
-            /* if(moncoin.caractere == 'X') */ r.height -= (maconf.largeursymbole / 3); // gros symbole!
+        r.width = 3*maconf.taillesymbole / 2; r.height = maconf.largeursymbole;
+        r.x = moncoin.UU.x; r.y = moncoin.UU.y;
+        if (moncoin.UU.x < moncoin.PP.x) r.x = moncoin.VV.x - r.width;
+        /*****************************
+        if (!moncoin.estunRDV) {
+            r.height -= (maconf.largeursymbole / 3); // gros symbole!
             r.x = moncoin.UU.x + 1;
             if (moncoin.U.y < moncoin.PP.y) r.y = moncoin.UU.y;
             else r.y = moncoin.UU.y + 1;
         }
-        if (printoption > 1 && !threadoption) tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
+        *****************************/
+        if (printoption > 1 && threadoption == 0)
+         tracerRectangle(r, imacop, "orient", cv::Scalar(255,255,0)); // PS horizontal
         z2 = moncoin.ima_coin(r).clone();
         m2 = cv::mean(z2);
         r2 = r;
 
         // amplifyContrast(z1);  // attention moyblanc pas amplifié
-        if (moyblanc[0] + moyblanc[1] + moyblanc[2] - m1[2] - m1[1] - m1[0 ] > 3*bleulim )
-        {   // zone non blanche
+        if (moyblanc[0] + moyblanc[1] - m1[1] - m1[0 ] > 2*bleulim )
+        {   // zone z1 (verticale) non blanche
+            // c'est un petit symbole 
+            // sauf si c'est un personnage (à droite dessus) ou (à gauche dessous)
+            //     et c'est alors un gros symbole
             // vérifier maintenant la zone du symbole horizontal
             //         si elle est blanche, on valide la zone z1
-            if (moyblanc[0] + moyblanc[1] + moyblanc[2] - m2[2] - m2[1] - m2[0 ] < 3*bleulim ){ 
+            if (moyblanc[0] + moyblanc[1] - m2[1] - m2[0 ] < 2*bleulim ){ 
                 // z2  blanche : z1 = petit symbole vertical
                 // z2 blanche : valider z1
             } else {
                 // z1 non blanche, z2 non blanche. z1 ou z2 morceau de gros symbole
                 // ne se produit que pour R D ou V
-                // et (dessus à droite) ou (dessous à gauche) donc inverse
-                // ou (dessus à gauche) ou (dessous à droite) donc droit
-                // confirmer la présence du gros symbole au delà de la zone du petit symbole
-                // se produit aussi pour un chiffre entre 4 et 9 ou 10
-                //     la présence avérée du gros symbole ne permet pas de choisir
-                cv::Rect rG;
-                rG.width = maconf.largeurgrosRDV / 2;
-                rG.height = maconf.taillegrosRDV / 2;
-                if (moncoin.UU.x > moncoin.QQ.x) rG.x = moncoin.QQ.x + maconf.deltagrosRDV;
-                else rG.x = moncoin.QQ.x - maconf.deltagrosRDV  -rG.width;
-                if (moncoin.U.y > moncoin.PP.y) rG.y = moncoin.QQ.y + maconf.deltagrosRDV;
-                else rG.y = moncoin.QQ.y - maconf.deltagrosRDV - rG.height;
-                cv::Mat gros = moncoin.ima_coin(rG);
-                if (printoption > 1 && !threadoption) tracerRectangle(rG, imacop, "orient", cv::Scalar(255,0,0));
-                cv::Scalar mG = cv::mean(gros);
-                if (moyblanc[0] - mG[0] > bleulim ) estgrossymb =true;
-                if (moncoin.estunRDV) {
-                    if (estgrossymb){
-                        if (moncoin.U.y < moncoin.PP.y) {
-                            if (moncoin.UU.x > moncoin.PP.x) inverse = true;
-                        } else if (moncoin.UU.x < moncoin.PP.x) inverse = true;
-                    } else {
-                        if (moncoin.U.y < moncoin.PP.y) {
-                            if (moncoin.UU.x < moncoin.PP.x) inverse = true;
-                        } else if (moncoin.UU.x > moncoin.PP.x) inverse = true;
-                    }
-                } else {
-                    // choizir la zone z1 ou z2 la plus foncée (gros symbole à peine présent dans z1 ou z2)
-                    if (m1[0] > m2[0]) inverse = true;
-                }
+                // cas possibles : 
+                // non inversé 
+                // dessus à gauche : seule possibilité petit symbole vertical (z1) et GS à sa gauche
+                // dessous à droite : seule possibilité petit symbole vertical (z1) et GS à droite
+                //
+                // inversé
+                // dessus à droite : ps horizontal (z2) et gS au dessus
+                // dessous à gauche : ps horizontal (z2) et GS dessous
+                inverse = false;
+                if (moncoin.U.y < moncoin.PP.y && moncoin.UU.x > moncoin.PP.x) inverse = true;
+                if (moncoin.U.y > moncoin.PP.y && moncoin.UU.x < moncoin.PP.x) inverse = true;
             }
         } // z1 non blanche
         else { // zone z1 blanche, le petit symbole est sur le coté horizontal
@@ -953,13 +1068,14 @@ void calculerOrientation(uncoin& moncoin, const config& maconf) {
         estDroit = moncoin.estDroit;
         if (estDroit) inverse = false;
     }
-//
+  }
+    //
 
-// TODO : utiliser la zone du caractère ou du gros symbole
-// petit symbole parfois en surcharge du sceptre du roi
-estgrossymb = false;
-if (moncoin.estunRDV) {
-    if (inverse){
+    // TODO : utiliser la zone du caractère ou du gros symbole
+    // petit symbole parfois en surcharge du sceptre du roi
+    estgrossymb = false;
+    if (moncoin.estunRDV) {
+      if (inverse){
         if(( moncoin.UU.x > moncoin.PP.x && moncoin.U.y < moncoin.PP.y )
         ||(moncoin.UU.x < moncoin.PP.x && moncoin.U.y > moncoin.PP.y) ) {
             estgrossymb = true;
@@ -970,7 +1086,7 @@ if (moncoin.estunRDV) {
             if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagrosRDV;
             else r.y = moncoin.QQ.y - maconf.deltagrosRDV - r.height;
         }
-    } else {
+      } else {
         if(( moncoin.UU.x > moncoin.PP.x && moncoin.U.y > moncoin.PP.y )
         ||(moncoin.UU.x < moncoin.PP.x && moncoin.U.y < moncoin.PP.y) ) {
             estgrossymb = true;
@@ -981,8 +1097,8 @@ if (moncoin.estunRDV) {
             if (moncoin.U.y > moncoin.PP.y) r.y = moncoin.QQ.y + maconf.deltagroshautRDV;
             else r.y = moncoin.QQ.y - maconf.deltagroshautRDV - r.height;
         }
-    }
-} else if (moncoin.caractere == 'X' || moncoin.caractere >= '3' && moncoin.caractere <= '9') {
+      }
+    } else if (moncoin.caractere == 'X' || moncoin.caractere >= '3' && moncoin.caractere <= '9') {
     // considérer aussi le gros symbole centrale pour carte 2 ou 3
         estgrossymb = true;
         int dG = (maconf.largeurcarte/2) - maconf.largeurgros / 2; // position gros symbole du 2 ou 3
@@ -1017,38 +1133,38 @@ if (moncoin.estunRDV) {
             }
         }
     
-}
-if (!estgrossymb){
+    }
+    if (!estgrossymb){
     // utiliser la zone du chiffre
-    if (inverse){
+      if (inverse){
         r.x = moncoin.UU.x;
         r.y = moncoin.UU.y;
         r.width = moncoin.VV.x + 1 - moncoin.UU.x;
         r.height = moncoin.VV.y + 1 - moncoin.UU.y;
-    } else {
+      } else {
         r.x = moncoin.U.x;
         r.y = moncoin.U.y;
         r.width = moncoin.V.x + 1 - moncoin.U.x;
         r.height = moncoin.V.y + 1 - moncoin.U.y;
+      }
     }
-}
 
-// petit symbole s'il n'y a pas de gros symbole
-if (!estgrossymb){
-   if (inverse) {
+    // petit symbole s'il n'y a pas de gros symbole
+    if (!estgrossymb){
+    if (inverse) {
         ls = maconf.taillesymbole;
         ts = maconf.largeursymbole;
         r.x = moncoin.UU.x; r.y = moncoin.UU.y;
-    } else {
+      } else {
         ts = maconf.taillesymbole;
         ls = maconf.largeursymbole;
         r.x = moncoin.U.x; r.y = moncoin.U.y;
+      }
+      r.width = ls; r.height = ts;
     }
-    r.width = ls; r.height = ts;
-}
 
-// z1 = gros symbole ou caractère ou petitsymbole à utiliser pour obtenir la couleur
-{
+    // z1 = gros symbole ou caractère ou petitsymbole à utiliser pour obtenir la couleur
+    {
     int Box[4];
     cv::Scalar moy, moyext;
     cv::Mat imaR;
@@ -1083,7 +1199,7 @@ if (!estgrossymb){
         }
     }
     double ecartW = (cumr / cumb) / (moyext[2] / moyext[0]);
-    if ( ecartW > 1.20) {   // préciser la limite après les tests
+    if ( ecartW > 2.0) {   // préciser la limite après les tests (souvent >3 pour rouge)
         moncoin.estRouge = true; if (printoption > 1) std::cout << " Rouge! ecart = "<< ecartW<<std::endl;
     } else {
         moncoin.estRouge = false; if (printoption > 1) std::cout << " Noir ecart = "<< ecartW<<std::endl;
@@ -1197,24 +1313,23 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     // en se limitant au quart supérieure gauche si c'est un personnage
     // cumuler les intensités bleues et rouges de ces pixels
     // s'il y a plus de rouge que de bleu, c'est rouge
-    if (ts -ls > ls /4) { // personnage
+    if (estunRDV) { // personnage
       r.x = 0; r.y = 0; r.width = ls / 2; r.height = ts / 2;
       z1 = GS(r);
       calculerBox(z1, ts/2, ls/2, moy, Box, moyext, maconf);
     }
     else { z1 = GS.clone();
-      //amplifyContrast(z1);  // déjà fait sur GS
       calculerBox(z1, ts, ls, moy, Box, moyext, maconf);
     }
     if (ts >= z1.rows && ls >= z1.cols) {
-     moyext = cv::Scalar(255,255,255);
+     moyext = mbl; //cv::Scalar(255,255,255);
     }
-    // considérer les pixels moins bleus que la moyenne
+    // considérer les pixels moins bleus que la moyenne pondérée entre la zone et l'extérieur (clair)
     double cumb(0), cumr(0); 
     for(int y = Box[2]; y <= Box[3]; y++){
         for (int x = Box[0]; x <= Box[1]; x++){
             cv::Scalar pix = z1.at<cv::Vec3b>(y,x);
-            if (pix[0] <= (moy[0] + moyext[0])/2) {
+            if (pix[0] <= (9*moy[0] + moyext[0]) / 10) { // un peu plus que la moyenne
                 cumb += pix[0];
                 cumr += pix[2];
             }
@@ -1222,7 +1337,7 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     }
     double ecartW = (cumr / cumb) / (moyext[2] / moyext[0]);
     //double ecartW = (moy[2] / moy[0]) / (mbl[2] / mbl[0]);
-    if ( ecartW > 1.4) {   // préciser la limite après les tests
+    if ( ecartW > 1.8) {   // préciser la limite après les tests
         estRouge = true; if (printoption > 1) std::cout << " Rouge! ecart = "<< ecartW<<std::endl;
     } else {
         estRouge = false; if (printoption > 1) std::cout << " Noir ecart = "<< ecartW<<std::endl;
@@ -1271,36 +1386,103 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
         afficherImage("gros", symbgros);
         // cv::waitKey(1);
     }
-    // calculer l'encombrement du symbole et les moyennes d'intensite du symbole
+    // calculer l'encombrement du symbole et les moyennes d'intensite du symbole complet
     int Box[4]; // xmin xmax ymin ymax
     calculerBox(GS, ts, ls, moy, Box, moyext, maconf);
 
     // si le symbole est rouge et si sa largeur est suffisante, 
     // on compare la partie supérieure à la partie inférieure
     // en se limitant à la partie gauche car la partie droite contient l'épaule du personnage
-    // on compare le quart supérieur droit au quart inférieur gauche
+    // on compare le quart supérieur gauche au quart inférieur gauche
     // si c'est du coeur , il y a beaucoip moins de bleu en haut
     // sinon on utilise un autre moyen.
     if (estRouge && ls > 8) {
+      // chercher le pixel rouge en haut de l'axe vertical
+      r.x = (Box[0] + Box[1] + 1) /2; // axe verital
+      r.y = 0;
+      while(r.y <= Box[2]+ 2){
+        cv::Scalar pix = GS.at<cv::Vec3b>(r.y,r.x);
+        if (pix[0] < mbl[0] + 20 ) break; // on a le creux du coeur ou la pointe du carreau
+        r.y++;
+      }
       int mh, mb, dm;
-      if (ts - ls < ls /2) { // c'est un chiffre
+      if (!estunRDV || ((ts - ls) < ls/4 )) { // c'est un chiffre ou un symbole non tronqué
         r.x = Box[0]; r.width = (Box[1] - Box[0] + 1);
-        r.y = Box[2]; r.height = (Box[3] - Box[2] + 1) / 2; // moitié supérieure
+        //r.y = Box[2]; 
+        r.height = (Box[3] - Box[2] + 1) / 2; // moitié supérieure
         lig = GS(r); mh = cv::mean(lig)[0];
-        r.y = Box[3] - r.height + 1; // moitié inférieure
+        //r.y = Box[3] - r.height + 1; // moitié inférieure
+        r.y += r.height;
+        //if(r.y > GS.rows - r.height) r.y = GS.rows - r.height;
+        if (r.height > Box[3] + 1 - r.y) r.height = Box[3] + 1 - r.y;
         lig = GS(r); mb = cv::mean(lig)[0];
         dm = mh - mb; //  bleu en haut  - en bas 
         if (dm < -50) numcol = 1; // coeur
         else if (dm > -10) numcol = 2; // carreau
       }
-      else { // c'est un personnage
-        r.x = (Box[0] + Box[1]) / 2; r.width = (Box[1] - Box[0] + 1) /2; // moitié droite
-        r.y = Box[2]; r.height = (Box[3] - Box[2] + 1) / 2; // quart supérieur droit
+      else if (false) { // c'est un personnage avec un symbole tronqué
+        // TODO : ne fonctionne pas !!!!!!!!!!!! désactivation !!!!!!!!!!!!!!!!!!!!!
+        // sur cerains jeux de cartes, le gros symbole est tronqué près du bord de carte
+        // TODO : examiner la ligne supérieure Box[2]
+        //  partir de la gauche, chercher un pixel foncé en position xcarreau (rouge - bleu >  ??)
+        //  puis chercher un pixel clair en position xcoeur (rouge - bleu < ???)
+        //  puis chercher un pixel foncé.
+        //      si on trouve, xcoeur est le creux du coeur
+        //      sinon xcarreau est le sommet du symbole carreau
+        int bleuref;
+        int xcoeur(0), xcarreau(0);
+        int y = Box[2];
+        int x = Box[0];
+        while (xcarreau == 0 && y < Box[2] + 3){
+          x = Box[0];
+          while ( x <= Box[1]){ // chercher un pixel rouge
+            cv:: Scalar pix = GS.at<cv::Vec3b>(y, x);
+            if (pix[2] - pix[0] > 50) {
+              xcarreau = x;
+              bleuref = pix[0];
+              x++;
+              break;
+            }
+            x++;
+          }
+          if (xcarreau > 0) break;
+          y++;
+        }
+        r.y = y;
+        while ( x <= Box[1]){ // chercher un pixel blanc (plus de bleu que sur le premier pixel rouge)
+          cv:: Scalar pix = GS.at<cv::Vec3b>(Box[2], x);
+          if (pix[0] - bleuref > 40) {
+            xcoeur = x; // pixel clair. creux du coeur ou à droite de la pointe du carreau 
+            x++;
+            break;
+          }
+          x++;
+        }
+        while ( x <= Box[1]){ // chercher un pixel rouge
+          cv:: Scalar pix = GS.at<cv::Vec3b>(Box[2], x);
+          if (pix[2] - pix[0] > 50) { // partie droite du coeur
+            numcol = 1;
+            xcoeur = x - 1;
+            r.x = xcoeur;
+            break;
+          }
+          x++;
+        }
+        if (numcol != 1) {numcol = 2; r.x = xcarreau;} 
+        //return numcol;
+
+        //r.x = (Box[0] + Box[1]) / 2; r.width = (Box[1] - Box[0] + 1) /2; // moitié droite
+        // r.x = Box[0]; 
+        r.width = (Box[1] - Box[0] + 1) /2; // moitié droite
+        if (r.width > GS.cols - r.x) r.width = GS.cols - r.x;
+        r.height = (Box[3] - Box[2] + 1) / 2; // quart supérieur
+        r.y = Box[2];
         if (printoption > 1 && !threadoption)
           tracerRectangle (r, symbgros, "gros", cv::Scalar(255,0,0));
         lig = GS(r); mh = cv::mean(lig)[0];
-        r.x = Box[0];
-        r.y = Box[3] - r.height + 1; // quart inférieur gauche
+        //r.x = Box[0];
+        //r.y = Box[3] - r.height + 1; // quart inférieur gauche
+        r.y += r.height;  if(r.y > GS.rows - r.height) r.y = GS.rows - r.height;
         if (printoption > 1 && !threadoption)
           tracerRectangle (r, symbgros, "gros", cv::Scalar(255,0,0));
         if (waitoption > 1) cv::waitKey(0);
@@ -1353,7 +1535,7 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     int xmin, xmax;
     xmin = Box[0];
     xmax = Box[1];
-    int xopt; // position de l'axe verical du symbole
+    int xopt = -1; // position de l'axe verical du symbole
     // on a xmin et xmax du symbole
     r.x = xgBH; // gauche de la bande horizontale
     r.y = yBH;  // haut de cette bande
@@ -1363,58 +1545,125 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     //      ou dans la partie supérieure pour symbole noir (pointe pique ou feuille supérieure du trefle)
     // essayer avec deux largeurs (2 et 1 ou 3) et choisir le résultat le moins clair
     //
+    // TODO : rechercher la pointe inférieure du symbole coeur ou carreau
+    // partir d'une ligne horizontale au milieu du symbole et descendre
+    // jusqu'à trouver un pixel clair parmi les 3 premiers pixels
+    // puis trouver le premier pixel rouge puis le dernier suivi d'un pixel clair
+    // l'axe vertical est au milieu de ce segment rouge
+    //
+    //   |*****
+    //   |*****
+    //   | ***    <--- segment rouge recherché
+    //   |  *
     if (estRouge) {
+      cv::Scalar pix;
+      int x= -1;
+      int xr1; // premier pixel rouge, après un pixel blanc 
+      int y = (Box[0] + Box[1] + 1)/ 2; // position au milieu 
+      if (y >= Box[3])  y = Box[3];
+      while (y <= Box[3]){
+        while (y <= Box[3]){
+          pix = GS.at<cv::Vec3b>(y,Box[0]);
+          if (pix[0] - pix[2] > -20 ){ // pixel clair (pas trop rouge)
+            x = Box[0];
+            break;
+          } else {
+            pix = GS.at<cv::Vec3b>(y,Box[0] + 1);
+            if (pix[0] - pix[2] > -20 ){ // pixel clair (pas trop rouge)
+              x = Box[0] + 1;
+              break;
+            }
+            y++;
+          }
+        }
+
+        if (x >= Box[0]){ // on a trouvé une ligne avec un pixel clair en 0 ou 1
+          // rechercher le prochain pixel rouge
+          x++;
+          while(x <= Box[1]){
+            pix = GS.at<cv::Vec3b>(y,x);
+            if (pix[2] - pix[0] > 20) break;
+            x++;
+          }
+          if (x <Box[1]){
+            // rechercher le prochain pixel clair
+            xr1=x; x++;
+            while(x <= Box[1]){
+              pix = GS.at<cv::Vec3b>(y,x);
+              if (pix[2] - pix[0] < 20) break;
+              x++;
+            }
+          }
+          if (x <= Box[1]) {
+            // le segment xr1--> x est rouge
+            // l'axe vertical est au milieu de ce segment
+            r.width = 1;
+            xopt = (xr1 + x) /2; break;
+          }
+        } else {
+          // impossible de trouver le bas du symbole
+        }
+        y++;
+      }
+
+
+
       r.y = yBH + (hBH + 1) / 2; // position au milieu la bande horizontale et au dessous
       if (r.y >= Box[3])  r.y = Box[3];
       r.height = Box[3] + 1 - r.y;
       if (r.height < 1) r.height = 1;
-    } else {
+    }
+    else
+    { // symbole noir
       r.y = Box[2];
       r.height = std::max(1,ts / 3);
     }
-    r.x = Box[0] + ls / 4;
-    xmax = Box[1] + 1 - ls / 4;
-    
     int largeurcol = 2;
-    r.width = 2; // calcul avec largeur 2
-    xopt = r.x;
-    double minb3 = 255 * 2;
-    double minb4 = minb3;
-    while (r.x <= xmax - r.width)
-    {
-        bande = GS(r);
-        moy = cv::mean(bande);
-        double mbg = moy[0] + moy[1];
-        if (mbg <= minb3) { minb3 = mbg; xopt = r.x; }
-        r.x++;
-    }
-    int xopt3 = xopt;
-    r.width = 1;
-    if (ls > 8)  r.width = 3; // calcul avec largeur 1 ou 3
-    r.x = xgBH;      // gauche de la bande horizontale
-    if (ls >= 18) {
-        r.x += ls / 6;
-        xmax = Box[1] - ls / 4;
-    }
+    if (xopt < 0){ // on n'a pas encore trouvé l'axe vertical
+      r.x = Box[0] + ls / 4;
+      xmax = Box[1] + 1 - ls / 4;
+      
+      r.width = 2; // calcul avec largeur 2
+      xopt = r.x;
+      double minb3 = 255 * 2;
+      double minb4 = minb3;
+      while (r.x <= xmax - r.width)
+      {
+          bande = GS(r);
+          moy = cv::mean(bande);
+          double mbg = moy[0] + moy[1];
+          if (mbg <= minb3) { minb3 = mbg; xopt = r.x; }
+          r.x++;
+      }
+      int xopt3 = xopt;
+      r.width = 1;
+      if (ls > 8)  r.width = 3; // calcul avec largeur 1 ou 3
+      r.x = xgBH;      // gauche de la bande horizontale
+      if (ls >= 18) {
+          r.x += ls / 6;
+          xmax = Box[1] - ls / 4;
+      }
 
-    xopt = r.x;
-    while (r.x <= xmax - r.width)
-    {
-        bande = GS(r);
-        moy = cv::mean(bande);
-        double mbg = moy[0] + moy[1];
-        if (mbg <= minb4)
-        {
-            minb4 = mbg;
-            xopt = r.x;
-            largeurcol = r.width;
-        }
-        r.x++;
-    }
-    if (minb4 > minb3)
-    {
-        xopt = xopt3;
-        r.width = 2;
+      xopt = r.x;
+      while (r.x <= xmax - r.width)
+      {
+          bande = GS(r);
+          moy = cv::mean(bande);
+          double mbg = moy[0] + moy[1];
+          if (mbg <= minb4)
+          {
+              minb4 = mbg;
+              xopt = r.x;
+              largeurcol = r.width;
+          }
+          r.x++;
+      }
+      if (minb4 > minb3)
+      {
+          xopt = xopt3;
+          r.width = 2;
+      }
+
     }
 
 //
@@ -2268,9 +2517,9 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       r.width = maconf.largeurgrosRDV / 2; // moitié gauche
       r.height = std::min(imacarte.rows - r.y, maconf.taillegrosRDV + 2);
       GS = imacarte(r).clone();
-      calculerBox(GS,maconf.taillegrosRDV, maconf.largeurgrosRDV, m, box, m1, maconf );
+      calculerBox(GS,maconf.taillegrosRDV, r.width, m, box, m1, maconf );
       r.y += box[2]; r.height = std::min(imacarte.rows - r.y, maconf.taillegrosRDV);
-      r.width = maconf.largeurgrosRDV;
+      r.width = maconf.largeurgrosRDV; // totalité du gros symbole
       GS = imacarte(r).clone();
       if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
       if (numcol < 0) numcol = calculerCouleur(GS, true,  maconf, mbl);
@@ -2318,8 +2567,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           }
         }
         // tester chapeau bleu
-        if (m[0] - m[2] > 30) {
-            valcarte = 11; // on a trouvé le chapeau du Valet (bleu) 
+        if (m[0] + m[1] - 2*m[2] > 30) {
+            valcarte = 11; // on a trouvé le chapeau du Valet (bleu ou turquoise) 
             return 11;
         }
         
@@ -2770,21 +3019,34 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       lig = imacarte(rr); mbl = cv::mean(lig);
       bool estGS = false;
       rr.x = maconf.deltagros; rr.width = maconf.largeurgros;
-      rr.y = maconf.deltagroshaut; rr.height = maconf.taillegros;
+      rr.y = std::min(imacarte.rows -1, maconf.deltagroshaut); rr.height = maconf.taillegros;
       if (rr.height > imacarte.rows - rr.y) rr.height = imacarte.rows - rr.y;
       lig = imacarte(rr); m=cv::mean(lig);
       if (mbl[0] - m[0] > 10) estGS = true;
       
       for (int i = 0; i<2; i++){ // chiffre de gauche puis de droite
         // localiser le chiffre, l'extraire
-        r.width = maconf.largeurchiffre + 3;
-        r.y = maconf.deltahaut - 1;
-        r.height = maconf.taillechiffre +1;
+        // chercher le haut du chiffre : commencer au milieu estimé du chiffre et remonter jusqu'au blanc
         if (i > 0) {
           r.x = imacarte.cols - 1 - r.width;
         } else {
           r.x = maconf.deltachiffre - 1; 
         }
+        r.y = maconf.deltahaut + maconf.taillechiffre / 2;
+        r.height = 1; 
+        r.width = maconf.largeurchiffre + 3;
+        while (r.y > 0){
+          lig = imacarte(r); m = cv::mean(lig);
+          if(m[0] > mbl[0] - 10) {
+            r.y++; break;
+          }
+          r.y--;
+        }
+        // on a trouvé le haut du caractère
+        r.width = maconf.largeurchiffre + 3;
+        //r.y = maconf.deltahaut - 1;
+        r.height = maconf.taillechiffre +1;
+        if (r.height > imacarte.rows - r.y) r.height = imacarte.rows - r.y;
         if (printoption > 1) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0)); //cv::waitKey(0);
         cv::Mat ima_carW;
         cv::Mat ima_car = imacarte(r);
@@ -2915,6 +3177,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
                 lig = imacarte(rr); m2 = cv::mean(lig);
                 if (std::abs(m1[0] - m2[0]) > 30) numcol = 1;
                 else numcol = 2;
+                return 1; // on a trouvé un As de Coeur ou de carreau
+
               } else { // couleur noire pique ou trefle
                 // tester la zone juste au dessus de la queue du symbole
                 //    ***        *****
@@ -2939,7 +3203,9 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
                 //if (printoption && !threadoption) tracerRectangle(r, imac, "carte", cv::Scalar(255,0,0));
                 // GS = imacarte(r).clone(); // GS central élargi
                 retcode =  1; // on a trouvé un As et sa couleur 
+                return 1; // on a trouvé un As de Pique ou Trefle
             }
+            
         } else { // il y a un GS en haut au centre ( 2 ou 3 )
             int box[4];
             cv::Scalar m2;
@@ -2983,7 +3249,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         // zone du GS 2 sur 4, limitée au haut du GS 3 sur 4
         int nbGSg=0; // nombre de GS dans la partie centrale de la colonne gauche
         r.x = maconf.deltagros;
-        r.y = maconf.deltagroshaut + maconf.taillegros;
+        r.y = maconf.deltagroshaut + 4*maconf.taillegros/3;
         r.width = (maconf.largeurcarte - maconf.largeurgros)/2 - r.x;
         r.height = (maconf.hauteurcarte - maconf.taillegros)/2 - r.y;
         if (printoption > 1 && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
@@ -3045,6 +3311,10 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
 
         } else { // 4 GS à gauche--> 8 9 ou 10 ( 8 pour certains modèles de cartes))
             // compter les GS de la colonne centrale
+            //    h1 h2 h3 
+            // h1 et h3 --> 10
+            // h1 ou h3 --> 9       trouvé pour certains jeux de cartes
+            // h2 seul --> 9        trouvé pour d'autres jeux de cartes
             // limiter à gauche et à droite
             int nbGS = 0;
             r.width = maconf.largeurcarte - 2* (maconf.deltagros + maconf.largeurgros);
@@ -3059,6 +3329,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
             lig = imacarte(r); m = cv::mean(lig); // GS bas
             if (m[0] < 9*mbl[0]/ 10) nbGS++;
             if (nbGS == 2) retcode = 10; // 8 sur les cotés et 2 au centre
+            else if (nbGS == 1) retcode = 9;
             else {
                 r.y = (maconf.hauteurcarte - maconf.taillegros) / 2;
                 if (printoption > 1 && !threadoption) tracerRectangle(r,imac,"carte", cv::Scalar(255,0,0));
