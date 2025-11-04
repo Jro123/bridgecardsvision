@@ -8,6 +8,32 @@
 extern int threadoption;
 extern int printoption;
 
+const char* NESO[4]=  {"Nord", "Est", "Sud", "Ouest"};
+const char* couleurcarteA[4]  = {"P", "C", "K", "T"}; 
+
+// Convertit numéro joueur en texte
+std::string joueurToString(int j) {
+  //const char* noms[] = {"Nord", "Est", "Sud", "Ouest"};
+  return (j >= 0 && j < 4) ? NESO[j] : "Inconnu";
+}
+
+
+// Convertit couleur/valeur en chaîne lisible
+std::string carteToString(int couleur, int valeur) {
+  if (couleur < 0 || couleur > 3 || valeur < 1 || valeur > 13) return "??";
+  std::string val;
+  if (valeur == 1)  val = "A";
+  else if (valeur <= 10) val = std::to_string(valeur);
+  else if (valeur == 11) val = "V";
+  else if (valeur == 12) val = "D";
+  else if (valeur == 13) val = "R";
+  
+  return std::string(couleurcarteA[couleur]) + val;
+}
+
+
+bool calculerRouge(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar mbl);
+
 // tracer le rectangle r sur une copie de l'image et afficher la fenêtre dont le nom est s 
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur) {
     if (printoption < 0) return;
@@ -944,10 +970,8 @@ void calculerOrientation(uncoin& moncoin, const config& maconf) {
         } else {
           if (moncoin.U.y < moncoin.PP.y) cv::rotate(GS, GS, cv::ROTATE_180);
         }
-        numcol = calculerCouleur(GS, true, maconf, moyblanc);
-        if (numcol == 1 || numcol == 2) moncoin.estRouge = true;
+        if (calculerRouge(GS,true,maconf,moyblanc)) moncoin.estRouge = true;
         else moncoin.estRouge = false;
-        // moncoin.couleur = numcol; // à déterminer plus tard
         return;
       }
     }
@@ -1271,6 +1295,114 @@ std::vector<cv::Point2f> orderPoints(int pts[4][2]) {
 
 
 
+// détermine si l'image GS est un symbole rouge (true) ou noir (false)
+bool calculerRouge(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar mbl){
+    // mbl : valeur du blanc
+    int printoption = maconf.printoption;
+    bool threadoption = maconf.threadoption;
+    int waitoption = maconf.waitoption;
+    cv::Mat symbgros = GS.clone();
+    cv::Scalar moy, moyext, ect, m1;
+    cv::Rect r;
+    int ts, ls; // taille et largeur du symbole
+    bool estRouge(false);
+    if (estunRDV) {
+        // c'est un personnage
+        ts = maconf.taillegrosRDV;
+        ls = maconf.largeurgrosRDV;
+    } else {
+        ts = maconf.taillegros;
+        ls = maconf.largeurgros;
+    }
+    ts = std::min(ts, GS.rows);
+    ls = std::min(ls, GS.cols);
+    amplifyContrast(GS); // parfois contre productif
+    if (printoption > 1 && !threadoption) {
+        afficherImage("symbole", symbgros);
+        afficherImage("gros", symbgros);
+        //cv::waitKey(1);
+    }
+    // déterminer la couleur : Rouge ou noir ?
+    int Box[4];
+    cv::Mat z1, imaR;
+     // le symbole est soit rouge, soit noir
+    // dans les deux cas, l'intensité bleue est plus faible que l'extérieur
+    // déterminer la moyenne de bleu
+    // ne considérer que les pixels moins bleus que cette moyenne
+    // en se limitant à la moitié gauche si c'est un personnage
+    // cumuler les intensités bleues et rouges de ces pixels
+    // s'il y a plus de rouge que de bleu, c'est rouge
+    if (estunRDV) { // personnage
+      r.x = 0; r.y = 0; r.width = ls / 2; r.height = ts;
+      z1 = GS(r);
+      calculerBox(z1, ts, ls/2, moy, Box, moyext, maconf);
+      if (ts >= z1.rows && ls/2 >= z1.cols)  moyext = mbl; //cv::Scalar(255,255,255);
+    } else { 
+      z1 = GS.clone();
+      calculerBox(z1, ts, ls, moy, Box, moyext, maconf);
+      if (ts >= z1.rows && ls >= z1.cols)  moyext = mbl; //cv::Scalar(255,255,255);
+    }
+    // considérer les pixels moins bleus que la moyenne 
+    float cumb(0), cumr(0);
+    float rapportext = float(moyext[0]) / moyext[2];
+    int nbpix(0);
+    for(int y = Box[2]; y <= Box[3]; y++){
+        for (int x = Box[0]; x <= Box[1]; x++){
+            cv::Scalar pix = z1.at<cv::Vec3b>(y,x);
+            //if (pix[0] <= (9*moy[0] + moyext[0]) / 10) { // un peu plus que la moyenne
+            if (pix[0] <= moy[0]) { // un peu plus foncé que la moyenne
+                cumb += pix[0];
+                cumr += pix[2];
+                nbpix++;
+            }
+        }
+    }
+    float ecartW = (cumr / cumb) * rapportext;
+    if ( ecartW > 1.5 && cumr / nbpix > 50) {   // préciser la limite après les tests
+        estRouge = true; if (printoption > 1) std::cout << " Rouge! ecart = "<< ecartW<<std::endl;
+        return true;
+    } else {
+        estRouge = false; if (printoption > 1) std::cout << " Noir ecart = "<< ecartW<<std::endl;
+        return false;
+    }
+#ifdef ACTIVER
+    // c'est rouge si au moins un pixel est significativement rouge
+    int rmb = -255; // rouge - bleu
+    for (int x = 0; x < z1.cols; x++){
+       for (int y=0; y< z1.rows; y++){
+           cv::Vec3b pixel = z1.at<cv::Vec3b>(y, x);
+           rmb = std::max(rmb,(pixel[2] - pixel[0]) );
+       }
+    }
+    rmb -= (moyext[2] - moyext[0]);
+    if (rmb  > 100 ){
+        moncoin.estRouge = true; if (printoption) std::cout << " Rouge! rmb= "<< rmb;
+    } else if (rmb - (moyext[2] - moyext[0]) < 50 ){
+        moncoin.estRouge = false; if (printoption) std::cout << " Noir rmb= "<< rmb;
+    }
+    else {
+        int ecartrelatif = 100.0*((double)moyext[2]/moyext[0]) / ((double)moy[2] / moy[0]);
+        if ( ecartrelatif > 105 ){ // expérimental: rouge < 77   noir > 105
+            moncoin.estRouge = false; if (printoption) std::cout << " Noir rmb "<< rmb<< ", "<< ecartrelatif;
+        } else if (ecartrelatif < 77) {
+            moncoin.estRouge = true; if (printoption) std::cout << " Rouge "<< rmb<< ", "<<ecartrelatif;
+        } else {
+            // c'est rouge si l'écart rouge-bleu est significatif
+            double ecart = (moy[2] - moy[0]) / (256-moy[0]);
+            if (ecart > 0.1){
+                moncoin.estRouge = true; if (printoption) std::cout 
+                << " Rouge! rmb "<< rmb<< ", "<<ecartrelatif<<", "<<ecart;
+            } else {
+                moncoin.estRouge = false; if (printoption) std::cout 
+                << " Noir! rmb "<< rmb<< ", "<<ecartrelatif<<", "<< ecart;
+            }
+        }
+    }
+#endif    
+
+}
+
+
 // calcul de la couleur de bridge à partir du gros symbole
 int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar mbl){
     // mbl : valeur du blanc
@@ -1303,7 +1435,8 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
         //cv::waitKey(1);
     }
     // déterminer la couleur : Rouge ou noir ?
-{
+    estRouge = calculerRouge(GS, estunRDV, maconf, mbl);
+if (false) {
     int Box[4];
     cv::Mat z1, imaR;
      // le symbole est soit rouge, soit noir
@@ -1342,41 +1475,6 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     } else {
         estRouge = false; if (printoption > 1) std::cout << " Noir ecart = "<< ecartW<<std::endl;
     }
-
-#ifdef ACTIVER
-    // c'est rouge si au moins un pixel est significativement rouge
-    int rmb = -255; // rouge - bleu
-    for (int x = 0; x < z1.cols; x++){
-       for (int y=0; y< z1.rows; y++){
-           cv::Vec3b pixel = z1.at<cv::Vec3b>(y, x);
-           rmb = std::max(rmb,(pixel[2] - pixel[0]) );
-       }
-    }
-    rmb -= (moyext[2] - moyext[0]);
-    if (rmb  > 100 ){
-        moncoin.estRouge = true; if (printoption) std::cout << " Rouge! rmb= "<< rmb;
-    } else if (rmb - (moyext[2] - moyext[0]) < 50 ){
-        moncoin.estRouge = false; if (printoption) std::cout << " Noir rmb= "<< rmb;
-    }
-    else {
-        int ecartrelatif = 100.0*((double)moyext[2]/moyext[0]) / ((double)moy[2] / moy[0]);
-        if ( ecartrelatif > 105 ){ // expérimental: rouge < 77   noir > 105
-            moncoin.estRouge = false; if (printoption) std::cout << " Noir rmb "<< rmb<< ", "<< ecartrelatif;
-        } else if (ecartrelatif < 77) {
-            moncoin.estRouge = true; if (printoption) std::cout << " Rouge "<< rmb<< ", "<<ecartrelatif;
-        } else {
-            // c'est rouge si l'écart rouge-bleu est significatif
-            double ecart = (moy[2] - moy[0]) / (256-moy[0]);
-            if (ecart > 0.1){
-                moncoin.estRouge = true; if (printoption) std::cout 
-                << " Rouge! rmb "<< rmb<< ", "<<ecartrelatif<<", "<<ecart;
-            } else {
-                moncoin.estRouge = false; if (printoption) std::cout 
-                << " Noir! rmb "<< rmb<< ", "<<ecartrelatif<<", "<< ecart;
-            }
-        }
-    }
-#endif    
 }
 
     if (estRouge )
@@ -1397,14 +1495,92 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     // si c'est du coeur , il y a beaucoip moins de bleu en haut
     // sinon on utilise un autre moyen.
     if (estRouge && ls > 8) {
+      // TODO : convertir en image monochrome
+      // rechercher le haut du symbole : au moins un pixel rouge sur la ligne
+      // puis rechercher une ligne .....*---*....    - > *+20
+      // sur cette ligne rechercher un pixel clair bordé à gauche et à droite par des pixels rouges
+      // si on trouve : compter le nombre de pixels rouges : au moins la moitié --> coeur
+      //                sinon : carreau
+      // sinon (pas rouge blanc rouge) : carreau
       // chercher le pixel rouge en haut de l'axe vertical
-      r.x = (Box[0] + Box[1] + 1) /2; // axe verital
+      cv::Scalar m;
+      int x0, x1, x2; // positions des pixels foncés qui encadrent une zone claire
+      x0 = 0;
+      if (estunRDV) x0 = 1;
       r.y = 0;
-      while(r.y <= Box[2]+ 2){
-        cv::Scalar pix = GS.at<cv::Vec3b>(r.y,r.x);
-        if (pix[0] < mbl[0] + 20 ) break; // on a le creux du coeur ou la pointe du carreau
-        r.y++;
+      cv::Scalar pix, pix2;
+      int pixrgb, pixrgb2;
+      int maxrouge(0); // écart maximal rouge - bleu
+      int minrgb(1000);
+      int mblrgb = mbl[0] + mbl[1] + mbl[2];
+      // rechercher une ligne ayant au moins un pixel foncé sur 3/4 gauche
+      int ylim = std::min(GS.rows, Box[2] + 4);
+      while(r.y < ylim){ // rechercher un pixel foncé, le plus foncé
+        for (r.x = x0; r.x <= 3*GS.cols / 4 ; r.x++){
+          pix = GS.at<cv::Vec3b>(r.y,r.x);
+          pixrgb = pix[0] + pix[1] + pix[2];
+          minrgb = std::min(minrgb, pixrgb);
+        }
+        if (mblrgb - minrgb < 150) r.y++;
+        if (mblrgb - minrgb > 100) break;
       }
+      if (r.y >= ylim) { // aucune ligne contrastée. 
+        // on choisit arbitrairement coeur
+        std::cout<< " symbole trop uniforme --> coeur par défaut"<<std::endl;
+        return 1;
+      }
+      // on a une ligne contrastée
+      // chercher un écart foncé puis clair significatif
+      r.x = Box[0]; if (estunRDV) r.x = std::max(1, r.x);
+      int minval(1000), valrgb;
+      while(r.x < Box[1]){
+        pix = GS.at<cv::Vec3b>(r.y,r.x);
+        pixrgb = pix[0] + pix[1] + pix[2];
+        minval = std::min(minval,pixrgb); // valeur du pixel le plus foncé
+        pix2 = GS.at<cv::Vec3b>(r.y,r.x + 1);
+        pixrgb2 = pix2[0] + pix2[1] + pix2[2];
+        valrgb = pixrgb2;
+        r.x++;
+        if (valrgb - minval > 100) break; // un pixel plus clair 
+      }
+      if (r.x >= Box[1]){ // on n'a pas trouvé de transition foncé vers clair
+        // probablement la partie supérieure du symbole coeur
+        return 1;
+      }
+      x1 = r.x - 1;
+      // ... foncé clair  : rechercher un pixel plus foncé à droite
+      x2 = 0;
+      while(r.x <= Box[1]){
+        pix = GS.at<cv::Vec3b>(r.y,r.x);
+        pixrgb = pix[0] + pix[1] + pix[2];
+        if (valrgb - pixrgb > 100) {
+          x2 = r.x;
+          break;
+        }
+        valrgb = std::max(valrgb, pixrgb); // le plus clair dans le creux du coeur
+        r.x++;
+      }
+      // compter le nombre de pixels foncés sur cette ligne. au moins un tiers --> coeur
+      int nbfonce = 0;
+      for (int x = x0; x <= Box[1]; x++){
+        pix = GS.at<cv::Vec3b>(r.y,x);
+        pixrgb = pix[0] + pix[1] + pix[2];
+        if (pixrgb < valrgb) nbfonce++;
+      }
+
+      r.x = 0; r.width = GS.cols; r.height = 1;
+      if (x2 > 0) {r.x = x1; r.width = x2 - x1 + 1;}
+      if (nbfonce >= (Box[1] - Box[0])/ 2) {
+        if(printoption > 0) tracerRectangle(r, symbgros, "gros", cv::Scalar(0, 255, 0));
+        return 1; // ... foncé clair ... foncé    et  très foncé: coeur
+      } else if (nbfonce < (Box[1] - Box[0])/ 3){
+        if(printoption > 0) tracerRectangle(r, symbgros, "gros", cv::Scalar(255, 0, 0));
+        return 2; 
+      }
+
+      // situation indécise : le nombre de pixels foncés est intermédiaire
+      // effectuer une analyse plus précise
+
       int mh, mb, dm;
       if (!estunRDV || ((ts - ls) < ls/4 )) { // c'est un chiffre ou un symbole non tronqué
         r.x = Box[0]; r.width = (Box[1] - Box[0] + 1);
@@ -2523,35 +2699,48 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       GS = imacarte(r).clone();
       if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
       if (numcol < 0) numcol = calculerCouleur(GS, true,  maconf, mbl);
+      // fausse détection possible entre coeur et carreau
+      // la couleur (rouge ou noir) est fiable
+      // si c'est rouge, partir de la ligne au centre du symbole
+      // et remonter tant qu'il y a au moins un pixel rouge
+      if (numcol == 1 || numcol == 2) {
+        int y = cadresup + maconf.taillegrosRDV / 2;
+        cv::Scalar pix;
+        bool estpixelrouge(false);
+        while (y >= cadresup + maconf.deltagroshautRDV) {
+          estpixelrouge = false;
+          for (int x = r.x + 1 ; x < r.x + maconf.largeurgrosRDV - 1; x++) {
+            pix = imacarte.at<cv::Vec3b>(y,x);
+            if (pix[2] - pix[0] > 50) {
+              estpixelrouge = true;
+              break;
+            }
+          }
+          if (!estpixelrouge) { // on a trouvé une ligne (y)  sans pixel rouge
+            y++; // haut du symbole
+            r.height = maconf.taillegrosRDV;
+            r.y = y; if (r.height > imacarte.rows - r.y) r.height = imacarte.rows - r.y;
+            GS = imacarte(r).clone();
+            numcol = calculerCouleur(GS, true,  maconf, mbl);
+            break;
+          }
+          y--;
+        }
+      }
       int xGS = r.x;
       int yGS = r.y + box[3]; // bas du Gros Symbole
 
       // ne considérer que le haut de la carte (à cause des cartes recouvertes du mort)
       //
       // déterminer la valeur R D V sans décoder le caractère R D V
-      // couleur P  Pique :
-      //   V si le chapeau est rouge
-      //   D si la gauche du chapeau est claire
-      //   R  sinon 
+      //
+      if (numcol == 3) { // Trefle
       // couleur T Trefle :
       //   V si le chapeau est bleu ou rouge (plus que la moyenne des 3 couleurs)
       //   D si la droite de la couronnne est claire
       //   R sinon
       //   onpeut vérifier : 
       //   R si on trouve le haut du sceptre sous le petit symbole haut gauche
-      //
-      // couleur K carreau :
-      //   V si le chapeau est rouge
-      //   R si la couronne est plus à droite (que la Dame)
-      //   D sinon (ou si elle tient une fleur rouge en haut à droite)
-      //      ou si la zone centrale à coté du cadre gauche est claire (sinon R ou V)
-      //
-      // couleur Coeur :
-      //   R si la partie gauche de la couronne est jaune (plus de Rouge et vert que bleu )
-      //   D si c'est clair à gauche de l'épaule
-      //   V sinon (le chapeu est bleu, mais comme pour la Dame)
-      //
-      if (numcol == 3) { // Trefle
         // chapeau du Valet. bleu ou rouge selon le jeu de cartes
         r.y = cadresup + 1;
         r.height = maconf.tailleVDR / 2;
@@ -2589,16 +2778,35 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         return 13; // ni V ni D donc Roi
       }
       if (numcol == 0) { // Pique
-        r.x = maconf.largeurcarte /3;
-        r.width = maconf.largeurcarte * 4/30;
+      // couleur P  Pique :
+      //   V si le chapeau est rouge
+      //   D si la gauche du chapeau est claire
+      //   R  sinon 
+      // ...VV....
+      // .....RR...
+      //........DD...
+      //
+r.x = maconf.largeurcarte* 5/16; // position du béret du valet
+        r.width = maconf.largeurcarte * 3/16;
         r.y = cadresup + 1;
         r.height = maconf.tailleVDR / 2;
         if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
         lig = imacarte(r); m = cv::mean(lig);
-        if (m[0] < mbl[0] - 50){ // au moins 50 la couronne du Roi est un peu foncée (moins de bleu)
-          valcarte = 11; // on a trouvé le chapeau du Valet (rouge)
+        //if (m[0] < mbl[0] - 50){
+        //  valcarte = 11; // on a trouvé le chapeau du Valet (rouge)
+        //  return 11;
+        //}
+        // compter les pixels rouges
+        int nbpixtot(0), nbpixrouge(0);
+        for (int y = cadresup+1; y < cadresup + maconf.tailleVDR; y++)
+          for (int x = r.x; x < maconf.largeurcarte / 2; x++) {
+            nbpixtot++;
+            cv::Scalar pix = imacarte.at<cv::Vec3b>(y,x);
+            if (pix[2] >pix[0] + 20 && pix[2] > pix[1] + 20) nbpixrouge++;
+          }
+        if (100*nbpixrouge / nbpixtot > 30 ) 
           return 11;
-        }
+
         // Dame ou Roi ? tester la gauche de la couronne
         r.x = maconf.largeurcarte *5/12;
         r.width = maconf.largeurcarte / 12;
@@ -2625,10 +2833,14 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       }
 
       if (numcol == 1) { // Coeur
+      // couleur Coeur :
+      //   R si la partie gauche de la couronne est jaune (plus de Rouge et vert que bleu )
+      //   D si c'est clair à gauche de l'épaule
+      //   V sinon (le chapeu est bleu, mais comme pour la Dame)
         r.y = cadresup + 1;
         r.height = maconf.tailleVDR;
         r.x = maconf.largeurcarte * 14/40;
-        r.width = maconf.largeurcarte / 3;
+        r.width = maconf.largeurcarte / 8;
         if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(255,0,0));
         lig = imacarte(r); m = cv::mean(lig);
         if (m[0] < (m[1] + m[2])/ 2  - 15){ // jaune ?
@@ -2639,14 +2851,32 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         r.width = maconf.largeurgrosRDV / 3;
         r.y = yGS + 1;
         r.height = maconf.taillegrosRDV / 2;
-        if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(255,0,0));
-        lig = imacarte(r); m = cv::mean(lig);
-        if (m[0] > mbl[0] - 30){ // clair à gauche de l'épaule
-          return 12;
+        if (r.y + r.height < imacarte.rows) {
+          if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(255,0,0));
+          lig = imacarte(r); m = cv::mean(lig);
+          if (m[0] <  mbl[0] - 100){ // foncé à gauche de l'épaule : Valet
+            return 11;
+          }
+          return 12; // ni R ni V  donc D
+        } else { // probablement une carte du mort, écrètée par la carte qui la recouvre
+          // tester la gauche du chapeau : bleu pour un valet
+          // à droite il y a le reste du chapeau du valet ou la coiffe bleue de la Dame
+          // position : de 25/80 à 28 ∕ 80 
+          r.x = maconf.largeurcarte * 25 / 80;
+          r.width = maconf.largeurcarte * 3 / 80;
+          r.y = cadresup + 1;
+          lig = imacarte(r); m = cv::mean(lig);
+          if (m[0] - m[2] > 30)
+             return 11; // béret bleu : coeur
+          else return 12; // ni Roi ni Valet
         }
-        return 11; // ni R ni D  donc Valet
       }
       if (numcol == 2){ // carreau
+      // couleur K carreau :
+      //   V si le chapeau est rouge
+      //   R si la couronne est plus à droite (que la Dame)
+      //   D sinon (ou si elle tient une fleur rouge en haut à droite)
+      //      ou si la zone centrale à coté du cadre gauche est claire (sinon R ou V)
         r.x = maconf.largeurcarte * 14/40; // bord gauche du chapeau du Valet
         r.width = maconf.largeurcarte * 8/40; // largeur du chapeau
         r.y = cadresup + 1;

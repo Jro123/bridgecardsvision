@@ -286,7 +286,13 @@ public:
   }
 };
 
+std::string carteToString(int couleur, int valeur);
+std::string joueurToString(int j);
+
+void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
+void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
 int lireConfig(std::string nomfichier, config& maconf);
+void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);
 
 void tracerRectangle(cv::Rect r, cv::Mat copie, std::string s, cv::Scalar couleur);
 
