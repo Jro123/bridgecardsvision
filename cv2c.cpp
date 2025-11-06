@@ -1032,7 +1032,7 @@ cv::startWindowThread(); cv::waitKey(1);
 
 
 // trouver les lignes droites dans une image
-void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
+void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes, bool estMort){
   std::vector<cv::Vec4i> lines; // segments détectés par opencv
   int gmin = maconf.gradmin;
   int gmax = maconf.gradmax;
@@ -1101,10 +1101,10 @@ void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
     cv::Point A(l[0], l[1]);
     cv::Point B(l[2], l[3]);
     // tracer la ligne sur l'image result
-    float lg = std::sqrt((l[2] - l[0])*(l[2] - l[0]) + (l[3] - l[1])*(l[3] - l[1]));
+    float lg = std::sqrt((B-A).x * (B-A).x + (B-A).y * (B-A).y);
     // vecteur normal (a,b) directeur (b, -a)  
-    float a = -(B.y - A.y) / lg;
-    float b = (B.x - A.x) / lg;
+    float a = -float(B.y - A.y) / lg;
+    float b = float(B.x - A.x) / lg;
     float c = -a*A.x - b*A.y; // ax + by + c = 0
     ln.lg = lg;
     ln.a = a;
@@ -1112,6 +1112,309 @@ void trouverLignes(config &maconf, cv::Mat gray, std::vector<ligne>& lignes){
     ln.c = c;
     lignes.push_back(ln);
   }
+
+    cv::Mat grise;
+    if (printoption > 1 || maconf.linesoption == 1){
+      cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR); // pour affichage en rouge les lignes
+      ima2 = grise.clone();
+    } 
+    if (printoption > 1) cv::imshow("grise", grise);
+    
+    // Dessiner les segments de ligne détectés
+    cv::Mat result;
+    cv::cvtColor(gray, result, cv::COLOR_GRAY2BGR);
+    if (printoption > 1){
+      int ic = 0;
+      for (auto ln:lignes) {
+          ic++; ic %= NBCOULEURS;
+          cv::Vec4i l = ln.ln;
+          cv::Point A(l[0], l[1]);
+          cv::Point B(l[2], l[3]);
+          cv::line(result, A, B, couleurs[ic], 1);
+      }
+      cv::imshow("ximgproc", result);
+    }
+
+    int nblignes = lignes.size();
+    if (printoption > 1 || maconf.linesoption == 1){ 
+      cv::Canny(ima2, edges, gmin, gmax, 3, false);
+      cv::imshow("bords", edges);
+      // Dessiner les segments de droite et afficher leurs longueurs et extrémités
+      //********************** fond noir pour ne voir que les lignes des coins
+      for (int y = 0; y < ima2.rows; y++)
+          for (int x = 0; x < ima2.cols; x++) ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
+
+      int c = 0; // indice de couleur
+      float maxlg = 0;
+      for (int i=0; i<lignes.size(); i++)
+      {
+        ligne& ligne=lignes[i];
+          cv::Vec4i l = ligne.ln;
+          cv::Point A(l[0], l[1]);
+          cv::Point B(l[2], l[3]);
+          cv::line(ima2, A, B, couleurs[c], 1);
+          c++; c = c%NBCOULEURS;
+          std::cout << "Ligne "<<i<<" " << A << "->" << B << " Longueur: " << ligne.lg << std::endl;
+          maxlg = std::max(maxlg, ligne.lg);
+      }
+      cv::imshow("Lignes toutes", ima2); // Afficher l'image avec les segments de droite
+    }
+
+    int lgmax = maconf.taillechiffre;
+    // fusionner les lignes AB  et CD si // si C et D sont proches de la ligne AB
+    //   et si C ou D est proche de A ou B : AB --> AC ou AD ou BC ou BD
+    if (maconf.fusionoption) {
+      double epsilon = 1.2; // à peine plus qu'un pixel d'écart entre les deux lignes #//
+      double deltamax = 1;
+      for (int k = 0; k < 5; k++) { 
+        // fusionner des lignes fusionnées, de plus en plus distantes
+        deltamax = k + 1;
+        for (int i = 0; i < lignes.size(); i++)
+        {
+          ligne& ln = lignes[i];
+          cv::Vec4i l = ln.ln;
+          if (l[0] < 0)   continue; // ligne invalidée
+          cv::Point2i A(l[0], l[1]);
+          cv::Point2i B(l[2], l[3]);
+          float lg1 = ln.lg;
+          float a = ln.a;
+          float b = ln.b;
+          float c = ln.c;
+          for (int j = i + 1; j < lignes.size(); j++)
+          {
+            // fusionner la ligne la plus courte sur la plus longue
+            ligne& ln2 = lignes[j];
+            cv::Vec4i ll = ln2.ln;
+            if (ll[0] < 0)  continue; // ligne invalidée
+            cv::Point2i C(ll[0], ll[1]);
+            cv::Point2i D(ll[2], ll[3]);
+            float lg2 = ln2.lg;
+            if (lg1 > lg2)
+            {
+              // distances de C ou D à AB > epsilon à préciser --> ignorer la ligne j
+              float dC = ln.dist(C); // a*C.x + b*C.y + c;
+              if (abs(dC) > epsilon)   continue;
+              float dD = ln.dist(D); //a*D.x + b*D.y + c;
+              if (abs(dD) > epsilon)  continue;
+            }
+            else
+            {
+              float dA =ln2.dist(A); //A.x*ln2.a + A.y*ln2.b + ln2.c;
+              if (abs(dA) > epsilon)  continue;
+              float dB = ln2.dist(B); //B.x*ln2.a + B.y*ln2.b + ln2.c;
+              if (abs(dB) > epsilon) continue;
+            }
+            // 4 points A B C D alignés. ignorer si l'écart entre AB et CD est important
+            //
+            int xmin, xmax, ymin, ymax;
+            if (std::abs(A.x - B.x) > std::abs(A.y - B.y))
+            {
+              xmin = std::min(A.x, B.x);
+              if (xmin > C.x && xmin > D.x) { // AB à droite de CD
+                  if ((xmin - C.x) > deltamax && (xmin - D.x) > deltamax) continue; // segments loin
+              } else {
+                  xmax = std::max(A.x, B.x);
+                  if (C.x - xmax > deltamax && D.x - xmax > deltamax) continue; // CD à gauche de AB
+              }
+            } else { // Y plus variable que X
+              ymin = std::min(A.y, B.y);
+              if (ymin > C.y && ymin > D.y)  { // AB sous CD
+                  if ((ymin - C.y) > deltamax && (ymin - D.y) > deltamax) continue; // segments loin
+              } else {
+                  ymax = std::max(A.y, B.y);
+                  if (C.y - ymax > deltamax && D.y - ymax > deltamax) continue; // CD au dessus de AB
+              }
+            }
+            // déterminer les extrémités après fusion : abs mini - abs maxi  // ord mini - maxi
+            // utiliser x ou y
+            cv::Point2i U(A), V(A); // futures extrémités
+            if (std::abs(A.x - B.x) > std::abs(A.y - B.y)) { // X plus variable
+              if (U.x > B.x) U = B;
+              if (U.x > C.x) U = C;
+              if (U.x > D.x) U = D;
+              if (V.x < B.x) V = B;
+              if (V.x < C.x) V = C;
+              if (V.x < D.x) V = D;
+            } else {  // Y plus variable
+              if (U.y > B.y) U = B;
+              if (U.y > C.y) U = C;
+              if (U.y > D.y) U = D;
+              if (V.y < B.y) V = B;
+              if (V.y < C.y) V = C;
+              if (V.y < D.y) V = D;
+            }
+            // remplacer AB par UV
+            // ne rien faire si la nouvelle ligne serait plus grande que la hauteur de carte
+            int lg2uv = (V.x - U.x) * (V.x - U.x) + (V.y - U.y) * (V.y - U.y);
+            if (lg2uv < maconf.hauteurcarte * maconf.hauteurcarte)
+            {
+              // et invalider la ligne CD
+              lignes[i].ln[0] = U.x; lignes[i].ln[1] = U.y;
+              lignes[i].ln[2] = V.x; lignes[i].ln[3] = V.y;
+              if (printoption > 2){
+                std::cout<<" ligne "<< i << " "<<A<<B<<" --> "<<U<<V<<std::endl;
+                std::cout<<" ligne "<<j<<" supprimee"<<std::endl;
+                std::cout<<"verif "<<lignes[i].ln<<std::endl;
+              }
+              A = U;
+              B = V;
+              // invalider la ligne j
+              lignes[j].ln[0] = -1;
+              ll[0] = -1;
+              // mettre à jour la longueur de la ligne i = AB
+              lg1 = std::sqrt((B.x - A.x)*(B.x - A.x) + (B.y - A.y)*(B.y - A.y));
+              lignes[i].lg = lg1;
+            }
+          } // next j
+        } // next i
+      } //k écart suivant
+    }
+    // prolonger les lignes
+    if (maconf.linesoption == 1)  {
+      // prolonger les lignes assez longues (au moins 1/6 de la hauteur de carte)
+      // essayer de prolonger chaque ligne : regarder le pixel dans le prolongement de la ligne
+      // ligne AB (B à droite de A) choisir une direction x ou y selon le maximum de |dx| et |dy|
+      // AB selon X , prolongement en B : regarder le pixel blanc (dans edges) à droite (B.x +1, B.y)
+      //   et le pixel blanc  à droite plus haut ou plus bas (B.x +1, B.y +- 1) (le plus proche de AB)
+      //   à condition que les autres pixels proche de B soient noirs (dans edge)
+      // choisir le plus proche de AB, à distance de moins de 2 pixels de AB,  qui remplace B
+      // même principe du coté A
+      // itérer tant qu'on trouve des pixels blancs dans l'image des bords et noirs dans l'affichage des lignes
+      int maxlg;
+      double tolerance = 0.4; // Ajustez la tolérance selon vos besoins. 0.4 entre 45 et 60 degrés
+      cv::Mat contourImage = cv::Mat::zeros(edges.size(), CV_8U);
+      maxlg = maconf.hauteurcarte / 6;
+      maxlg *= maxlg;
+      for (int i = 0; i < lignes.size(); i++)
+      {
+        //cv::Vec4i l = lines[i];
+        cv::Vec4i l = lignes[i].ln;
+        if (l[0] < 0)
+            continue; // ligne invalidée
+        cv::Point2i A(l[0], l[1]);
+        cv::Point2i B(l[2], l[3]);
+        int lgAB = (B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y);
+        if (lgAB < maxlg)
+            continue;
+        // prolonger la ligne en A
+
+        std::vector<cv::Point2i> contour;
+        // on commence par prolonger en A
+        // puis en B
+        followContour(edges, A, B, contour, tolerance);
+        // Obtenir l'extrémité du contour
+        if (!contour.empty())
+        {
+          cv::Point2i Z = contour.back();
+          // std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
+          //  remplacer A par Z si A est entre B et Z
+          //  sinon, si B est entre Z et A, remplacer B par Z
+          cv::Point2i ab = B - A;
+          cv::Point2i az = Z - A;
+          int ps = ab.x * az.x + ab.y * az.y;
+          if (ps <= 0)
+          { // A entre B et Z : remplacer A par Z
+              if (printoption > 2)
+                  std::cout << i << " on remplace A " << A << " par " << Z << std::endl;
+              A = Z;
+          }
+        }
+        else
+        {
+            if (printoption > 2)
+                std::cout << i << " Aucun contour trouve en A." << A << std::endl;
+        }
+        // prolonger en B
+        int sz1 = contour.size();
+        followContour(edges, B, A, contour, tolerance);
+        // Obtenir l'extrémité du contour
+        int sz2 = contour.size();
+        if (sz2 > sz1)
+        { // on a ajouté au moins un point
+          cv::Point2i Z = contour.back();
+          // std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
+          //  remplacer B par Z si A est entre B et Z
+          if (printoption > 2)
+              std::cout << i << " on remplace B " << B << " par " << Z << std::endl;
+          B = Z;
+        }
+        else
+        {
+          if (printoption > 2)
+              std::cout << i << "Aucun contour trouve en B." << B << std::endl;
+        }
+        if (printoption > 2)
+        {
+          cv::imshow("Contour", contourImage);
+          // cv::waitKey(1);
+        }
+        lignes[i].ln[0] = A.x;
+        lignes[i].ln[1] = A.y;
+        lignes[i].ln[2] = B.x;
+        lignes[i].ln[3] = B.y;
+        for (const auto &P : contour)
+        {
+            contourImage.at<uchar>(P) = 255;
+        }
+      }
+      // cv::waitKey(0);
+    }
+
+
+    // TODO : éliminer les droites qui contiennent un segment dans une liste spécifique
+    //        concerne les vidéos où il y a un fond commun sur la table ou entre la table et la caméra
+
+    // invalider les lignes dont la longueur est inférieure à la taille du chiffre + symbole
+    // test :éliminer les ligne de longueur inférieure à la moitié de hauteur de carte
+    // éliminer les lignes plus longues que la hauteur de carte
+    // modif 2025/06/11 : on conserve les lignes longues à cause du mort
+    // conserver les petites lignes verticales à cause du mort
+    lgmax = maconf.taillechiffre + maconf.taillesymbole; // limite inférieure
+    int lgmin = maconf.hauteurcarte + maconf.deltacadre;
+    for ( int i=0; i< lignes.size(); i++)
+    {
+      ligne& ln=lignes[i];
+      cv::Vec4i l = ln.ln;
+      if (l[0] < 0)  continue; // ligne déjà invalidée
+      if ( ln.lg < maconf.taillechiffre || ( (!estMort || std::abs(ln.b) > 0.2) && (ln.lg < lgmax)) )
+      {
+        ln.ln[0] *= -1; // invalider la ligne
+        if (printoption > 2){
+          cv::Point2i A(l[0], l[1]);
+          cv::Point2i B(l[2], l[3]);
+          std::cout << "supprime la ligne "<<i<<" " << A << "->" << B << " longueur " << ln.lg << std::endl;
+        }
+      }
+    }
+
+    float maxlg = 0;
+    // afficher les lignes qui restent
+    if (printoption > 1) {
+      for (int y = 0; y < ima2.rows; y++) for (int x = 0; x < ima2.cols; x++)
+          ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
+      int c = 0;
+      for (int i=0; i<lignes.size(); i++)
+      {
+        ligne& ln=lignes[i];
+        cv::Vec4i l = ln.ln;
+        if (l[0] < 0)  continue; // ligne fusionnée ou ignorée car trop courte
+        cv::Point A(l[0], l[1]);
+        cv::Point B(l[2], l[3]);
+        cv::line(ima2, A, B, couleurs[c], 1);
+        c++; c = c % NBCOULEURS;
+        if (printoption > 2)
+          std::cout << "Ligne "<<i<<" " << A << "->" << B << " Longueur: " << ln.lg << std::endl;
+        if (ln.lg > maxlg) maxlg = ln.lg;
+      }
+      // Afficher l'image avec les segments de droite
+      std::cout << "longueur maximale " << maxlg << std::endl;
+      cv::imshow("Lignes", ima2);
+        // cv::waitKey(1);
+    }
+
+
+
+
 }
 
 void validerCoin(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins, uncoin& cn);
@@ -1409,6 +1712,10 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     int c = 0;
     std::vector<ligne> lignes;   // segments complétés par l'équation de droite
     std::vector<uncoin> Coins;   // coins entre lignes orthogonales
+    std::vector<unecarte> cartes; // cartes 
+
+    std::string cards[50]; // cartes trouvées
+    int nbcards;
 
     if (image.empty())
     {
@@ -1420,322 +1727,17 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     cv::Mat gray;
     cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY); // Convertir en niveaux de gris
     // obtenir les lignes droites dans l'image monochrome
+
     trouverLignes(maconf, gray, lignes);
 
-    // Appliquer le flou gaussien pour réduire le bruit
-    //cv::Mat blurred;
-    //cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 0);
-    // cv::imshow("blur", blurred);
 
-    cv::Mat grise;
-    cv::Mat ima2;
-    cv::Mat edges;
-    if (printoption > 1 || maconf.linesoption == 1){
-      cv::cvtColor(gray, grise, cv::COLOR_GRAY2BGR); // pour affichage en rouge les lignes
-      ima2 = grise.clone();
-    } 
-    if (printoption > 1) cv::imshow("grise", grise);
-    
-    int gmin = maconf.gradmin;
-    int gmax = maconf.gradmax;
     auto t11 = std::chrono::high_resolution_clock::now();
     duree = t11 - t0;
     Durees[0] += duree.count();
+    auto t22 = t11;
     if(printoption > 1)
       std::cout << "Duree de detection des lignes : " << duree.count() << " secondes" << std::endl;
     if (waitoption > 1) cv::waitKey(0);
-    
-    // Dessiner les segments de ligne détectés
-    cv::cvtColor(gray, result, cv::COLOR_GRAY2BGR);
-    if (printoption > 1){
-      int ic = 0;
-      for (auto ln:lignes) {
-          ic++; ic %= NBCOULEURS;
-          cv::Vec4i l = ln.ln;
-          cv::Point A(l[0], l[1]);
-          cv::Point B(l[2], l[3]);
-          cv::line(result, A, B, couleurs[ic], 1);
-      }
-      cv::imshow("ximgproc", result);
-    }
-
-    //auto t22 = std::chrono::high_resolution_clock::now();
-    auto t22 = t11;
-    int nblignes = lignes.size();
-    if (printoption > 1 || maconf.linesoption == 1){ 
-      cv::Canny(ima2, edges, gmin, gmax, 3, false);
-      cv::imshow("bords", edges);
-      // Dessiner les segments de droite et afficher leurs longueurs et extrémités
-      //********************** fond noir pour ne voir que les lignes des coins
-      for (int y = 0; y < ima2.rows; y++)
-          for (int x = 0; x < ima2.cols; x++) ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
-
-      c = 0; // indice de couleur
-      float maxlg = 0;
-      for (int i=0; i<lignes.size(); i++)
-      {
-        ligne& ligne=lignes[i];
-          cv::Vec4i l = ligne.ln;
-          cv::Point A(l[0], l[1]);
-          cv::Point B(l[2], l[3]);
-          cv::line(ima2, A, B, couleurs[c], 1);
-          c++; c = c%NBCOULEURS;
-          std::cout << "Ligne "<<i<<" " << A << "->" << B << " Longueur: " << ligne.lg << std::endl;
-          maxlg = std::max(maxlg, ligne.lg);
-      }
-      cv::imshow("Lignes toutes", ima2); // Afficher l'image avec les segments de droite
-    }
-
-    int lgmax = maconf.taillechiffre;
-    // fusionner les lignes AB  et CD si // si C et D sont proches de la ligne AB
-    //   et si C ou D est proche de A ou B : AB --> AC ou AD ou BC ou BD
-    if (maconf.fusionoption) {
-      double epsilon = 1.2; // à peine plus qu'un pixel d'écart entre les deux lignes #//
-      double deltamax = 1;
-      for (int k = 0; k < 5; k++) { 
-        // fusionner des lignes fusionnées, de plus en plus distantes
-        deltamax = k + 1;
-        for (int i = 0; i < lignes.size(); i++)
-        {
-          ligne& ln = lignes[i];
-          cv::Vec4i l = ln.ln;
-          if (l[0] < 0)   continue; // ligne invalidée
-          cv::Point2i A(l[0], l[1]);
-          cv::Point2i B(l[2], l[3]);
-          float lg1 = ln.lg;
-          float a = ln.a;
-          float b = ln.b;
-          float c = ln.c;
-          for (int j = i + 1; j < lignes.size(); j++)
-          {
-            // fusionner la ligne la plus courte sur la plus longue
-            ligne& ln2 = lignes[j];
-            cv::Vec4i ll = ln2.ln;
-            if (ll[0] < 0)  continue; // ligne invalidée
-            cv::Point2i C(ll[0], ll[1]);
-            cv::Point2i D(ll[2], ll[3]);
-            float lg2 = ln2.lg;
-            if (lg1 > lg2)
-            {
-              // distances de C ou D à AB > epsilon à préciser --> ignorer la ligne j
-              float dC = ln.dist(C); // a*C.x + b*C.y + c;
-              if (abs(dC) > epsilon)   continue;
-              float dD = ln.dist(D); //a*D.x + b*D.y + c;
-              if (abs(dD) > epsilon)  continue;
-            }
-            else
-            {
-              float dA =ln2.dist(A); //A.x*ln2.a + A.y*ln2.b + ln2.c;
-              if (abs(dA) > epsilon)  continue;
-              float dB = ln2.dist(B); //B.x*ln2.a + B.y*ln2.b + ln2.c;
-              if (abs(dB) > epsilon) continue;
-            }
-            // 4 points A B C D alignés. ignorer si l'écart entre AB et CD est important
-            //
-            int xmin, xmax, ymin, ymax;
-            if (std::abs(A.x - B.x) > std::abs(A.y - B.y))
-            {
-              xmin = std::min(A.x, B.x);
-              if (xmin > C.x && xmin > D.x) { // AB à droite de CD
-                  if ((xmin - C.x) > deltamax && (xmin - D.x) > deltamax) continue; // segments loin
-              } else {
-                  xmax = std::max(A.x, B.x);
-                  if (C.x - xmax > deltamax && D.x - xmax > deltamax) continue; // CD à gauche de AB
-              }
-            } else { // Y plus variable que X
-              ymin = std::min(A.y, B.y);
-              if (ymin > C.y && ymin > D.y)  { // AB sous CD
-                  if ((ymin - C.y) > deltamax && (ymin - D.y) > deltamax) continue; // segments loin
-              } else {
-                  ymax = std::max(A.y, B.y);
-                  if (C.y - ymax > deltamax && D.y - ymax > deltamax) continue; // CD au dessus de AB
-              }
-            }
-            // déterminer les extrémités après fusion : abs mini - abs maxi  // ord mini - maxi
-            // utiliser x ou y
-            cv::Point2i U(A), V(A); // futures extrémités
-            if (std::abs(A.x - B.x) > std::abs(A.y - B.y)) { // X plus variable
-              if (U.x > B.x) U = B;
-              if (U.x > C.x) U = C;
-              if (U.x > D.x) U = D;
-              if (V.x < B.x) V = B;
-              if (V.x < C.x) V = C;
-              if (V.x < D.x) V = D;
-            } else {  // Y plus variable
-              if (U.y > B.y) U = B;
-              if (U.y > C.y) U = C;
-              if (U.y > D.y) U = D;
-              if (V.y < B.y) V = B;
-              if (V.y < C.y) V = C;
-              if (V.y < D.y) V = D;
-            }
-            // remplacer AB par UV
-            // ne rien faire si la nouvelle ligne serait plus grande que la hauteur de carte
-            int lg2uv = (V.x - U.x) * (V.x - U.x) + (V.y - U.y) * (V.y - U.y);
-            if (lg2uv < maconf.hauteurcarte * maconf.hauteurcarte)
-            {
-              // et invalider la ligne CD
-              lignes[i].ln[0] = U.x; lignes[i].ln[1] = U.y;
-              lignes[i].ln[2] = V.x; lignes[i].ln[3] = V.y;
-              if (printoption > 2){
-                std::cout<<" ligne "<< i << " "<<A<<B<<" --> "<<U<<V<<std::endl;
-                std::cout<<" ligne "<<j<<" supprimee"<<std::endl;
-                std::cout<<"verif "<<lignes[i].ln<<std::endl;
-              }
-              A = U;
-              B = V;
-              // invalider la ligne j
-              lignes[j].ln[0] = -1;
-              ll[0] = -1;
-              // mettre à jour la longueur de la ligne i = AB
-              lg1 = std::sqrt((B.x - A.x)*(B.x - A.x) + (B.y - A.y)*(B.y - A.y));
-              lignes[i].lg = lg1;
-            }
-          } // next j
-        } // next i
-      } //k écart suivant
-    }
-    // prolonger les lignes
-    if (maconf.linesoption == 1)  {
-      // prolonger les lignes assez longues (au moins 1/6 de la hauteur de carte)
-      // essayer de prolonger chaque ligne : regarder le pixel dans le prolongement de la ligne
-      // ligne AB (B à droite de A) choisir une direction x ou y selon le maximum de |dx| et |dy|
-      // AB selon X , prolongement en B : regarder le pixel blanc (dans edges) à droite (B.x +1, B.y)
-      //   et le pixel blanc  à droite plus haut ou plus bas (B.x +1, B.y +- 1) (le plus proche de AB)
-      //   à condition que les autres pixels proche de B soient noirs (dans edge)
-      // choisir le plus proche de AB, à distance de moins de 2 pixels de AB,  qui remplace B
-      // même principe du coté A
-      // itérer tant qu'on trouve des pixels blancs dans l'image des bords et noirs dans l'affichage des lignes
-      int maxlg;
-      double tolerance = 0.4; // Ajustez la tolérance selon vos besoins. 0.4 entre 45 et 60 degrés
-      cv::Mat contourImage = cv::Mat::zeros(edges.size(), CV_8U);
-      maxlg = maconf.hauteurcarte / 6;
-      maxlg *= maxlg;
-      for (int i = 0; i < lignes.size(); i++)
-      {
-        //cv::Vec4i l = lines[i];
-        cv::Vec4i l = lignes[i].ln;
-        if (l[0] < 0)
-            continue; // ligne invalidée
-        cv::Point2i A(l[0], l[1]);
-        cv::Point2i B(l[2], l[3]);
-        int lgAB = (B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y);
-        if (lgAB < maxlg)
-            continue;
-        // prolonger la ligne en A
-
-        std::vector<cv::Point2i> contour;
-        // on commence par prolonger en A
-        // puis en B
-        followContour(edges, A, B, contour, tolerance);
-        // Obtenir l'extrémité du contour
-        if (!contour.empty())
-        {
-          cv::Point2i Z = contour.back();
-          // std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
-          //  remplacer A par Z si A est entre B et Z
-          //  sinon, si B est entre Z et A, remplacer B par Z
-          cv::Point2i ab = B - A;
-          cv::Point2i az = Z - A;
-          int ps = ab.x * az.x + ab.y * az.y;
-          if (ps <= 0)
-          { // A entre B et Z : remplacer A par Z
-              if (printoption > 2)
-                  std::cout << i << " on remplace A " << A << " par " << Z << std::endl;
-              A = Z;
-          }
-        }
-        else
-        {
-            if (printoption > 2)
-                std::cout << i << " Aucun contour trouve en A." << A << std::endl;
-        }
-        // prolonger en B
-        int sz1 = contour.size();
-        followContour(edges, B, A, contour, tolerance);
-        // Obtenir l'extrémité du contour
-        int sz2 = contour.size();
-        if (sz2 > sz1)
-        { // on a ajouté au moins un point
-          cv::Point2i Z = contour.back();
-          // std::cout << "L'extremite du contour est  (" << Z.x << ", " << Z.y << ")" << std::endl;
-          //  remplacer B par Z si A est entre B et Z
-          if (printoption > 2)
-              std::cout << i << " on remplace B " << B << " par " << Z << std::endl;
-          B = Z;
-        }
-        else
-        {
-          if (printoption > 2)
-              std::cout << i << "Aucun contour trouve en B." << B << std::endl;
-        }
-        if (printoption > 2)
-        {
-          cv::imshow("Contour", contourImage);
-          // cv::waitKey(1);
-        }
-        lignes[i].ln[0] = A.x;
-        lignes[i].ln[1] = A.y;
-        lignes[i].ln[2] = B.x;
-        lignes[i].ln[3] = B.y;
-        for (const auto &P : contour)
-        {
-            contourImage.at<uchar>(P) = 255;
-        }
-      }
-      // cv::waitKey(0);
-    }
-
-
-    // TODO : éliminer les droites qui contiennent un segment dans une liste spécifique
-    //        concerne les vidéos où il y a un fond commun sur la table ou entre la table et la caméra
-
-    // invalider les lignes dont la longueur est inférieure à la taille du chiffre + symbole
-    // test :éliminer les ligne de longueur inférieure à la moitié de hauteur de carte
-    // éliminer les lignes plus longues que la hauteur de carte
-    // modif 2025/06/11 : on conserve les lignes longues à cause du mort
-    lgmax = maconf.taillechiffre + maconf.taillesymbole; // limite inférieure
-    int lgmin = maconf.hauteurcarte + maconf.deltacadre;
-    for ( int i=0; i< lignes.size(); i++)
-    {
-      ligne& ln=lignes[i];
-      cv::Vec4i l = ln.ln;
-      if (l[0] < 0)  continue; // ligne déjà invalidée
-      if ((ln.lg < lgmax) /* ||  (ln.lg > lgmin) */)
-      {
-        ln.ln[0] = -1; // invalider la ligne
-        if (printoption > 2){
-          cv::Point2i A(l[0], l[1]);
-          cv::Point2i B(l[2], l[3]);
-          std::cout << "supprime la ligne "<<i<<" " << A << "->" << B << " longueur " << ln.lg << std::endl;
-        }
-      }
-    }
-
-    float maxlg = 0;
-    // afficher les lignes qui restent
-    if (printoption > 1) {
-      for (int y = 0; y < ima2.rows; y++) for (int x = 0; x < ima2.cols; x++)
-          ima2.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // fond noir
-      c = 0;
-      for (int i=0; i<lignes.size(); i++)
-      {
-        ligne& ln=lignes[i];
-        cv::Vec4i l = ln.ln;
-        if (l[0] < 0)  continue; // ligne fusionnée ou ignorée car trop courte
-        cv::Point A(l[0], l[1]);
-        cv::Point B(l[2], l[3]);
-        cv::line(ima2, A, B, couleurs[c], 1);
-        c++; c = c % NBCOULEURS;
-        if (printoption > 2)
-          std::cout << "Ligne "<<i<<" " << A << "->" << B << " Longueur: " << ln.lg << std::endl;
-        if (ln.lg > maxlg) maxlg = ln.lg;
-      }
-      // Afficher l'image avec les segments de droite
-      std::cout << "longueur maximale " << maxlg << std::endl;
-      cv::imshow("Lignes", ima2);
-        // cv::waitKey(1);
-    }
 
     //////////////////////////////// rechercher les coins des cartes ///////////////////
     //
@@ -2092,12 +2094,20 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
             // si le coin m est déjà associé à un coin (<n) le coin n appartient à la même carte
             if (cm.numCarte != 0) {
+              unecarte& uc = cartes[cm.numCarte -1];
+              uc.coins.push_back(&cn);
               cn.numCarte = cm.numCarte;
             } else if (cn.numCarte != 0) {
+              unecarte& uc = cartes[cn.numCarte -1];
+              uc.coins.push_back(&cm);
               cm.numCarte = cn.numCarte;
             } else {
+              unecarte uc;
               nbcartes++;
               cn.numCarte = cm.numCarte = nbcartes;
+              uc.coins.push_back(&cn);
+              uc.coins.push_back(&cm);
+              cartes.push_back(uc);
             }
             if (printoption > 1) std::cout<<" --> carte numero "<< cn.numCarte<<std::endl;
           } else { // PQ n'est pas un bord de carte
@@ -2119,6 +2129,9 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
           cn.elimine = true;
         }
       } else if (cn.numCarte == 0) { // pas encore affecté à une carte
+        unecarte uc;
+        uc.coins.push_back(&cn);
+        cartes.push_back(uc);
         nbcartes++;
         cn.numCarte = nbcartes; // nouvelle carte
         if (printoption > 1) std::cout<<" --> nouvelle carte "<<nbcartes<<" pour le seul coin "<<n<<std::endl;
@@ -2178,7 +2191,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     // afficher les coins
   if (printoption > 1) {
     // afficher ce qui reste selectionné
-    cv::Mat imaC = ima2.clone();
+    cv::Mat imaC = image.clone();
     //********************** fond noir pour ne voir que les lignes des coins
     for (int y = 0; y < imaC.rows; y++)
       for (int x = 0; x < imaC.cols; x++)
@@ -2231,7 +2244,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
 
       if (cn.elimine ) { // coin éliminé précédemment
         cv::circle(imaC, P, 2, cv::Scalar(255, 255, 255), -2); //  cercle blanc au sommet du coin
-        cv::circle(grise, P, 2, cv::Scalar(0, 0, 255), -2);    //  cercle rouge au sommet du coin
+        //cv::circle(grise, P, 2, cv::Scalar(0, 0, 255), -2);    //  cercle rouge au sommet du coin
         // si ce coin ressemble à un cadre, afficher les lignes en trait fin gris
         cv::line(imaC, cv::Point(nl1[0], nl1[1]), cv::Point(nl1[2], nl1[3]), cv::Scalar(128, 128, 128), 1); // petit trait
         cv::line(imaC, cv::Point(nl2[0], nl2[1]), cv::Point(nl2[2], nl2[3]), cv::Scalar(128, 128, 128), 1); // petit trait
@@ -2250,7 +2263,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       else
       {
         cv::circle(imaC, P, 3, couleurs[cc], 1); //  cercle épais (RDV) au sommet du coin
-        cv::circle(grise, P, 3, couleurs[cc], 1);
+        //cv::circle(grise, P, 3, couleurs[cc], 1);
       }
       // afficher le numéro du coin
       std::string texte = std::to_string(n);
@@ -2268,13 +2281,12 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
       cv::circle(imaC, P2, 6, cv::Scalar(0, 128, 128), 4);
     }
     cv::imshow("coins", imaC);
-    cv::imshow("grise", grise);
+    //cv::imshow("grise", grise);
   } //if(printoption > 0)
 
   bool estunRDV;
   estunRDV = false;       // le coin contient-il un cadre ?
   cv::Point2i Q;          // point du cadre
-  std::string cartes[50]; // cartes trouvées
 
   auto t1 = std::chrono::high_resolution_clock::now();
   duree = t1 - t33;
@@ -2407,10 +2419,10 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
               resW += valeurcarte[coin.valeur];
               std::string res = resW + "#";
               afficherResultat(result, PT, res);
-              if (premier) cartes[nc - 1] = resW;
+              if (premier) cards[nc - 1] = resW;
               else if (cc1 != coin.couleur || vc1 != coin.valeur) {
                   // incohérence. quelle détection est fausse?
-                  std::cout<< "détection incohérente " << resW << " carte "<< cartes[nc - 1] <<std::endl; 
+                  std::cout<< "détection incohérente " << resW << " carte "<< cards[nc - 1] <<std::endl; 
               }
               premier = false;
           }
@@ -2511,10 +2523,10 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     // si on traite une vidéo, les coins trouvés précédemment ou maintenant
     //    sont dans le vecteur coinsPrec
     // on affiche les valeurs trouvées
-    // on reconstitue alors le tableau des cartes
+    // on reconstitue alors le tableau d'affichage des noms de cartes
     bool nouvellecarte = false;
     if (estvideo){
-      nbcartes = 0;
+      nbcards = 0; // nombre de "cartes" dans le tableau d'affichage
       for (const auto& up : coinsPrec){
         cv::Point2i PT(up.x, up.y);
         if ((up.couleur < 0) // coin non identifié (couleur)
@@ -2529,12 +2541,12 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
         std::string res = nomcol + val; 
         afficherResultat(result, PT, res);
         int i;
-        for (i=0; i < nbcartes; i++){
-          if (nomcol == cartes[i][0] && val == cartes[i].substr(1)) break;
+        for (i=0; i < nbcards; i++){
+          if (nomcol == cards[i][0] && val == cards[i].substr(1)) break;
         }
-        if (i == nbcartes){  // nouvelle carte du pli en cours
-          cartes[i] = nomcol + val;
-          nbcartes++;
+        if (i == nbcards){  // nouvelle carte du pli en cours
+          cards[nbcards] = nomcol + val;
+          nbcards++;
           nouvellecarte = true;
         }
       }
@@ -2543,9 +2555,9 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     } // estvideo
 
     bool aUneCarte = false;
-    for (int i = 0; i < nbcartes; i++)
+    for (int i = 0; i < nbcards; i++)
     {
-      if(cartes[i].size() < 2) continue;
+      if(cards[i].size() < 2) continue;
       aUneCarte = true;
       break;
     }
@@ -2553,13 +2565,13 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo, std::vector<uncoi
     if (aUneCarte && (monpli.nbcartes >= 4 || printoption > 0)) {
       //cv::imshow("complet", result); cv::waitKey(1);
     }
-    if (printoption > 0 && nbcartes > 0) {
+    if (printoption > 0 && nbcards > 0) {
       std::cout<<"===> cartes trouvées :"<<std::endl;
-      for (int i = 0; i < nbcartes; i++)
+      for (int i = 0; i < nbcards; i++)
       {
-        if(cartes[i].size() < 2) continue;
-        char nomcol = cartes[i][0];
-        std::string valeur = cartes[i].substr(1);
+        if(cards[i].size() < 2) continue;
+        char nomcol = cards[i][0];
+        std::string valeur = cards[i].substr(1);
         std::string cartecouleur;
         if (nomcol == 'P')
             cartecouleur = "Pique ";

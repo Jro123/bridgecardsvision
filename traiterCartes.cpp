@@ -122,7 +122,7 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
   // la distance entre un sommet de la carte et un coin de la frame précédente
   //         doit être commune à tous les sommets de la carte
   for (int n = 0; n < Coins.size(); n++){
-    const auto& cn = Coins[n];
+    auto& cn = Coins[n];
     if (cn.elimine) continue;
     if (cn.numCarte <= nc) continue; // coin d'une carte déjà recherchée
     if (cn.couleur >= 0 && cn.valeur > 0) continue; // coin déjà analysé
@@ -140,17 +140,22 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
 
     // ignorer s'il est sur un bord de carte
     bool coinSurBord(false);
-    for (auto& ub:bords){
+    for (auto& ub: bords){
       //if (ub.numcarte == nc) continue;
       if (ub.contient(cn.sommet, epsilon)) {
-          coinSurBord = true;   break;}
+          coinSurBord = true;
+          cn.elimine = true;
+          break;
+        }
     }
     if(coinSurBord) continue; // ignorer le coin qui est sur un bord d'une carte
 
     // ignorer le coin s'il est sur un bord de carte de la frame précédente
-    for (auto& ub:bordsPrec){
+    for (auto& ub: bordsPrec){
       if (ub.contient(cn.sommet, epsilon)) {
-          coinSurBord = true;   break;}
+          coinSurBord = true;
+          cn.elimine = true;
+          break;}
     }
     if(coinSurBord) continue; // ignorer le coin qui est sur un bord d'une carte précédente
 
@@ -178,10 +183,21 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
       coinSurBord =false;
       for (auto& ub:bords){
         //if (ub.numcarte == nc) continue;
-        if (ub.contient(P, dc)) {
-           coinSurBord = true;   break;}
+        if (ub.contient(P, epsilon)) {
+           coinSurBord = true;
+           coin.elimine = true;
+           break;}
       }
       if(coinSurBord) continue; // ignorer le coin qui est sur un bord d'une carte
+      // ignorer le coin s'il est sur un bord de carte de la frame précédente
+      for (auto& ub: bordsPrec){
+        if (ub.contient(P, epsilon)) {
+            coinSurBord = true;
+            coin.elimine = true;
+            break;}
+      }
+      if(coinSurBord) continue; // ignorer le coin qui est sur un bord d'une carte précédente
+
 
       nbc++;
       if (nbc == 1) P1 = P;
@@ -830,23 +846,67 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, st
               if (duplique) break;
             }
           }
-          ajouteraupli = true;
-          if (printoption > 0) {
-            if (numcol >= 0 && valcarte > 0 && valcarte <= 13)  // on a trouvé
-              std::cout<<"==> carte : "<<couleurcarte[numcol]<<" "<<valcarte<<std::endl;
-            else
-              std::cout<<"==> carte valeur "<<valcarte<<" couleur "<<numcol<<std::endl;
+          // mémoriser la valeur obtenue sur tous les coins de la carte
+          // uniquement si on a trouvé couleur et valeur
+          if (numcol >= 0 && valcarte > 0 && valcarte <= 13) {
+            for (auto &coin : Coins){
+              if (coin.numCarte != nca) continue; // pas un coin de cette carte
+              coin.couleur = numcol;
+              coin.valeur = valcarte;
+              if (valcarte > 10) coin.estunRDV = true;
+            }
           }
-        }
-        // mémoriser la valeur obtenue sur tous les coins de la carte
-        // uniquement si on a trouvé couleur et valeur
-        if (numcol >= 0 && valcarte > 0 && valcarte <= 13) {
-          for (auto &coin:Coins){
-            if (coin.numCarte != nca) continue; // pas un coin de cette carte
-            coin.couleur = numcol;
-            coin.valeur = valcarte;
-            if (valcarte > 10) coin.estunRDV = true;
+          // vérifier la présence des coins de cette carte dans la frame pécédente ou le pli en cours
+          // avec couleur et valeur différentes
+          // ignorer les coins correspondants
+          bool estDansPrec(false);
+          for(int ic = 0; ic < Coins.size(); ic++){
+            uncoin& cn = Coins[ic];
+            if (cn.numCarte != nca) continue;
+            cv::Point2i P(cn.sommet);
+            int coul = cn.couleur;
+            int val = cn.valeur;
+            for (auto& up : coinsPrec){
+              if (std::abs(up.x - P.x) > dc || std::abs(up.y - P.y) > dc ) continue;
+              if (up.couleur == coul && up.valeur == val) continue;
+              estDansPrec = true;
+              break;
+            }
+            if (estDansPrec) break;
+            // vérifier l'absence de ce coin de cette carte dans le pli en cours
+            for (int n = 0; n < monpli.nbcartes; n++){
+              for (int i = 0; i<4; i++){
+                if (std::abs(monpli.cartes[n].sommet[i].x - P.x ) > dc ) continue;
+                if (std::abs(monpli.cartes[n].sommet[i].y - P.y ) > dc ) continue;
+                if (monpli.cartes[n].couleur == coul && monpli.cartes[n].valeur == val) continue;
+                estDansPrec = true;
+                break;
+              }
+              if(estDansPrec) break;
+            }
+            if(estDansPrec) break;
           }
+          if (estDansPrec) {
+            // désactiver tous les coins de cette carte
+            if (printoption > 0) 
+              std::cout<<"!!! carte invalide : "<<couleurcarte[numcol]<<" "<<valcarte<<std::endl;
+            for (auto& cn : Coins) {
+              if (cn.numCarte != nca) continue;
+              cn.elimine = true;
+              cn.couleur = -1; cn.valeur = 0;
+            }
+          }
+
+          if (!estDansPrec) {
+            ajouteraupli = true;
+            if (printoption > 0) {
+              if (numcol >= 0 && valcarte > 0 && valcarte <= 13)  // on a trouvé
+                std::cout<<"==> carte : "<<couleurcarte[numcol]<<" "<<valcarte<<std::endl;
+              else
+                std::cout<<"==> carte valeur "<<valcarte<<" couleur "<<numcol<<std::endl;
+            }
+          }
+          
         }
         // si l'option d'analyse des coins isolés est active
         //        noter : ne pas analyser les coins pas encore analysés et sur un bord de cette carte

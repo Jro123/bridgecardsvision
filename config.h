@@ -197,10 +197,12 @@ public:
   int couleur;
   int valeur;
   cv::Point2i sommet[4];
+  std::vector<uncoin*> coins;
   unecarte() {
     couleur = -1;
     valeur = 0;
     for (int i=0; i<4; i++) sommet[i] = cv::Point2i(0,0);
+    coins.clear();
   }
 };
 
@@ -289,7 +291,7 @@ public:
 std::string carteToString(int couleur, int valeur);
 std::string joueurToString(int j);
 
-void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes);
+void trouverLignes(config & maconf, cv::Mat image, std::vector<ligne>& lignes, bool estMort=false);
 void trouverCoins(config& maconf, std::vector<ligne>& lignes, std::vector<uncoin>& Coins);
 int lireConfig(std::string nomfichier, config& maconf);
 void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort);

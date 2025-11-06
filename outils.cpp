@@ -972,6 +972,8 @@ void calculerOrientation(uncoin& moncoin, const config& maconf) {
         }
         if (calculerRouge(GS,true,maconf,moyblanc)) moncoin.estRouge = true;
         else moncoin.estRouge = false;
+        bool testdebug(false);
+        if (testdebug) cv::imshow("GS", GS);
         return;
       }
     }
@@ -1495,6 +1497,23 @@ if (false) {
     // si c'est du coeur , il y a beaucoip moins de bleu en haut
     // sinon on utilise un autre moyen.
     if (estRouge && ls > 8) {
+
+      if (estunRDV && ((ts - ls) >= ls/4 )) { // c'est un symbole RDV tronqué
+        // considérer la ligne au quart supérieur
+        // comparer le pixel en Box[0] + 1
+        // au pixel en Box[1] +1 - ls/4
+        int y = Box[2] - 1 + ts/4;
+        cv::Scalar pixg, pixd;
+        pixg = GS.at<cv::Vec3b>(y, Box[0] + 1);
+        pixd = GS.at<cv::Vec3b>(y, Box[1] + 1 - ls/4);
+        int bg = pixg[0]; 
+        int bd = pixd[0];
+        if (bd - bg > 100) numcol = 2; // clair à droite : carreau
+        else if (bd - bg < 20) numcol = 1; // comparables : coeur
+      }
+      if (numcol >= 0) return numcol;
+
+
       // TODO : convertir en image monochrome
       // rechercher le haut du symbole : au moins un pixel rouge sur la ligne
       // puis rechercher une ligne .....*---*....    - > *+20
@@ -1596,7 +1615,8 @@ if (false) {
         if (dm < -50) numcol = 1; // coeur
         else if (dm > -10) numcol = 2; // carreau
       }
-      else if (false) { // c'est un personnage avec un symbole tronqué
+      else 
+      if (false) { // c'est un personnage avec un symbole tronqué
         // TODO : ne fonctionne pas !!!!!!!!!!!! désactivation !!!!!!!!!!!!!!!!!!!!!
         // sur cerains jeux de cartes, le gros symbole est tronqué près du bord de carte
         // TODO : examiner la ligne supérieure Box[2]
@@ -1667,7 +1687,6 @@ if (false) {
         if (dm > -10) numcol = 2; // c'est du carreau
         if (dm < -30) numcol = 1; // c'est du coeur
       }
-      if (numcol >= 0) return numcol;
     }
 
     // chercher la bande horizontale la plus sombre
@@ -2059,7 +2078,7 @@ if (false) {
         {
             if (numcol == 1)  std::cout << " coeur" << std::endl;
             else              std::cout << " carreau " << std::endl;
-            if (maconf.waitoption > 2) cv::waitKey(0); //else cv::waitKey(1);
+            if (waitoption > 2) cv::waitKey(0); //else cv::waitKey(1);
         }
     }
 
@@ -2459,9 +2478,11 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
     r.y = maconf.deltacadre + maconf.tailleVDR; // nettement sous le cadre
     r.height = maconf.tailleVDR / 2; // pas trop haut
     r.height = std::min(r.height, imacarte.rows - r.y);
-    lig = imacarte(r);
-    mbl = cv::mean(lig); // valeur du blanc
-    if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
+    if (r.y >= 0 && r.height > 0 && r.y + r.height <= imacarte.rows) {
+      lig = imacarte(r);
+      mbl = cv::mean(lig); // valeur du blanc
+      if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
+    }
     // pour un personnage ou une autre carte (1 à 10): sous caractère et symbole du coin haut gauche
     if (maconf.deltagros > 5) {
         r.x = 3;
@@ -2677,18 +2698,20 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       // on obtient le haut du symbole
       int box[4];
       // rechercher une petite colonne blanche à gauche du symbole en partant du milieu
-      r.x = cadregauche + maconf.deltagrosRDV + (maconf.deltagrosRDV +1) / 2;
+      r.x = cadregauche + maconf.deltagrosRDV + (maconf.largeurgrosRDV + 1) / 2;
       r.width = 1;
-      r.y = cadresup + maconf.deltagroshautRDV + maconf.taillegrosRDV /4;
+      r.y = cadresup + maconf.deltagroshautRDV; // + maconf.taillegrosRDV /4;
       r.height = std::min(imacarte.rows - r.y, maconf.taillegrosRDV / 2);
       lig = imacarte(r); m1 = cv::mean(lig); // colonne au centre du symbole
       r.x--;
       while (r.x >= cadregauche + maconf.deltagrosRDV) {
         lig = imacarte(r); m = cv::mean(lig);
         if (m[0] - m1[0] > 50) break;
+        if (m[0] < m1[0]) m1 = m; // colonne de référence la plus sombre
         r.x --;
       }
-      // r.x = cadregauche + maconf.deltagrosRDV;
+      // on ne fait pas confiance au calcul de cadregauche
+      //r.x = cadregauche + maconf.deltagrosRDV;
       r.y = cadresup + maconf.deltagroshautRDV;
       r.width = maconf.largeurgrosRDV / 2; // moitié gauche
       r.height = std::min(imacarte.rows - r.y, maconf.taillegrosRDV + 2);
@@ -2721,6 +2744,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
             r.height = maconf.taillegrosRDV;
             r.y = y; if (r.height > imacarte.rows - r.y) r.height = imacarte.rows - r.y;
             GS = imacarte(r).clone();
+            bool testdebug(false);
+            if (testdebug) afficherImage("GS", GS);
             numcol = calculerCouleur(GS, true,  maconf, mbl);
             break;
           }
@@ -3265,7 +3290,7 @@ r.x = maconf.largeurcarte* 5/16; // position du béret du valet
         r.y = maconf.deltahaut + maconf.taillechiffre / 2;
         r.height = 1; 
         r.width = maconf.largeurchiffre + 3;
-        while (r.y > 0){
+        while (r.y > 0 && r.y + r.height <= imacarte.rows){
           lig = imacarte(r); m = cv::mean(lig);
           if(m[0] > mbl[0] - 10) {
             r.y++; break;

@@ -174,17 +174,19 @@ while(true) {
   maconf.nbpoints = 5; // on recherche même des lignes très courtes
   cv::Mat gray;
   cv::cvtColor(imaCol, gray, cv::COLOR_BGR2GRAY);
-  trouverLignes(maconf, gray, lignes);
+  trouverLignes(maconf, gray, lignes, true);
   maconf.nbpoints = save;
 
   // afficher les lignes;
   if (printoption > 0) {
     for (auto ligne : lignes){
+      if (ligne.ln[0] < 0) continue; // ligne éliminée
       cv::Point2i A(ligne.ln[0], ligne.ln[1]);
       cv::Point2i B(ligne.ln[2], ligne.ln[3]);
       A.x += xcol; A.y += ycol;
       B.x += xcol; B.y += ycol;
       cv::line(mortCopie,A,B,cv::Scalar(255,0,0),1);
+      std::cout<< " ligne "<<A<<"->"<<B<<std::endl;
     }
   }
 
@@ -209,7 +211,8 @@ while(true) {
   int yLigneBas(0);
   int xLigneGauche(12345); // position ligne #verticale gauche
   int xLigneDroite (0); // position ligne #verticale à droite
-  for (auto ligne:lignes){
+  for (auto ligne : lignes){
+    if (ligne.ln[0] < 0) continue; // ligne éliminée
     if (ligne.lg < maconf.largeurcarte /2) continue; // trop courte
     if (std::abs(ligne.a) > 0.5) continue; // pas assez horizontale
     if (ligne.ln[1] > yLigneBas) {yLigneBas = ligne.ln[1]; ligneBas = ligne;}
@@ -227,6 +230,7 @@ while(true) {
   // calculer le point d'intersection
   if (yLigneBas > 0){
     for (auto ligne: lignes){ // ligne AB
+      if (ligne.ln[0] < 0) continue; // ligne éliminée
       //float ps = ligne.a * ligneBas.a + ligne.b * ligneBas.b;
       //if (std::abs(ps) > 0.5 ) continue; // pas assez verticale
       if (std::abs(ligne.b) > 0.5 ) continue;  // pas assez verticale
@@ -239,8 +243,10 @@ while(true) {
       PG.y = yLigneBas; // TODO : il faudrait calculer l'intersection
     }
 
+    xLigneDroite = xLigneGauche + maconf.largeurcarte - maconf.deltacadre; 
     // rechercher le coin de carte bas droit par une ligne verticale à droite
     for (auto ligne: lignes){ // ligne AB
+      if (ligne.ln[0] < 0) continue; // ligne éliminée
       if (std::abs(ligne.b) > 0.5) continue; // pas assez verticale
       if (ligne.ln[1] < ligne.ln[3]){ // B le plus bas
         if (ligne.ln[2] > xLigneDroite) {ligneDroite=ligne; xLigneDroite = ligne.ln[2];}
@@ -383,6 +389,7 @@ while(true) {
     ligne ligneHaut; 
     cv::Point2i A(imaCol.cols,0), B(0, 0); // ligne AB reconstituée
     for (auto ligne1 : lignes) {
+      if (ligne1.ln[0] < 0) ligne1.ln[0] = - ligne1.ln[0];  // utiliser les petites lignes (invalidées)
       if (std::abs(ligne1.a) > 0.5) continue; // ligne pas assez horizontale (30 degrés)
       if (ligne1.ln[1] > ylim) continue; // ligne trop basse 
       if (ligne1.ln[3] > ylim) continue; // ligne trop basse
@@ -400,6 +407,7 @@ while(true) {
           B.x = ligne1.ln[0]; B.y = ligne1.ln[1];
         }
         for (auto ligne2 : lignes) {
+          if (ligne2.ln[0] < 0) ligne2.ln[0] = -ligne2.ln[0];
           if (ligne2.lg < maconf.largeurcarte / 12) continue; // ligne trop courte
           if (ligne2.ln[1] > ylim + 2) continue; // ligne trop basse 
           if (ligne2.ln[3] > ylim + 2) continue; // ligne trop basse
