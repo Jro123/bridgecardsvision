@@ -1,4 +1,7 @@
 #pragma once
+#ifndef CONFIGDEFINED
+#define CONFIGDEFINED
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <vector>
@@ -69,7 +72,7 @@ public:
 };
 
 class ligne;
-// carct�ristique d'un coin de carte
+class unbord;
 class uncoin {
 public:
     bool         elimine;
@@ -111,10 +114,41 @@ public:
     uncoin(ligne& la, ligne& lb) {
       uncoin();
       l1 = &la; l2 = &lb;
-      // couleur = -1; valeur = 0; elimine=false; numCarte = 0; estunRDV = false;
     }
+
+    bool estSurBord(std::vector<unbord> bords, const config& maconf);
 };
 
+
+
+class ligne;
+class unbord {
+public:
+  int numcarte; // numéro de carte
+  uncoin* c1; // pointeur du coin origine
+  uncoin* c2; 
+  cv::Point2i A; 
+  cv::Point2i B;
+  unbord() {numcarte = 0; c1=0; c2=0; A= cv::Point2i(0,0); B= cv::Point2i(0,0);}
+  unbord(int nc, uncoin& cn1, uncoin& cn2) {
+    numcarte = nc;
+    c1 = &cn1; c2 = &cn2;
+    A = c1->sommet;
+    B = c2->sommet;
+  }
+  unbord(int nc = 0, uncoin* cn1 = 0, uncoin* cn2 = 0) {
+    numcarte = nc;
+    c1 = cn1; c2 = cn2;
+    if (c1) A = c1->sommet;
+    if (c2) B = c2->sommet;
+  }
+  // contient un point sauf près des extrémités
+  bool contient(cv::Point2i P, int ecart=2);
+
+};
+
+class ligne;
+// carct�ristique d'un coin de carte
 // un coin de la frame précédente
 class uncoinPrec{
 public:
@@ -197,47 +231,36 @@ public:
   int couleur;
   int valeur;
   cv::Point2i sommet[4];
+  int xmin;
+  int xmax;
+  int ymin;
+  int ymax;
   std::vector<uncoin*> coins;
   unecarte() {
     couleur = -1;
     valeur = 0;
     for (int i=0; i<4; i++) sommet[i] = cv::Point2i(0,0);
+    xmin = 1<<15;
+    ymin = 1<<15;
+    xmax = 0;
+    ymax = 0;
     coins.clear();
   }
 };
 
-class unbord {
+// une carte avec ses 4 sommets et sa valeur éventuelle
+class unecartePrec {
 public:
-  int numcarte; // numéro de carte
-  uncoin* c1; // pointeur du coin origine
-  uncoin* c2; 
-  cv::Point2i A; 
-  cv::Point2i B;
-  unbord() {numcarte = 0; c1=0; c2=0; A= cv::Point2i(0,0); B= cv::Point2i(0,0);}
-  unbord(int nc, uncoin& cn1, uncoin& cn2) {
-    numcarte = nc;
-    c1 = &cn1; c2 = &cn2;
-    A = c1->sommet;
-    B = c2->sommet;
+  int couleur;
+  int valeur;
+  cv::Point2i sommet[4];
+  std::vector<uncoinPrec> coinsPrec;
+  unecartePrec() {
+    couleur = -1;
+    valeur = 0;
+    for (int i=0; i<4; i++) sommet[i] = cv::Point2i(0,0);
+    coinsPrec.clear();
   }
-  unbord(int nc = 0, uncoin* cn1 = 0, uncoin* cn2 = 0) {
-    numcarte = nc;
-    c1 = cn1; c2 = cn2;
-    if (c1) A = c1->sommet;
-    if (c2) B = c2->sommet;
-  }
-  // contient un point sauf près des extrémités
-  bool contient(cv::Point2i P, int ecart=2){
-    ligne ln (A,B);
-    float dist = ln.dist(P);
-    if (std::abs(dist) >= ecart) return false;
-    float ps = (A-P).x * (B-P).x + (A-P).y * (B-P).y;
-    if (ps >= 0) return false;
-    if (std::abs((A-P).x) < ecart && std::abs((A-P).y) <= ecart) return false; 
-    if (std::abs((B-P).x) < ecart && std::abs((B-P).y) <= ecart) return false; 
-    return true;
-  }
-
 };
 
 
@@ -288,6 +311,7 @@ public:
   }
 };
 
+
 std::string carteToString(int couleur, int valeur);
 std::string joueurToString(int j);
 
@@ -320,7 +344,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol);
 int decoderCarte(cv::Mat& image, int pts[4][2], config& maconf, int& numcol);
 std::string ValiderOCR(std::string output, bool estserveur, bool inverse,
              uncoin& moncoin, const config& maconf);
-void traiterCartes(cv::Mat image, config& maconf, std::vector<uncoin>& Coins, std::vector<uncoinPrec>& coinsPrec,
+void traiterCartes(cv::Mat image, config& maconf, std::vector<unecarte>& cartes, std::vector<uncoin>& Coins,
+   std::vector<unecartePrec>& cartessPrec,
    const std::vector<ligne>&  lignes, unpli& monpli);
 
 void eclaircirfond(cv::Mat& image);
@@ -364,3 +389,4 @@ void traiterCoin(int n, std::vector<uncoin>& Coins, cv::Mat image,  std::vector<
 // ht chiffre       80
 // largeur          65
 // ht symbole       65
+#endif

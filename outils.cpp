@@ -2478,7 +2478,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
     r.y = maconf.deltacadre + maconf.tailleVDR; // nettement sous le cadre
     r.height = maconf.tailleVDR / 2; // pas trop haut
     r.height = std::min(r.height, imacarte.rows - r.y);
-    if (r.y >= 0 && r.height > 0 && r.y + r.height <= imacarte.rows) {
+    if (r.y >= 0 && r.height > 0 && r.y + r.height <= imacarte.rows
+      && r.x >= 0 && r.x + r.width <= imacarte.cols) {
       lig = imacarte(r);
       mbl = cv::mean(lig); // valeur du blanc
       if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(0,255,0));
@@ -2493,7 +2494,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
     }
     r.y = exclure; // sous le caractère et le symbole
     r.height = maconf.tailleVDR;
-    if (r.y < imacarte.rows - r.height) {
+    if (r.x>= 0 && r.x + r.width < imacarte.cols && r.y >= 0 && r.y < imacarte.rows - r.height) {
       lig = imacarte(r);
       mbl2 = cv::mean(lig); // valeur du blanc
       if (mbl2[0] > mbl[0]) mbl = mbl2;
@@ -2526,6 +2527,8 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
     }
     if (r.width <= 0) return 0; // carte (!) trop étroite
 
+    if (r.x + r.width > imacarte.cols) return 0;  // carte trop étroite
+
     // zone de la tête (**):
     r.y = maconf.deltacadre;
     r.height = std::min(imacarte.rows - r.y, 2*maconf.taillegros/3);
@@ -2534,7 +2537,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
     lig = imacarte(r);
     m = cv::mean(lig);
     int dm0 = m[0] - mbl[0];
-    if (dm0 >=  - 40) { // zone claire : chiffre
+    if (dm0 >=  - 20) { // zone claire : chiffre
         estunRDV = false; 
     } 
     if (estunRDV) { // pas encore identifié NON RDV
@@ -2811,7 +2814,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       // .....RR...
       //........DD...
       //
-r.x = maconf.largeurcarte* 5/16; // position du béret du valet
+        r.x = maconf.largeurcarte* 5/16; // position du béret du valet
         r.width = maconf.largeurcarte * 3/16;
         r.y = cadresup + 1;
         r.height = maconf.tailleVDR / 2;
@@ -2833,10 +2836,11 @@ r.x = maconf.largeurcarte* 5/16; // position du béret du valet
           return 11;
 
         // Dame ou Roi ? tester la gauche de la couronne
-        r.x = maconf.largeurcarte *5/12;
-        r.width = maconf.largeurcarte / 12;
+        r.x = maconf.largeurcarte *4/10;
+        r.width = maconf.largeurcarte / 20;
         r.y = cadresup + 1;
         r.height = maconf.tailleVDR / 2;
+        if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(255,0, 0));
         lig = imacarte(r); m = cv::mean(lig);
         if (m[0] > mbl[0] - 30){
           valcarte = 12; // zone claire : pas de couronne du Roi
