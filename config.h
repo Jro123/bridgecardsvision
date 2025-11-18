@@ -71,8 +71,18 @@ public:
     config() {}
 };
 
+inline int operator*(const cv::Point2i& a, const cv::Point2i& b) {
+    return a.x * b.x + a.y * b.y;
+}
+
+
 class ligne;
 class unbord;
+class unpli;
+class unecarte;
+class unecartePrec;
+class uncoinPrec;
+
 class uncoin {
 public:
     bool         elimine;
@@ -117,6 +127,10 @@ public:
     }
 
     bool estSurBord(std::vector<unbord> bords, const config& maconf);
+    bool estoppose(const uncoin& coin, config& maconf, int ecart = 0) const;
+    bool estproche(const uncoin& coin, config& maconf, int ecart = 0) const;
+    bool estDans(const uncoin& coin, config& maconf, int ecart=0) const;
+
 };
 
 
@@ -246,6 +260,9 @@ public:
     ymax = 0;
     coins.clear();
   }
+  bool estDansPli(unpli, int ecart = 4);
+  void calculSommets(config& maconf);
+
 };
 
 // une carte avec ses 4 sommets et sa valeur éventuelle
@@ -261,6 +278,9 @@ public:
     for (int i=0; i<4; i++) sommet[i] = cv::Point2i(0,0);
     coinsPrec.clear();
   }
+  bool contient(uncoin, int);
+  bool contient(cv::Point2i, int);
+  bool contient(unecarte, int);
 };
 
 
@@ -311,6 +331,11 @@ public:
   }
 };
 
+
+std::vector<unbord> calculerBords(std::vector<unecarte>& cartes, const config& maconf);
+std::vector<unbord> calculerBords(std::vector<unecartePrec>& cartesPrec, const config& maconf);
+std::vector<unbord> calculerBords(std::vector<uncoinPrec>& coinsPrec, const config& maconf);
+std::vector<unbord> calculerBords(std::vector<uncoin>& coins, const config& maconf);
 
 std::string carteToString(int couleur, int valeur);
 std::string joueurToString(int j);

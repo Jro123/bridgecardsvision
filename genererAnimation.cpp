@@ -105,12 +105,15 @@ int main(int argc, char** argv) {
     ifstream file(fichierTexte);
 
     while (getline(file, line)) {
+      if (line.size() == 0) continue;
+      if (line[0] == '#') continue;
       istringstream ss(line);
       int frame, x, y;
       int angle;
       char couleur, valeur;
 
       ss >> frame >> couleur >> valeur >> x >> y >> angle;
+      if (frame == 0) continue;
 
       string id = string(1, couleur) + string(1, valeur);
       animations[id].couleur = couleur;
@@ -132,6 +135,7 @@ int main(int argc, char** argv) {
     Size frameSize(1920, 1080);
     VideoWriter writer(fichiervideo, VideoWriter::fourcc('M','J','P','G'), 25, frameSize);
 
+    int compteur = 50;
     for (int frame = 0; frame < totalFrames; ++frame) {
       Mat canvas(frameSize, CV_8UC3, bg);
       int frame1 = -1;
@@ -172,7 +176,7 @@ int main(int argc, char** argv) {
           // Définir la position
           int x = current.x;
           int y = current.y;
-          Rect roi(x, y, rotated.cols, rotated.rows);
+          Rect roi(x - rotated.cols / 2, y - rotated.rows / 2, rotated.cols, rotated.rows);
 
           // Vérifier les limites
           if (roi.x >= 0 && roi.y >= 0 &&
@@ -182,7 +186,13 @@ int main(int argc, char** argv) {
           }
 
         } // while
+        std::cout<<".";
+        compteur --;
 
+        if (compteur <= 0){
+          compteur = 50;
+          std::cout<<std::endl;
+        }
         writer.write(canvas);
     } // frames
 

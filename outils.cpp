@@ -1479,6 +1479,51 @@ if (false) {
     }
 }
 
+    if (estRouge && !estunRDV) {
+        // tourner de 45 degrés puis déterminer la largeur
+        rr = cv::Rect(0,0, GS.cols, GS.rows);
+        cv::Point2f center(GS.cols / 2.0f, GS.rows / 2.0f);
+        cv::Mat rotMat = cv::getRotationMatrix2D(center, 45, 1.0);
+        cv::Mat rotated;        
+        cv::warpAffine(GS, rotated, rotMat, GS.size(), cv::INTER_CUBIC,
+         cv::BORDER_CONSTANT, cv::Scalar(255,255,255));
+        // chercher la colonne gauche puis droite  du symbole
+        if (printoption > 1 && !threadoption)
+           { afficherImage("rotated", rotated);
+            if (waitoption > 2 ) cv::waitKey(0);
+        }
+        int xg(-1), xd(-1);
+
+        for (int x = 0; x < rotated.cols / 2; x++){
+            bande = rotated(cv::Rect(x, 0, 1, rotated.rows));
+            moy = cv::mean(bande);
+            if (moy[0] < mbl[0] - 30) {
+                xg = x;
+                break;
+            }
+        }
+        for (int x = rotated.cols -1; x > rotated.cols / 2; x--){
+            bande = rotated(cv::Rect(x, 0, 1, rotated.rows));
+            moy = cv::mean(bande);
+            if (moy[0] < mbl[0] - 30) {
+                xd = x;
+                break;
+            }
+        }
+        if (xg >=0 && xd >=0) {
+            int largeur = xd - xg +1;
+            if (largeur < float(3*ls) / 4) {
+                numcol = 2; // carreau
+                if (printoption > 1) std::cout << " Carreau : largeur = "<< largeur<<std::endl;
+                return 2;
+            }
+            else if (largeur > float(4*ls) / 5) {
+                numcol = 1; // coeur
+                if (printoption > 1) std::cout << " Coeur : largeur = "<< largeur<<std::endl;
+                return 1;
+            }
+        }
+    }
     if (estRouge )
         eclaircirfond(GS);
     if (printoption > 1 && !threadoption) {
@@ -2135,7 +2180,7 @@ if (false) {
             while(r.y < ymax) {
                 lig = GS(r).clone();
                 m = cv::mean(lig)[0];
-                if (m > mrefT + 10) {numcol = 3; break;} // tige de la feuille de trefle
+                if (m > mrefT + 40) {numcol = 3; break;} // tige de la feuille de trefle
                 else if (r.y > ymax - 2  && m < mref - 10) {numcol = 0; break;} // pique
                 if (r.y <= BoxW[2] + 1) mref = std::min(m,mref);
                 if (r.y <= BoxW[2] + 2) mrefT = std::min(m, mrefT);
