@@ -174,11 +174,11 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
       for (int n=0; n < carte.coins.size(); n++) {
         auto cn = carte.coins[n];
         cv::Point2i P1 = cn->sommet;
-        if (n == 0 && printoption > 0) std::cout<< "nouvelle carte "<< nc<<" nouveau sommet "<< n <<P1<<std::endl;
+        if (n == 0 && printoption > 0) std::cout<< "nouvelle carte "<< nc + 1<<" nouveau sommet "<< n <<P1<<std::endl;
         estcarte = true;
-        if (n> 0 && printoption > 0) std::cout<< "         carte "<< nc<<" autre sommet "<< n <<cn->sommet<<std::endl;
+        if (n> 0 && printoption > 0) std::cout<< "         carte "<< nc + 1<<" autre sommet "<< n <<cn->sommet<<std::endl;
       }
-      if (printoption > 0) std::cout<<" carte complète "<< nc<<std::endl;
+      if (printoption > 0) std::cout<<" carte complète "<< nc + 1<<std::endl;
       // vérifier si la carte est dans le pli en cours (et actualiser l'encombrement du pli)
 
       if (carteDansPli) {

@@ -8,6 +8,22 @@ std::vector<unbord> calculerBords(std::vector<unecarte>& cartes, const config& m
   int epsilon = std::max(4,2*maconf.deltacadre);
   std::vector<unbord> bords;
   for (auto& ucp : cartes){
+    if (ucp.sommet[0].x != 0 && ucp.sommet[0].y != 0) {
+      for (int h=0; h<4; h++){
+        cv::Point2i P = ucp.sommet[h];
+        for (int hh = h+1; hh<4; hh++){
+          cv::Point2i Q = ucp.sommet[hh];
+          int d = std::sqrt( (Q-P).x * (Q-P).x + (Q-P).y * (Q-P).y);
+          if (std::abs(d - maconf.hauteurcarte) > epsilon 
+          && std::abs(d - maconf.largeurcarte) > epsilon ) continue;
+          unbord ub(0);
+          //ub.numcarte = nc;
+          ub.A = P; ub.B = Q;
+          bords.push_back(ub);
+        }
+      }
+      continue;
+    }
     auto coins= ucp.coins;
     for (int h=0; h<coins.size(); h++){
       auto uc = coins[h];
@@ -36,6 +52,22 @@ std::vector<unbord> calculerBords(std::vector<unecartePrec>& cartesPrec, const c
   int epsilon = std::max(4,2*maconf.deltacadre);
   std::vector<unbord> bords;
   for (auto& ucp : cartesPrec){
+    if (ucp.sommet[0].x != 0 && ucp.sommet[0].y != 0) {
+      for (int h=0; h<4; h++){
+        cv::Point2i P = ucp.sommet[h];
+        for (int hh = h+1; hh<4; hh++){
+          cv::Point2i Q = ucp.sommet[hh];
+          int d = std::sqrt( (Q-P).x * (Q-P).x + (Q-P).y * (Q-P).y);
+          if (std::abs(d - maconf.hauteurcarte) > epsilon 
+          && std::abs(d - maconf.largeurcarte) > epsilon ) continue;
+          unbord ub(0);
+          //ub.numcarte = nc;
+          ub.A = P; ub.B = Q;
+          bords.push_back(ub);
+        }
+      }
+      continue;
+    }
     auto coinsPrec = ucp.coinsPrec;
     for (int h=0; h<coinsPrec.size(); h++){
       auto uc = coinsPrec[h];
