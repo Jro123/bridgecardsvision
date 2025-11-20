@@ -1978,27 +1978,42 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
         if (ucp.couleur >= 0 && ucp.couleur < 4) couleurcarte = nomcouleur[ucp.couleur];
         for (int i = 0; i<4; i++){
           cv::Point2i Q(ucp.sommet[i].x, ucp.sommet[i].y);
-        //for (auto& up : ucp.coinsPrec) {
-          //cv::Point2i Q (up.x, up.y);
           for (auto& carte : cartes) {
-            for (auto cn : carte.coins) {
-              if (cn->elimine) continue; // coin éliminé
-              cv::Point2i P (cn->sommet);
+            carte.calculSommets(maconf);
+            for (int j = 0; j < 4; j++) {
+              cv::Point2i P = carte.sommet[j];
               // proche ?
               if (std::abs(P.x - Q.x) <= dc && std::abs(P.y - Q.y) <= dc ) {
                 trouve = true;
                 // récupérer la couleur et valeur de carte
-                if (cn->couleur < 0 && ucp.couleur >= 0){
-                  cn->couleur = ucp.couleur;
-                  cn->valeur = ucp.valeur;
+                if (carte.couleur < 0 && ucp.couleur >= 0){
+                  carte.couleur = ucp.couleur;
+                  carte.valeur = ucp.valeur;
                 }
                 break;
               }
               if (trouve) break;
             }
+            if (trouve) break;
           }
+          if (trouve) break;
         }
         if (!trouve) { // carte précédente non trouvée dans la frame analysée
+          // ne pas supprimer si elle est dans le pli en cours
+          // et qu'il y a au moins une carte dans la frame analysée
+          if (cartes.size() > 0) {  
+            bool danslepli = false;
+            for (int k = 0; k < monpli.nbcartes; k++){
+              unecarte& cpl = monpli.cartes[k];
+              if (cpl.couleur == ucp.couleur && cpl.valeur == ucp.valeur){
+                danslepli = true;
+                trouve = true;
+                break;
+              }
+            }
+          }
+        }
+        if (!trouve) {
           // supprimer la carte précédente
           for (auto& up : ucp.coinsPrec) {
             if (printoption > 1 ) std::cout<<" retrait coin ("
@@ -2406,19 +2421,15 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
     if (estvideo){
       nbcards = 0; // nombre de "cartes" dans le tableau d'affichage
       for (const auto ucp : cartesPrec) { 
-        for (const auto& up : ucp.coinsPrec){
-          cv::Point2i PT(up.x, up.y);
-          if ((up.couleur < 0) // coin non identifié (couleur)
-          || (up.valeur < 1 || up.valeur > 13)){ // coin non identifié (valeur)
-            cv::circle(result, PT, 2, cv::Scalar(255,0,0), -1);
-            continue;
-          }
-          int numcol = up.couleur;
-          char nomcol = '?';
-          if (numcol >= 0 && numcol <= 3) nomcol = couleurcarte[numcol][0];
-          std::string val = valeurcarte[up.valeur];
-          std::string res = nomcol + val; 
-          afficherResultat(result, PT, res);
+        int numcol = ucp.couleur;
+        char nomcol = '?';
+        if (numcol >= 0 && numcol <= 3) nomcol = couleurcarte[numcol][0];
+        std::string val = valeurcarte[ucp.valeur];
+        std::string res = nomcol + val;
+        for (int j=0; j<4; j++){
+          cv::Point2i Q(ucp.sommet[j].x, ucp.sommet[j].y);
+          cv::circle(result, Q, 2, cv::Scalar(0,255,0), -1);
+          afficherResultat(result, Q, res);
           int i;
           for (i=0; i < nbcards; i++){
             if (nomcol == cards[i][0] && val == cards[i].substr(1)) break;
@@ -2445,7 +2456,12 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
       //cv::imshow("complet", result); cv::waitKey(1);
     }
     if (printoption > 0 && nbcards > 0) {
-      std::cout<<"===> cartes trouvées :"<<std::endl;
+      std::cout<<"===> cartes trouvées : ";
+      for (int i = 0; i < monpli.nbcartes; i++)
+      {
+        std::cout<<monpli.cartes[i].couleur<<monpli.cartes[i].valeur<<" ";
+      }
+      std::cout<<std::endl;
       for (int i = 0; i < nbcards; i++)
       {
         if(cards[i].size() < 2) continue;

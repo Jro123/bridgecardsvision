@@ -239,12 +239,28 @@ bool unecartePrec::contient(cv::Point2i P, int ecart) {
 }
 
 bool unecartePrec::contient(unecarte carte, int ecart) {
-  // la carte précédente contient la carte si elle contient au moins deux coins de la carte
-  int nb(0);
-  for (auto  cn : carte.coins){
-    if (this->contient(*cn, ecart)) nb++;
+  // la carte précédente contient la carte si elle a au moins deux sommets proches
+  if (carte.coins.size() < 2 ) return false;
+  int nb = 0;
+  if (carte.sommet[0].x != 0 && carte.sommet[0].y != 0){
+    for (int i=0; i<4; i++){
+      cv::Point2i Q = carte.sommet[i];
+      bool trouve(false);
+      if (this->contient(Q, ecart)) {
+        if (nb >= 1) return true;
+        nb++;
+      }
+    }
   }
-  if (nb >= 2) return true;
+  else {
+    for (auto coin : carte.coins){
+      cv::Point2i Q = coin->sommet;
+      if (this->contient(Q, ecart)) {
+        if (nb >= 1) return true;
+        nb++;
+      }
+    }
+  }
   return false;
 }
 
@@ -297,6 +313,17 @@ bool unecarte::estDansPli(unpli monpli, int epsilon){
   if(carteDansPli){
     this->couleur = carte.couleur;
     this->valeur = carte.valeur;
+    // actualiser l'encombrement de la carte dans le pli
+    for (auto coin: this->coins) {
+      if (coin->sommet.x < carte.ymin) carte.ymin = coin->sommet.x;
+      if (coin->sommet.x > carte.xmax) carte.xmax = coin->sommet.x;
+      if (coin->sommet.y < carte.ymin) carte.ymin = coin->sommet.y;
+      if (coin->sommet.y > carte.ymax) carte.ymax = coin->sommet.y;
+    }
+    // récupérer les sommets de la carte du pli
+    for (int i=0; i<4; i++){
+      this->sommet[i] = carte.sommet[i];
+    }
   }
   return carteDansPli;
 }
@@ -312,10 +339,11 @@ void unecarte::calculSommets(config& maconf){
   }
   // au moins 2 coins
   // trouver les coins opposés
+  int ecart = std::max(maconf.hauteurcarte / 12, maconf.deltacadre * 2);
   uncoin* coin1 = this->coins[0];
   uncoin* coin2 = nullptr;
   for (int i=1; i<this->coins.size(); i++){
-    if (coin1->estoppose(*this->coins[i], maconf)){
+    if (coin1->estoppose(*this->coins[i], maconf, ecart)){
       coin2 = this->coins[i];
       break;
     }

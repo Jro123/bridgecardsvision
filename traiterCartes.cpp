@@ -107,8 +107,6 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
         continue; // ignorer le coin qui est sur un bord ou bord précédent
       } 
 
-      // noter que par construction des numéros de cartes, 
-      //  les numéros de cartes sont en ordre croissant des numéros de coins
       // considérer tous les coins de cette carte nc
       // vérifier qu'on a au moins 2 sommets, limitant une hauteur ou une largeur de carte
       cv::Point2i P1(cn->sommet), P2;
@@ -118,7 +116,7 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
       for (int m = n+1; m < coins.size(); m++) {
         uncoin* coin = coins[m];
         cv::Point2i P = coin->sommet;
-        // ignorer un coin qui est sur un bord d'une carte de cette frame
+        // ignorer un coin qui est sur un bord d'une carte précédente ou de cette frame
         coinSurBord = coin->estSurBord(bordsPrec, maconf);
         if(! coinSurBord)  coinSurBord = coin->estSurBord(bords, maconf);
         if(coinSurBord){
@@ -127,14 +125,11 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
         } 
 
         nbc++;
-        /*if (nbc == 1) P1 = P;
-        else */{
-          float lg = std::sqrt((P1-P).x * (P1-P).x + (P1-P).y * (P1-P).y) +1;
-          if (std::abs(lg - maconf.hauteurcarte) < epsilon)
-            {existeHauteur = true; nbHauteur++;}
-          if (std::abs(lg - maconf.largeurcarte) < epsilon)
-            {existeLargeur = true; nbLargeur++;}
-        }
+        float lg = std::sqrt((P1-P).x * (P1-P).x + (P1-P).y * (P1-P).y) +1;
+        if (std::abs(lg - maconf.hauteurcarte) < epsilon)
+          {existeHauteur = true; nbHauteur++;}
+        if (std::abs(lg - maconf.largeurcarte) < epsilon)
+          {existeLargeur = true; nbLargeur++;}
       } // for m
     } // for n
 
@@ -145,6 +140,7 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
     bool estcarte(true);
     bool carteTrouvee(false);
     if (existeHauteur || existeLargeur) {
+      carte.calculSommets(maconf);
       for (auto& ucp : cartesPrec) {
         if (ucp.contient (carte, epsilon) ) {
           carteTrouvee = true;
@@ -160,12 +156,18 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
             nomcarte += " ";
             nomcarte += nomval[ucp.valeur];
           }
-          if(printoption > 1)  std::cout<< " carte "<< nc << " ("<< nomcarte 
+          // récupérer les 4 sommets de la carte précédente
+          //for (int i=0; i<4; i++){
+          //  carte.sommet[i] = ucp.sommet[i];
+          //}
+          if(printoption > 1)  std::cout<< " carte "<< nc + 1 << " ("<< nomcarte 
             << ") déjà dans la frame précédente." << std::endl;
           break;
         }
       } // cartes précédentes
     }
+    // vérifier si la carte est dans le pli en cours et actualiser l'encombrement du pli
+    bool carteDansPli = carte.estDansPli (monpli, epsilon);
 
     if (!carteTrouvee && (existeHauteur || existeLargeur)
      && nbHauteur <= 2 && nbLargeur <= 2) {
@@ -177,8 +179,7 @@ void traiterCartes(cv::Mat image, config& maconf,std::vector<unecarte>& cartes,
         if (n> 0 && printoption > 0) std::cout<< "         carte "<< nc<<" autre sommet "<< n <<cn->sommet<<std::endl;
       }
       if (printoption > 0) std::cout<<" carte complète "<< nc<<std::endl;
-      // vérifier si la carte est dans le pli en cours
-      bool carteDansPli = carte.estDansPli (monpli, epsilon);
+      // vérifier si la carte est dans le pli en cours (et actualiser l'encombrement du pli)
 
       if (carteDansPli) {
         estcarte = false;
@@ -660,8 +661,13 @@ void traiterLaCarte(cv::Mat& image,  unecarte& carte, std::vector<unecartePrec> 
             }
           }
           // mémoriser la valeur obtenue sur tous les coins de la carte
+          // et mémoriser les 4 sommets de la carte
           // uniquement si on a trouvé couleur et valeur
           if (numcol >= 0 && valcarte > 0 && valcarte <= 13) {
+            carte.sommet[0] = cv::Point2i(pts[0][0], pts[0][1]);
+            carte.sommet[1] = cv::Point2i(pts[1][0], pts[1][1]);
+            carte.sommet[2] = cv::Point2i(pts[2][0], pts[2][1]);
+            carte.sommet[3] = cv::Point2i(pts[3][0], pts[3][1]);
             for (auto coin : carte.coins){
               //if (coin.numCarte != nca) continue; // pas un coin de cette carte
               coin->couleur = numcol;
@@ -670,7 +676,6 @@ void traiterLaCarte(cv::Mat& image,  unecarte& carte, std::vector<unecartePrec> 
             }
           }
           // vérifier la présence des coins de cette carte dans la frame pécédente ou le pli en cours
-          // avec couleur et valeur différentes
           // ignorer les coins correspondants
           bool estDansPrec(false);
           for (auto cn : coins){
@@ -683,6 +688,7 @@ void traiterLaCarte(cv::Mat& image,  unecarte& carte, std::vector<unecartePrec> 
                 estDansPrec = true;
                 break;
               }
+              if (estDansPrec) break;
               for (auto& up : ucp.coinsPrec){
                 if (std::abs(up.x - P.x) > dc || std::abs(up.y - P.y) > dc ) continue;
                 estDansPrec = true;
@@ -771,10 +777,15 @@ void traiterLaCarte(cv::Mat& image,  unecarte& carte, std::vector<unecartePrec> 
             int nc = monpli.nbcartes;
             monpli.cartes[nc].couleur = numcol;
             monpli.cartes[nc].valeur = valcarte;
+            auto& carte = monpli.cartes[nc];
             for (int i=0; i < 4;i++) {
               int x = pts[i][0]; int y = pts[i][1];
               monpli.cartes[nc].sommet[i].x = x;
               monpli.cartes[nc].sommet[i].y = y;
+              if (x > carte.xmax) carte.xmax = x;
+              if (x < carte.xmin) carte.xmin = x;
+              if (y > carte.ymax) carte.ymax = y;
+              if (y < carte.ymin) carte.ymin = y;
             }
             monpli.nbcartes++;
             if (printoption > 0) 
