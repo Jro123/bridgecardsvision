@@ -3347,7 +3347,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         if (i > 0) {
           r.x = imacarte.cols - 1 - r.width;
         } else {
-          r.x = maconf.deltachiffre - 1; 
+          r.x = maconf.deltachiffre; 
         }
         r.y = maconf.deltahaut + maconf.taillechiffre / 2;
         r.height = 1; 
