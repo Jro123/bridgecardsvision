@@ -39,7 +39,7 @@ void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
   cv::Mat lig;
   cv::Scalar m0, m1, m2;
   int numcol(-1), valcarte;   // couleur (0 à 3) et valeur de carte (1 à 13)
-  int xcol(0), ycol(0); // position de la colonne de cartes
+  int xcol(1), ycol(0); // position de la colonne de cartes
   int xbas; // position du coin le plus bas de la carte
 
   r.x = 0;
@@ -102,64 +102,97 @@ void traiterMort(config& maconf, cv::Mat imaMort, unecarte *carteMort) {
 
   bool estPremier = true; // indique qu'on analyse la carte la plus basse de la colonne
   int pts[4][2];  // les 4 sommets d'une carte, entière ou limitée à la partie supérieure
-  xcol = 1; // position gauche de la colonne de cartes
+  xcol = 1 - maconf.largeurcarte; // position gauche de la colonne de cartes
   //
   // analyser les cartes, en repérant le changement de colonne de cartes et la fin des colonnes
   // nettoyer à gauche de chaque nouvelle colonne
   //
 while(true) {
   r.y = 6; // à cause du trait supérieur de la vidéo FUNBRIDGE et de l'ajout de la bordure de 5 lignes
+  int ybas;
   if (estPremier) { // on traite la carte du bas, qui est complètement visible
     // nettoyer à gauche de la colonne de cartes
     cv::Rect rr;
     rr.x = 0; rr.width = xcol; rr.y = 0; rr.height = imaMort.rows;
-    cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
-    r.height = imaMort.rows - r.y - 1; // toute la hauteur de la colonne de cartes
-  } else r.height = std::max(pts[2][1], pts[3][1]); // partie au dessus de la carte qu'on vient d'analyser
-  // rechercher une colonne plus claire (au moins en vert) -> première colonne de cartes (atout)
-  // puis colonnes suivantes
-  r.width = 1;
-  r.height = std::min(r.height, imaMort.rows - r.y - 1);
-  for (r.x = xcol; r.x < imaMort.cols - maconf.largeurcarte; r.x++){
-    lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
-    if (m1[1] - couleurFond[1] > 40) {xcol = r.x; break;}
+    if (xcol > 0)  cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
+    // rechercher le bas de la prochaine colonne de cartes
+    xcol += maconf.largeurcarte;
+    rr.x = xcol;
+    rr.y = imaMort.rows -1;
+    rr.height = 1; rr.width = maconf.largeurcarte - 1;
+    while (rr.y > 0) {
+      lig = imaMort(rr); m1 = cv::mean(lig);
+      if (std::abs(m1[1] - couleurFond[1]) > 20) break; // trouvé le bas de la colonne
+      rr.y--;
+    }
+    ybas = rr.y;
+
+    r.y = std::max(0, ybas - maconf.hauteurcarte + 1);
+    r.height = ybas - r.y - 1;
+
+  } else {
+    r.y = 6;
+    ybas = std::max(pts[2][1], pts[3][1]) - 1; // haut de la carte précédente
+    r.height = std::max(pts[2][1], pts[3][1]) - r.y; // partie au dessus de la carte qu'on vient d'analyser
   }
-  // extraire un rectangle de largeur de moitié de largeur de carte
-  r.width = maconf.largeurcarte / 2;
-  lig = imaMort(r);
-  // trouver le bas de la dernière carte de la colonne. coin bas gauche (ou au dessous)
-  r.y = imaMort.rows - 1;
-  if (!estPremier) r.y = std::max(pts[2][1], pts[3][1]);
-  r.height = 1;
-  while (r.y > 0) {
-    lig = imaMort(r); m2 = cv::mean(lig);
-    if (m2[1] - couleurFond[1] > 10) {ybas = r.y; break;}
-    r.y--;
-  }
-  if (r.y <= 6 + maconf.taillegros / 2) {  // 0 --> 6 à cause de la vidéo FUNBRIDGE
+  if (ybas <= 6 + maconf.taillegros / 2) {  // 0 --> 6 à cause de la vidéo FUNBRIDGE
     // on a trouvé toutes les cartes de cette colonne
     //xcol += 5 + maconf.largeurcarte;
     estPremier = true; // pour passage à la colonne suivante (xcol)
     if (xcol > imaMort.cols - maconf.largeurcarte) break; // on est arrivé au bout des colonnes
     // nettoyer ce qui est à gauche de la nouvelle colonne
     cv::Rect rr;
-    rr.x = 0; rr.width = xcol; rr.y = 0; rr.height = imaMort.rows;
+    rr.x = 0; rr.width = xcol + maconf.largeurcarte; rr.y = 0; rr.height = imaMort.rows;
     cv::rectangle(imaMort, rr, couleurFond, cv::FILLED);
     continue;
   }
+
+  // rechercher une colonne plus claire (au moins en vert) -> première colonne de cartes (atout)
+  // puis colonnes suivantes
+  r.width = 1;
+  for (r.x = xcol; r.x < imaMort.cols - maconf.largeurcarte; r.x++){
+    lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
+    int diff = m1[1] - couleurFond[1];
+    if (std::abs(diff) < 20) continue; // même couleur que le fond
+    //if (m1[0] > couleurFond[0] + 10 && m1[0] < 200) {xcol = r.x - 1; break;} // bord gauche de carte
+    break;
+  }
+  xcol = r.x;
+  // extraire un rectangle de largeur de moitié de largeur de carte
+  r.width = maconf.largeurcarte / 2;
+  lig = imaMort(r);
 
   // limiter au bas de la carte. au moins 1/5 de la carte doit être visible pour déterminer sa valeur
   r.height = std::min(ybas ,maconf.hauteurcarte /5);
   r.y = std::max(6,ybas - r.height); // ignorer le trait blanc en haut de funbridge et la bordure de 5 lignes
   // rechercher la position à gauche de la carte 
-  for (r.x = xcol; r.x < maconf.largeurcarte; r.x++){
+  for (r.x = std::max(1,xcol); r.x < maconf.largeurcarte; r.x++){
     lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
     if (std::abs(m1[1] - couleurFond[1]) > 20) {xcol = r.x; break;}
   }
 
   // on a : xcol=gauche du bas de la carte   ybas= bas de la carte
-  // extraire le bas de la carte un peu élargi à gauche et dessous
-  r.x = std::max(0,xcol -8); r.width = 14 + maconf.largeurcarte;
+  // rechercher l'extrémité droite de la carte, sur la ligne ybas
+  r.x = xcol + maconf.largeurcarte + 5;
+  r.width = 1;
+  r.y = ybas - 4; r.height = 8;
+  int xdroite = xcol + maconf.largeurcarte +1;
+  for (; r.x > xcol; r.x--){
+    lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
+    if (std::abs(m1[1] - couleurFond[1]) < 20) { // trouvé le fond
+      while (r.x > xcol + maconf.largeurcarte) {
+        lig = imaMort(r); m1 = cv::mean(lig); // couleur de cette colonne de 1 pixel
+        if (std::abs(m1[1] - couleurFond[1]) > 20) {r.x--; break;} // bord droit de carte
+        r.x--;
+      }
+      break;
+    } 
+  }
+  // on a trouvé le bord droit de la carte
+  xdroite = r.x +1; // position droite de la carte (y compris le pixel du fond)
+  // extraire le bas de la carte un peu élargi à gauche (8 pixels) et dessous
+  r.x = std::max(0,xcol -8);
+  r.width = xdroite - r.x +1;
   r.height = std::min(ybas+8, maconf.hauteurcarte /2);
   r.y = std::min(imaMort.rows - 1, ybas + 8) - r.height;
   r.y = std::max(1, r.y);
@@ -243,7 +276,11 @@ while(true) {
       PG.y = yLigneBas; // TODO : il faudrait calculer l'intersection
     }
 
-    xLigneDroite = xLigneGauche + maconf.largeurcarte - maconf.deltacadre; 
+    // on a déjà déterminé la position extrème à droite de la ligne du bas 
+    xLigneDroite = imaCol.cols - 3; // -3 car on a extrait deux pixels en plus à droite
+/*************************************************    
+    xLigneDroite = std::min(imaCol.cols - 1, xLigneGauche + maconf.largeurcarte - maconf.deltacadre); 
+
     // rechercher le coin de carte bas droit par une ligne verticale à droite
     for (auto ligne: lignes){ // ligne AB
       if (ligne.ln[0] < 0) continue; // ligne éliminée
@@ -251,7 +288,8 @@ while(true) {
       if (ligne.ln[1] < ligne.ln[3]){ // B le plus bas
         if (ligne.ln[2] > xLigneDroite) {ligneDroite=ligne; xLigneDroite = ligne.ln[2];}
       } else if (ligne.ln[0] > xLigneDroite) {ligneDroite=ligne; xLigneDroite = ligne.ln[0];}
-    } 
+    }
+************************/    
     if (xLigneDroite < imaCol.cols) {
       PD.x = xLigneDroite;
       PD.y = yLigneBas; // il faudrait calculer l'intersection des lignes 
@@ -366,6 +404,12 @@ while(true) {
     afficherImage("Mort", mortCopie);
   }
 
+  // TODO : ajuster la largeur de carte 
+  if (estPremier)
+  {
+    float lg = std::sqrt((PD.x - PG.x)*(PD.x - PG.x) + (PD.y - PG.y)*(PD.y - PG.y));
+    // maconf.largeurcarte = int(lg + 0.5);
+  }
   // on a les deux coins inférieurs coinGauche et CoinDroit   PG et PD
   // on peut reconstituer les 2 autres coins de la carte
   //   (uniquement pour la carte du bas de la colonne )

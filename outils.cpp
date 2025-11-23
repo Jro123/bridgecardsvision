@@ -2879,7 +2879,19 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           }
         if (100*nbpixrouge / nbpixtot > 30 ) 
           return 11;
-
+        // Dame : tester la présence d'une étoffe rouge à droite de la tête
+        r.x = maconf.largeurcarte * 37/56; r.width = maconf.largeurcarte / 13;
+        r.y = cadresup + maconf.deltaVDR + maconf.tailleVDR + maconf.deltachsymb;
+        r.height = 8;
+        if (r.height > imacarte.rows - r.y) r.height = imacarte.rows - r.y;
+        if (printoption > 1 && !threadoption)
+         tracerRectangle(r,carte, "carte",cv::Scalar(0,0,255));
+        lig = imacarte(r); m = cv::mean(lig);
+        if (m[2] > 3*m[0]/2) { // présence d'une étoffe rouge
+          valcarte = 12; // on a trouvé l'étoffe rouge de la Dame
+          return 12;
+        } else return 13; // ni V ni D donc Roi
+        /***********************
         // Dame ou Roi ? tester la gauche de la couronne
         r.x = maconf.largeurcarte *4/10;
         r.width = maconf.largeurcarte / 20;
@@ -2892,6 +2904,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
           return 12;
         } else 
           return 13; // ni V ni D donc Roi
+          ***********************/
       }
       if (numcol == 0 || numcol == 3) { // Pique ou Trefle (jamais atteint)
         r.y = cadresup + maconf.tailleVDR + maconf.deltachsymb + maconf.taillesymbole + 2;

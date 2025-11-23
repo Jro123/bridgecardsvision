@@ -790,10 +790,10 @@ int processVideo(config &maconf, cv::String nomfichier)
         carteMort[0].valeur = cepli.carte[joueurMort].valeur;
         if(printoption > 0) afficherImage("Mort", imaMort);
         // spécifique FUNBRIDGE
-        int saveLargeur = maconf.largeurcarte;
-        maconf.largeurcarte *= float(0.95);
+        //int saveLargeur = maconf.largeurcarte;
+        //maconf.largeurcarte *= float(0.95);
         traiterMort(maconf, imaMort, carteMort);
-        maconf.largeurcarte = saveLargeur;
+        //maconf.largeurcarte = saveLargeur;
 
         mortAnalyse = true;
       } // décodage du mort
@@ -1797,11 +1797,14 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
     int lamax = 0; // largeur maximale ....
     int ecartHt = maconf.hauteurcarte;
     int ecartLa = maconf.hauteurcarte;
+    bool ajustee = false;
     cv::Point2i P1, P2;
-
+    int largeurmax = 0;
     for (int n = 0; n < Coins.size(); n++){
       auto& cn = Coins[n];
       if (cn.elimine) continue;
+      bool existeHauteur = false;
+      bool existeLargeur = false;
       // ignorer le coin s'il est sur un bord de carte précédente
       if (cn.estSurBord(bordsPrec, maconf)) {
         if (printoption > 0)
@@ -1841,6 +1844,7 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
             if (printoption > 0)
               std::cout << "   coin " << m<< cm.sommet << " est sur un bord de carte précédente, éliminé" << std::endl;
             cm.elimine = true;
+            continue;
           }
         }
         cv::Point2i Q = cm.sommet;
@@ -1893,7 +1897,8 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
           float lg = std::sqrt(PQ.x * PQ.x + PQ.y * PQ.y);
           // PQ proche de la hauteur de carte ?
           int dl = std::abs(lg - maconf.hauteurcarte);
-          if (dl < maconf.deltacadre) {
+          if (dl < maconf.hauteurcarte / 10) {
+            existeHauteur = true;
             if (dl < ecartHt) {
               ecartHt = dl;
               htmax = lg;
@@ -1902,34 +1907,53 @@ int processFrame(config &maconf, cv::Mat image, bool estvideo,
           }
           else { // PQ proche de la largeur de carte ?
             int dl = std::abs(lg - maconf.largeurcarte);
-            if (dl < maconf.deltacadre) {
+            if (dl < maconf.hauteurcarte / 10) {
+              existeLargeur = true;
               if (dl < ecartLa) {
                 ecartLa = dl;
                 lamax = lg;
+
               }
             }
           }
         }
-        continue; // inutile
       } // for m
-      if (htmax < 8 * maconf.hauteurcarte / 10) htmax = maconf.hauteurcarte;
-    }
-    /****************** ne fonctionne pas !!!!!!!!!!!!!!! 
-    // recalculer les paramètres de position sur la carte
-    if (htmax != 0) {
-      maconf.hauteurcarte = htmax;
-      maconf.largeurcarte = 2*htmax / 3;
-    } else if (lamax != 0) {
-      maconf.largeurcarte = lamax;
-      maconf.hauteurcarte = 3*lamax / 2;
-    }
-    else {
-        if (printoption > 0) {
-            std::cout << " !!!!! impossible d'estimer la taille des cartes" << std::endl;
-            std::cout << " !!!!! poursuite avec la configuration " << std::endl;
+      // si on a trouvé une hauteur  entre le coin n et un autre coins m1, 
+      // rechercher la largeur entre le coin n et les autres coins (tous)
+      if (existeHauteur){
+        for (int k=0; k<Coins.size(); k++){
+          if (k == n) continue;
+          auto& ck = Coins[k];
+          if (ck.elimine) continue;
+          cv::Point2i Rk = ck.sommet;
+          // coins opposés
+          if (cn.estoppose(ck, maconf, maconf.hauteurcarte/15)) {
+            // déterminer précisément la hauteur de carte, proche de la valeur dans la configuration
+            cv::Point2i PR = Rk - P;
+            float lg2 = std::sqrt(PR.x * PR.x + PR.y * PR.y);
+            // PR proche de la largeur de carte ?
+            int dl = std::abs(lg2 - maconf.largeurcarte);
+            if (dl < maconf.hauteurcarte / 10) {
+              existeLargeur = true;
+              if (dl < ecartLa) {
+                ecartLa = dl;
+                lamax = lg2;
+              }
+            }
+          }
+        } // for k
+        // si on a trouvé une hauteur et une largeur liés au coin n,
+        // on a éventuellement trouvé la taille de carte
+        if(htmax > maconf.hauteurcarte && lamax > 9*maconf.largeurcarte/10){ 
+          maconf.hauteurcarte = htmax;
+          if (lamax >= htmax * 2 / 3 - 1)  maconf.largeurcarte = lamax;
+          if (printoption > 1)
+            std::cout << "  ajustement taille carte : hauteur " << maconf.hauteurcarte
+                      << " largeur " << maconf.largeurcarte << std::endl;
+          ajustee = true;
         }
-    }
-    **************/
+      } // existeHauteur
+    } // for n
     //
      if (printoption > 1)
         std::cout << "hauteur carte : " << maconf.hauteurcarte << std::endl;
