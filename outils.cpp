@@ -1419,7 +1419,7 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     cv::Mat bande, centre, lig;
     int ts, ls; // taille et largeur du symbole
     bool estRouge(false);
-    int numcol(-1); // 0=Pique, 2=Coeur, 3=carreau, 4=Trefle, -1=indéterminé
+    int numcol(-1); // 0=Pique, 1=Coeur, 2=carreau, 3=Trefle, -1=indéterminé
     if (estunRDV) {
         // c'est un personnage
         ts = maconf.taillegrosRDV;
@@ -1431,6 +1431,7 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     ts = std::min(ts, GS.rows);
     ls = std::min(ls, GS.cols);
     amplifyContrast(GS); // parfois contre productif
+    symbgros = GS.clone();
     if (printoption > 1 && !threadoption) {
         afficherImage("symbole", symbgros);
         afficherImage("gros", symbgros);
@@ -1438,94 +1439,153 @@ int calculerCouleur(cv::Mat GS, bool estunRDV, const config& maconf, cv::Scalar 
     }
     // déterminer la couleur : Rouge ou noir ?
     estRouge = calculerRouge(GS, estunRDV, maconf, mbl);
-if (false) {
-    int Box[4];
-    cv::Mat z1, imaR;
-     // le symbole est soit rouge, soit noir
-    // dans les deux cas, l'intensité bleue est plus faible que l'extérieur
-    // déterminer la moyenne de bleu
-    // ne considérer que les pixels moins bleus que cette moyenne
-    // en se limitant au quart supérieure gauche si c'est un personnage
-    // cumuler les intensités bleues et rouges de ces pixels
-    // s'il y a plus de rouge que de bleu, c'est rouge
-    if (estunRDV) { // personnage
-      r.x = 0; r.y = 0; r.width = ls / 2; r.height = ts / 2;
-      z1 = GS(r);
-      calculerBox(z1, ts/2, ls/2, moy, Box, moyext, maconf);
-    }
-    else { z1 = GS.clone();
-      calculerBox(z1, ts, ls, moy, Box, moyext, maconf);
-    }
-    if (ts >= z1.rows && ls >= z1.cols) {
-     moyext = mbl; //cv::Scalar(255,255,255);
-    }
-    // considérer les pixels moins bleus que la moyenne pondérée entre la zone et l'extérieur (clair)
-    double cumb(0), cumr(0); 
-    for(int y = Box[2]; y <= Box[3]; y++){
-        for (int x = Box[0]; x <= Box[1]; x++){
-            cv::Scalar pix = z1.at<cv::Vec3b>(y,x);
-            if (pix[0] <= (9*moy[0] + moyext[0]) / 10) { // un peu plus que la moyenne
-                cumb += pix[0];
-                cumr += pix[2];
+    if (false) {
+        int Box[4];
+        cv::Mat z1, imaR;
+        // le symbole est soit rouge, soit noir
+        // dans les deux cas, l'intensité bleue est plus faible que l'extérieur
+        // déterminer la moyenne de bleu
+        // ne considérer que les pixels moins bleus que cette moyenne
+        // en se limitant au quart supérieure gauche si c'est un personnage
+        // cumuler les intensités bleues et rouges de ces pixels
+        // s'il y a plus de rouge que de bleu, c'est rouge
+        if (estunRDV) { // personnage
+        r.x = 0; r.y = 0; r.width = ls / 2; r.height = ts / 2;
+        z1 = GS(r);
+        calculerBox(z1, ts/2, ls/2, moy, Box, moyext, maconf);
+        }
+        else { z1 = GS.clone();
+        calculerBox(z1, ts, ls, moy, Box, moyext, maconf);
+        }
+        if (ts >= z1.rows && ls >= z1.cols) {
+        moyext = mbl; //cv::Scalar(255,255,255);
+        }
+        // considérer les pixels moins bleus que la moyenne pondérée entre la zone et l'extérieur (clair)
+        double cumb(0), cumr(0); 
+        for(int y = Box[2]; y <= Box[3]; y++){
+            for (int x = Box[0]; x <= Box[1]; x++){
+                cv::Scalar pix = z1.at<cv::Vec3b>(y,x);
+                if (pix[0] <= (9*moy[0] + moyext[0]) / 10) { // un peu plus que la moyenne
+                    cumb += pix[0];
+                    cumr += pix[2];
+                }
             }
         }
+        double ecartW = (cumr / cumb) / (moyext[2] / moyext[0]);
+        //double ecartW = (moy[2] / moy[0]) / (mbl[2] / mbl[0]);
+        if ( ecartW > 1.8) {   // préciser la limite après les tests
+            estRouge = true; if (printoption > 1) std::cout << " Rouge! ecart = "<< ecartW<<std::endl;
+        } else {
+            estRouge = false; if (printoption > 1) std::cout << " Noir ecart = "<< ecartW<<std::endl;
+        }
     }
-    double ecartW = (cumr / cumb) / (moyext[2] / moyext[0]);
-    //double ecartW = (moy[2] / moy[0]) / (mbl[2] / mbl[0]);
-    if ( ecartW > 1.8) {   // préciser la limite après les tests
-        estRouge = true; if (printoption > 1) std::cout << " Rouge! ecart = "<< ecartW<<std::endl;
-    } else {
-        estRouge = false; if (printoption > 1) std::cout << " Noir ecart = "<< ecartW<<std::endl;
-    }
-}
 
-    if (estRouge && !estunRDV) {
-        // tourner de 45 degrés puis déterminer la largeur
+    bool estcarre = (std::abs)(float(ts - ls) / std::max(ts, ls)) < 0.2;
+    int xg(-1), xd(-1);
+    int largeur;
+    cv::Mat rotated;        
+    if (estcarre) {
+        // tourner de 45 degrés 
         rr = cv::Rect(0,0, GS.cols, GS.rows);
         cv::Point2f center(GS.cols / 2.0f, GS.rows / 2.0f);
         cv::Mat rotMat = cv::getRotationMatrix2D(center, 45, 1.0);
-        cv::Mat rotated;        
         cv::warpAffine(GS, rotated, rotMat, GS.size(), cv::INTER_CUBIC,
          cv::BORDER_CONSTANT, cv::Scalar(255,255,255));
-        // chercher la colonne gauche puis droite  du symbole
         if (printoption > 1 && !threadoption)
            { afficherImage("rotated", rotated);
             if (waitoption > 2 ) cv::waitKey(0);
         }
-        int xg(-1), xd(-1);
-
-        for (int x = 0; x < rotated.cols / 2; x++){
+        // blanchir ce qui n'est pas rouge (ou noir)
+        if (estRouge)  eclaircirfond(rotated);
+        else            eclaircirfondNoir(rotated);
+        if (printoption > 1 && !threadoption) {
+            afficherImage("rotated eclairci", rotated);
+            if (waitoption > 2 ) cv::waitKey(0);
+        }
+        
+        // déterminer la largeur
+        // chercher la colonne gauche puis droite  du symbole
+        // en partant du centre
+        xg =0; xd = rotated.cols -1;
+        for (int x = rotated.cols/2; x >=0; x--){
             bande = rotated(cv::Rect(x, 0, 1, rotated.rows));
             moy = cv::mean(bande);
-            if (moy[0] < mbl[0] - 30) {
-                xg = x;
+            if (moy[0] > mbl[0] - 30) {
+                xg = x + 1;
                 break;
             }
         }
-        for (int x = rotated.cols -1; x > rotated.cols / 2; x--){
+        for (int x = rotated.cols/2; x < rotated.cols; x++){
             bande = rotated(cv::Rect(x, 0, 1, rotated.rows));
             moy = cv::mean(bande);
-            if (moy[0] < mbl[0] - 30) {
-                xd = x;
+            if (moy[0] > mbl[0] - 30) {
+                xd = x - 1;
                 break;
             }
         }
         if (xg >=0 && xd >=0) {
-            int largeur = xd - xg +1;
-            if (largeur < float(3*ls) / 4) {
-                numcol = 2; // carreau
-                if (printoption > 1) std::cout << " Carreau : largeur = "<< largeur<<std::endl;
-                return 2;
-            }
-            else if (largeur > float(4*ls) / 5) {
-                numcol = 1; // coeur
-                if (printoption > 1) std::cout << " Coeur : largeur = "<< largeur<<std::endl;
-                return 1;
+            largeur = xd - xg +1;
+            if (estRouge) {
+                    // considérer que c'est du coeur si c'est large
+                    // du carreau si c'est étroit
+                if (largeur < float(ls) * 0.6) {
+                    numcol = 2; // carreau
+                    if (printoption > 1) std::cout << " Carreau : largeur = "<< largeur<<std::endl;
+                    return 2;
+                }
+                else if (largeur > float(ls) *0.75) {
+                    numcol = 1; // coeur
+                    if (printoption > 1) std::cout << " Coeur : largeur = "<< largeur<<std::endl;
+                    return 1;
+                }
+            }else { // noir
+
+                // considérer la bande horizontale centrale de l'image tournée de 45 degrés
+                // limitée en haut et à gauche sur la partie foncée
+                // limitée à droite au centre
+                // c'est du pique si c'est très foncé
+                // chercher la gauche
+                r.y = 0; r.width = 1; r.height = rotated.rows;
+                for (r.x = 0; r.x < rotated.cols / 2; r.x++){
+                    bande = rotated(r);
+                    moy = cv::mean(bande);
+                    if (moy[0] < mbl[0] - 30) {
+                        break;
+                    }
+                }
+                // chercher le haut
+                r.width = rotated.cols - r.x;
+                r.height = 1;
+                for (r.y = 0; r.y < rotated.rows / 2; r.y++){
+                    bande = rotated(r);
+                    moy = cv::mean(bande);
+                    if (moy[0] < mbl[0] - 30) {
+                        break;
+                    }
+                }
+                r.y += (rotated.rows - 1) / 2; // expérimental : - 1
+                if (r.y >= rotated.rows) r.y = rotated.rows -1;
+                // maintenant r.x et r.y sont positionnés
+                r.height = 1;
+                r.width = std::max(1, rotated.cols / 2);
+                if (r.width > rotated.cols - r.x) r.width = rotated.cols - r.x;
+                bande = rotated(r);
+                moy = cv::mean(bande);  
+                if (moy[0] < 60) {
+                    if (printoption > 1) std::cout << " Pique : bande horizontale centrale moyenne bleue = "<< moy[0]<<std::endl;
+                    return 0;
+                }
+                else if (moy[0] > 100) {
+                    if (printoption > 1) std::cout << " Trefle : bande horizontale centrale moyenne bleue = "<< moy[0]<<std::endl;
+                    return 3;
+                }
             }
         }
     }
-    if (estRouge )
-        eclaircirfond(GS);
+    // nettoyer ce qui borde le symbole
+    if (estRouge)  eclaircirfond(GS);
+    else            eclaircirfondNoir(GS);
+    symbgros = GS.clone();
     if (printoption > 1 && !threadoption) {
         afficherImage("symbole", symbgros);
         afficherImage("gros", symbgros);
@@ -1538,23 +1598,23 @@ if (false) {
     // si le symbole est rouge et si sa largeur est suffisante, 
     // on compare la partie supérieure à la partie inférieure
     // en se limitant à la partie gauche car la partie droite contient l'épaule du personnage
+    // ou à la partie droite si c'est un symbole coupé
     // on compare le quart supérieur gauche au quart inférieur gauche
     // si c'est du coeur , il y a beaucoip moins de bleu en haut
     // sinon on utilise un autre moyen.
     if (estRouge && ls > 8) {
 
       if (estunRDV && ((ts - ls) >= ls/4 )) { // c'est un symbole RDV tronqué
-        // considérer la ligne au quart supérieur
-        // comparer le pixel en Box[0] + 1
-        // au pixel en Box[1] +1 - ls/4
-        int y = Box[2] - 1 + ts/4;
-        cv::Scalar pixg, pixd;
-        pixg = GS.at<cv::Vec3b>(y, Box[0] + 1);
-        pixd = GS.at<cv::Vec3b>(y, Box[1] + 1 - ls/4);
-        int bg = pixg[0]; 
-        int bd = pixd[0];
-        if (bd - bg > 100) numcol = 2; // clair à droite : carreau
-        else if (bd - bg < 20) numcol = 1; // comparables : coeur
+        // considérer le quart supérieur droit
+        r.x = Box[0] + ls * 3 /4;
+        r.y = Box[2]+1;
+        r.width = ls /4 -2;
+        r.height = ts /2 -2;
+        lig = GS(r);
+        m1 = cv::mean(lig);
+        int bhaut = m1[0];
+        if (bhaut > mbl[0] - 50) numcol = 2; // carreau
+        else if (bhaut < mbl[0] - 100) numcol = 1; // coeur
       }
       if (numcol >= 0) return numcol;
 
@@ -2754,7 +2814,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
       r.x--;
       while (r.x >= cadregauche + maconf.deltagrosRDV) {
         lig = imacarte(r); m = cv::mean(lig);
-        if (m[0] - m1[0] > 50) break;
+        if (m[0] - m1[0] > 50 && m[0] > mbl[0] - 50) break;
         if (m[0] < m1[0]) m1 = m; // colonne de référence la plus sombre
         r.x --;
       }
@@ -2970,7 +3030,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         r.height = maconf.tailleVDR;
         if (printoption > 1 && !threadoption) tracerRectangle(r,carte, "carte",cv::Scalar(255,0,0));
         lig = imacarte(r); m = cv::mean(lig);
-        if (m[0] < m[2] - 40){ // chapeau rouge : Valet
+        if (m[0] < m[2] - 40 && m[1] < m[2] - 40){ // chapeau rouge : Valet
           return 11;
         }
         //r.x = cadregauche; r.width = maconf.largeurcarte /20;
@@ -3354,7 +3414,7 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
         r.width = maconf.largeurchiffre + 3;
         while (r.y > 0 && r.y + r.height <= imacarte.rows){
           lig = imacarte(r); m = cv::mean(lig);
-          if(m[0] > mbl[0] - 10) {
+          if(m[0] > mbl[0] - 20) {
             r.y++; break;
           }
           r.y--;
@@ -3673,12 +3733,26 @@ int decoderLaCarte(cv::Mat& imacarte, config& maconf, int& numcol) {
 
 
 void eclaircirfond(cv::Mat& image) {
-      // éclaircir (en bleu) les pixels qui ont moins de rouge que de bleu
-      for (int x = 0; x < image.cols; x++){
-        for (int y=0; y < image.rows; y++){
+      // éclaircir (en bleu) les pixels qui ont nettement moins de rouge que de bleu
+      // ou beaucoup de vert
+    for (int y=0; y < image.rows; y++){
+        for (int x = 0; x < image.cols; x++){
             cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
-            if (pixel[0] - pixel[2] > -20) 
+            if (pixel[2] - pixel[0] <  pixel[2]/2 
+            || pixel[1] > pixel[2] / 2) 
             image.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 230);
+        }
+    }
+}
+
+void eclaircirfondNoir(cv::Mat& image) {
+      // éclaircir les pixels colorés (un peu rouge ou vert) 
+    for (int y=0; y < image.rows; y++){
+        for (int x = 0; x < image.cols; x++){
+            cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
+            if (pixel[2] - pixel[0] > 40 
+            || pixel[1] - pixel[0] > 40) 
+            image.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255);
         }
     }
 }

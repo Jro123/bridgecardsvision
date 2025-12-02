@@ -136,6 +136,7 @@ int main(int argc, char** argv) {
     VideoWriter writer(fichiervideo, VideoWriter::fourcc('M','J','P','G'), 25, frameSize);
 
     int compteur = 50;
+    std::cout<<"Generating video with "<< totalFrames <<" frames."<<std::endl;
     for (int frame = 0; frame < totalFrames; ++frame) {
       Mat canvas(frameSize, CV_8UC3, bg);
       int frame1 = -1;
@@ -191,7 +192,7 @@ int main(int argc, char** argv) {
 
         if (compteur <= 0){
           compteur = 50;
-          std::cout<<std::endl;
+          std::cout<<frame<<std::endl;
         }
         writer.write(canvas);
     } // frames

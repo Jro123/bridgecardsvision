@@ -54,6 +54,7 @@ public:
     int linesoption; // 1 : Canny et houghlines, 2 : ximgproc
     int fusionoption; // 0: pas de fusion, 1: fusionner les segments proches ayant même support
     int calibrationoption; // 0: normal, 1: calibrer la vidéo
+    int ajusteroption; // 0: ne pas ajuster la taille de carte, 1: ajuster
 
     int xjeu;
     int yjeu;
@@ -116,11 +117,13 @@ public:
     bool inverse;    // true si on a �tabli que la carte est horizontale
     bool estDroit;   // true si on sait que la carte est verticale
     bool estRouge;   // true si le coin a un symbole rouge 
+    bool estGS;      // true si le coin a un gros symbole
     char caractere;
     cv::Scalar moyblanc;  // couleur du "blanc"
     cv::Mat ima_coin;     // image du coin
     // constructeurs :
-    uncoin() {couleur = -1; valeur = 0; elimine=false; numCarte = 0; estunRDV = false;}
+    uncoin() {couleur = -1; valeur = 0; elimine=false;
+       numCarte = 0; estunRDV = false; estGS = false;}
     uncoin(ligne& la, ligne& lb) {
       uncoin();
       l1 = &la; l2 = &lb;
@@ -374,6 +377,7 @@ void traiterCartes(cv::Mat image, config& maconf, std::vector<unecarte>& cartes,
    const std::vector<ligne>&  lignes, unpli& monpli);
 
 void eclaircirfond(cv::Mat& image);
+void eclaircirfondNoir(cv::Mat& image);
 void blanchircadre(cv::Mat& image, cv::Scalar moyblanc, int nb);
 void amplifyContrast(cv::Mat& image);
 
@@ -391,7 +395,7 @@ std::string execOCR(cv::String nom, cv::Mat ima_ch, double *pconfiance= 0, doubl
 std::string execOCRVDR(cv::String nom, cv::Mat ima_ch, double *pconfiance = 0, double *pangle=0);
 //tescmd = "tesseract.exe " + nomcoin + "  stdout --psm 10 -l fra ffb ";
 
-void traiterCoin(int n, std::vector<uncoin>& Coins, cv::Mat image,  std::vector<std::string>& resultats, 
+void traiterCoin(uncoin* pcn, cv::Mat image,  std::vector<std::string>& resultats, 
     cv::Mat result, const int *l1, const int *l2, const config& maconf);
 
 //void traiterCointhread(std::vector<std::thread> *pthreads,int n, int coins[500][10], cv::Mat image,  std::vector<std::string>& resultats, 

@@ -52,17 +52,18 @@ void retourcoin(int n){
 }
 
 
-void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector<std::string>& resultats, 
+void traiterCoin(uncoin* pcn, cv::Mat image,  std::vector<std::string>& resultats, 
                         cv::Mat result, const int *l1, const int *l2, const config &maconf)
 
 {
-  uncoin& cn = Coins[n];
+    uncoin& cn = *pcn;
+    int n = cn.numcoin;
     int waitoption = maconf.waitoption;
     int printoption = maconf.printoption;
-    if (printoption) std::cout<< "+++Traitercoin " <<n <<std::endl;
+    if (printoption > 0) std::cout<< "+++Traitercoin " <<std::endl;
     // threadoption = maconf.threadoption;  // Attention ! variable globale
     if(threadoption)
-        if (printoption) std::cout << "+++Thread " << std::this_thread::get_id() << " demarre..." << std::endl;
+        if (printoption > 0) std::cout << "+++Thread " << std::this_thread::get_id() << " demarre..." << std::endl;
     
     std::string nomOCR = "tesOCR";
     if (maconf.tesOCR == 0)
@@ -692,7 +693,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
             (ect1[0] < m1[0] / 10 && ect1[1] < m1[1] / 10 && ect1[2] < m1[2] / 10) )
         {
             if (printoption && !threadoption) {
-                cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
+                cv::circle(result, cn.sommet, 2, cv::Scalar(255, 0, 0), -1);
                 afficherImage("result", result);
                 tracerRectangle(rr, extrait, "Artefact", cv::Scalar(255, 0, 0));
                 std::cout << " artefact caractere clair ou uniforme " << std::endl;
@@ -991,7 +992,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     int largeursymbole;
     if (estunRDV)
     {
-        if(Coins[n].couleur >= 0) { // on connait la couleur de la carte identifiée comme un personnage
+        if(cn.couleur >= 0) { // on connait la couleur de la carte identifiée comme un personnage
             // calculer les coordonnées de QQ
             if (VE.y < PP.y) QQ.y = PP.y - maconf.deltacadre;
             else QQ.y = PP.y + maconf.deltacadre;
@@ -1202,7 +1203,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     BB.y = std::max(0, BB.y);
 
     // mémoriser les caractéristiques du coin qu'on vient de calculer
-    uncoin moncoin= Coins[n];
+    uncoin moncoin= cn;
     moncoin.A = A;
     moncoin.B = B;
     moncoin.AA = AA;
@@ -1280,7 +1281,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     {
         if (printoption)
             std::cout << "coin trop sombre " << m1[2] << std::endl;
-        cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
+        cv::circle(result, cn.sommet, 2, cv::Scalar(255, 0, 0), -1);
         if (printoption && !threadoption)
             tracerRectangle(rz, extrait, "Artefact", cv::Scalar(255, 0, 0));
         {retourcoin(n); return;} 
@@ -1308,7 +1309,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     if (m1[2] < limsombre && m2[2] < limsombre)
     {
         if (!estunRDV)
-            cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
+            cv::circle(result, cn.sommet, 2, cv::Scalar(255, 0, 0), -1);
         if (printoption && !threadoption) {
             std::cout << " coin artefact " << m1 << m2 << std::endl;
             tracerRectangle(rz, extrait, "Artefact", cv::Scalar(255, 0, 0));
@@ -1980,6 +1981,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
         int dbleu = 10; // à déterminer : écart de bleu  entre ligne  rouge et blanche
         rr.y = yh;
         rr.height = dy;
+        if (rr.y > coinPetit.rows - rr.height) rr.y = coinPetit.rows - rr.height;
         rr.width = 1;
         if (UU.x > PP.x)
         { // à droite, colonnes  en  9 (xg+dx-1) et _ (xg+dx)
@@ -3001,7 +3003,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     // artefact détecté près d'un bord, sauf chiffre 10 (près du bord)
     if (estArtefact && output != "10")
     {
-        cv::circle(result, Coins[n].sommet, 2, cv::Scalar(255, 0, 0), -1);
+        cv::circle(result, cn.sommet, 2, cv::Scalar(255, 0, 0), -1);
         if (printoption)
             std::cout << "Artefact " << std::endl;
         // if (maconf.deltacadre > 10 || confiance < 0.8)  // ne pas laisser de fausse détection
@@ -3701,7 +3703,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     int Box[4]; // xmin xmax ymin ymax
     int yBH;
     int hBH;
-
+    if (estgrossymb) cn.estGS = true;
     if (estgrossymb) numcol = calculerCouleur(roi_image, estunRDV, maconf, moncoin.moyblanc);
     if (numcol < 0) {  // pas trouvé (improbable sauf pour un As)
        
@@ -4556,7 +4558,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
                 } else {
                     if (printoption)
                         std::cout << "couleur noire indéterminable Trefle ?" << ecr << std::endl;
-                    cv::circle(result, Coins[n].sommet, 4, cv::Scalar(0, 0, 255), -1);
+                    cv::circle(result, cn.sommet, 4, cv::Scalar(0, 0, 255), -1);
                     {retourcoin(n); return;} 
                 }
             }
@@ -4629,7 +4631,7 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
     if (numcol == 1) { texte = "C"; if (printoption) std::cout << " Coeur ";}
     if (numcol == 2) { texte = "K"; if (printoption)  std::cout << " Carreau ";}
     if (numcol == 3) { texte = "T"; if (printoption)  std::cout << " trefle ";}
-    Coins[n].couleur = numcol;
+    cn.couleur = numcol;
 
     if (!nonvu && outprec != "" && outprec != output)
         if (printoption) {
@@ -4638,12 +4640,11 @@ void traiterCoin(int n,  std::vector<uncoin>& Coins, cv::Mat image,  std::vector
         }
     texte += output;
     char valcarte = output[0];
-    if (output == "10") Coins[n].valeur = 10;
-    else if(valcarte == 'V') Coins[n].valeur = 11;
-    else if(valcarte == 'D') Coins[n].valeur = 12;
-    else if(valcarte == 'R') Coins[n].valeur = 13;
-    else if (valcarte > '0' && valcarte <= '9' ) Coins[n].valeur = valcarte - '0';
-
+    if (output == "10") cn.valeur = 10;
+    else if(valcarte == 'V') cn.valeur = 11;
+    else if(valcarte == 'D') cn.valeur = 12;
+    else if(valcarte == 'R') cn.valeur = 13;
+    else if (valcarte > '0' && valcarte <= '9' ) cn.valeur = valcarte - '0';
 
     if (printoption)
         std::cout << std::endl;

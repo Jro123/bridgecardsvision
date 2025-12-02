@@ -161,13 +161,13 @@ bool uncoin::estproche(const uncoin& coin, config& maconf, int ecart) const{
   // les arêtes doivent être parallèles
   // les arètes parallèles doivent bavoir le même sens
   // les sommets doivent être proches
-  if (ecart <= 0) ecart = maconf.deltacadre;
+  if (ecart <= 0) ecart = 2 + maconf.deltacadre;
   ligne l1a = *this->l1;
   ligne l1b = *coin.l1;
   ligne l2a = *this->l2;
   ligne l2b = *coin.l2;
-  if (std::abs( (this->sommet - coin.sommet).x) > maconf.deltacadre) return false;
-  if (std::abs( (this->sommet - coin.sommet).y) > maconf.deltacadre) return false;
+  if (std::abs( (this->sommet - coin.sommet).x) > ecart) return false;
+  if (std::abs( (this->sommet - coin.sommet).y) > ecart) return false;
 
   if (l1a.a * l2b.a + l1a.b * l2b.b < maconf.cosOrtho) {
     // l1a // l1b vérifier l'orientation
@@ -230,7 +230,7 @@ bool uncoin::estoppose(const uncoin& coin, config& maconf, int ecart) const{
 }
 
 bool uncoin::estDans(const uncoin& coin, config& maconf, int ecart) const{
-  if (ecart <= 0) ecart = maconf.deltacadre;
+  if (ecart <= 0) ecart = 2+maconf.deltacadre;
   if (! this->estproche(coin, maconf, ecart)) return false;
   float d1= coin.l1->dist(this->sommet);
   float d2= coin.l2->dist(this->sommet);
@@ -272,28 +272,26 @@ bool unecartePrec::contient(cv::Point2i P, int ecart) {
 
 bool unecartePrec::contient(unecarte carte, int ecart) {
   // la carte précédente contient la carte si elle a au moins deux sommets proches
+  // et aucun sommet loin de la carte
   if (carte.coins.size() < 2 ) return false;
+  bool trouve(false);
   int nb = 0;
   if (carte.sommet[0].x != 0 && carte.sommet[0].y != 0){
     for (int i=0; i<4; i++){
       cv::Point2i Q = carte.sommet[i];
-      bool trouve(false);
       if (this->contient(Q, ecart)) {
-        if (nb >= 1) return true;
+        if (nb >= 1) trouve = true;
         nb++;
       }
     }
-  }
-  else {
-    for (auto coin : carte.coins){
-      cv::Point2i Q = coin->sommet;
-      if (this->contient(Q, ecart)) {
-        if (nb >= 1) return true;
-        nb++;
-      }
+    if (!trouve) return false;
+    // vérifier qu'aucun sommet n'est loin de la carte précédente
+    for (int i=0; i<4; i++){
+      cv::Point2i Q = carte.sommet[i];
+      if (!this->contient(Q, ecart)) return false;
     }
   }
-  return false;
+  return true;
 }
 
 bool unecarte::estDansPli(unpli monpli, int epsilon){
@@ -396,7 +394,7 @@ void unecarte::calculSommets(config& maconf){
   // choisir la ligne la plus proche de P2
   float d1 = l1a.dist(P2);
   float d2 = l2a.dist(P2);
-  cv::Point2i normale;
+  cv::Point2f normale;
   if (std::abs(d1) < std::abs(d2)) {
     normale.x = l1a.a;
     normale.y = l1a.b;
